@@ -18,5 +18,5 @@ task.env.randomization.obs_noise_e_scale=0.02 \
 task.env.numEnvs=48 \
 wandb_activate=False \
 task.env.reset_dist_threshold=0.15 \
-checkpoint=last.pth \
+"checkpoint=outputs/XHandHoraScrewDriver_teacher/${CACHE}/stage1_nn/best_reward_*.pth" \
 ${EXTRA_ARGS}

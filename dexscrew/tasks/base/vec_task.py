@@ -24,7 +24,13 @@ from typing import Dict, Any, Tuple
 
 
 class Env(ABC):
-    def __init__(self, config: Dict[str, Any], sim_device: str, graphics_device_id: int,  headless: bool):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        sim_device: str,
+        graphics_device_id: int,
+        headless: bool,
+    ):
         """Initialise the env.
 
         Args:
@@ -34,53 +40,63 @@ class Env(ABC):
             headless: Set to False to disable viewer rendering.
         """
 
-        split_device = sim_device.split(':')
+        split_device = sim_device.split(":")
         self.device_type = split_device[0]
         self.device_id = int(split_device[1]) if len(split_device) > 1 else 0
 
-        self.device = 'cpu'
-        if config['sim']['use_gpu_pipeline']:
-            if self.device_type.lower() == 'cuda' or self.device_type.lower() == 'gpu':
-                self.device = 'cuda' + ':' + str(self.device_id)
+        self.device = "cpu"
+        if config["sim"]["use_gpu_pipeline"]:
+            if self.device_type.lower() == "cuda" or self.device_type.lower() == "gpu":
+                self.device = "cuda" + ":" + str(self.device_id)
             else:
-                print('GPU Pipeline can only be used with GPU simulation. Forcing CPU Pipeline.')
-                config['sim']['use_gpu_pipeline'] = False
+                print(
+                    "GPU Pipeline can only be used with GPU simulation. Forcing CPU Pipeline."
+                )
+                config["sim"]["use_gpu_pipeline"] = False
 
         self.rl_device = sim_device
 
         # Rendering
         self.headless = headless
 
-        self.enable_camera_sensors = config['env'].get('enableCameraSensors', False)
+        self.enable_camera_sensors = config["env"].get("enableCameraSensors", False)
         self.graphics_device_id = graphics_device_id
         if not self.enable_camera_sensors and self.headless:
             self.graphics_device_id = -1
 
-        self.num_environments = config['env']['numEnvs']
+        self.num_environments = config["env"]["numEnvs"]
         self.num_observations = 32 * 3
-        self.num_actions = config['env']['numActions']
+        self.num_actions = config["env"]["numActions"]
 
-        self.obs_space = spaces.Box(np.ones(self.num_obs, dtype=np.float32) * -np.Inf, np.ones(self.num_obs, dtype=np.float32) * np.Inf)
-        self.act_space = spaces.Box(np.ones(self.num_actions, dtype=np.float32) * -1., np.ones(self.num_actions, dtype=np.float32) * 1.)
+        self.obs_space = spaces.Box(
+            np.ones(self.num_obs, dtype=np.float32) * -np.Inf,
+            np.ones(self.num_obs, dtype=np.float32) * np.Inf,
+        )
+        self.act_space = spaces.Box(
+            np.ones(self.num_actions, dtype=np.float32) * -1.0,
+            np.ones(self.num_actions, dtype=np.float32) * 1.0,
+        )
 
-        self.clip_obs = config['env'].get('clipObservations', np.Inf)
-        self.clip_actions = config['env'].get('clipActions', np.Inf)
+        self.clip_obs = config["env"].get("clipObservations", np.Inf)
+        self.clip_actions = config["env"].get("clipActions", np.Inf)
 
         # controller
-        controller_config = config['env']['controller']
-        self.torque_control = controller_config['torque_control']
-        self.p_gain = controller_config['pgain']
-        self.d_gain = controller_config['dgain']
-        self.control_freq_inv = controller_config['controlFrequencyInv']
-        self.action_scale = controller_config['action_scale']
-        self.torque_limit = controller_config['torque_limit']
+        controller_config = config["env"]["controller"]
+        self.torque_control = controller_config["torque_control"]
+        self.p_gain = controller_config["pgain"]
+        self.d_gain = controller_config["dgain"]
+        self.control_freq_inv = controller_config["controlFrequencyInv"]
+        self.action_scale = controller_config["action_scale"]
+        self.torque_limit = controller_config["torque_limit"]
 
-    @abc.abstractmethod 
+    @abc.abstractmethod
     def _allocate_buffers(self):
         """Create torch buffers for observations, rewards, actions dones and any additional data."""
 
     @abc.abstractmethod
-    def step(self, actions: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
+    def step(
+        self, actions: torch.Tensor
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
         """Step the physics of the environment.
 
         Args:
@@ -136,10 +152,12 @@ class VecTask(Env):
         """
         super().__init__(config, sim_device, graphics_device_id, headless)
 
-        self.sim_params = self._parse_sim_params(config['physics_engine'], config['sim'])
-        if config['physics_engine'] == 'physx':
+        self.sim_params = self._parse_sim_params(
+            config["physics_engine"], config["sim"]
+        )
+        if config["physics_engine"] == "physx":
             self.physics_engine = gymapi.SIM_PHYSX
-        elif config['physics_engine'] == 'flex':
+        elif config["physics_engine"] == "flex":
             self.physics_engine = gymapi.SIM_FLEX
         else:
             msg = f"Invalid physics engine backend: {config['physics_engine']}"
@@ -165,8 +183,12 @@ class VecTask(Env):
         if not self.headless:
             # subscribe to keyboard shortcuts
             self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
-            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_ESCAPE, 'QUIT')
-            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_V, 'toggle_viewer_sync')
+            self.gym.subscribe_viewer_keyboard_event(
+                self.viewer, gymapi.KEY_ESCAPE, "QUIT"
+            )
+            self.gym.subscribe_viewer_keyboard_event(
+                self.viewer, gymapi.KEY_V, "toggle_viewer_sync"
+            )
 
             # set the camera position based on up axis
             sim_params = self.gym.get_sim_params(self.sim)
@@ -187,17 +209,37 @@ class VecTask(Env):
 
         """
         # allocate buffers
-        self.obs_buf = torch.zeros((self.num_envs, self.num_obs), device=self.device, dtype=torch.float)
+        self.obs_buf = torch.zeros(
+            (self.num_envs, self.num_obs), device=self.device, dtype=torch.float
+        )
         # hardcode for the shape of obs_lag_history right now
-        self.obs_buf_lag_history = torch.zeros((
-            self.num_envs, 80, self.numActions*2 + self.numActions*2 + 12 if self.config['env']['privInfo']['enable_tactile'] else self.numActions*2,
-        ), device=self.device, dtype=torch.float)
-        self.obj_ends_history = torch.zeros((self.num_envs, 3, 6), device=self.device, dtype=torch.float)
+        self.obs_buf_lag_history = torch.zeros(
+            (
+                self.num_envs,
+                80,
+                (
+                    self.numActions * 2 + self.numActions * 2 + 12
+                    if self.config["env"]["privInfo"]["enable_tactile"]
+                    else self.numActions * 2
+                ),
+            ),
+            device=self.device,
+            dtype=torch.float,
+        )
+        self.obj_ends_history = torch.zeros(
+            (self.num_envs, 3, 6), device=self.device, dtype=torch.float
+        )
         self.rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
-        self.at_reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
-        self.timeout_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
-        self.progress_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        self.at_reset_buf = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.long
+        )
+        self.timeout_buf = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.long
+        )
+        self.progress_buf = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.long
+        )
         self.extras = {}
         self._allocate_task_buffer(self.num_envs)
 
@@ -213,7 +255,7 @@ class VecTask(Env):
         Returns:
             axis index for up axis.
         """
-        if axis == 'z':
+        if axis == "z":
             sim_params.up_axis = gymapi.UP_AXIS_Z
             sim_params.gravity.x = 0
             sim_params.gravity.y = 0
@@ -224,11 +266,18 @@ class VecTask(Env):
     def create_sim(self):
         self.dt = self.sim_params.dt
         self.up_axis_idx = self.set_sim_params_up_axis(self.sim_params, self.up_axis)
-        self.sim = self.gym.create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
+        self.sim = self.gym.create_sim(
+            self.device_id,
+            self.graphics_device_id,
+            self.physics_engine,
+            self.sim_params,
+        )
         if self.sim is None:
-            print('*** Failed to create sim')
+            print("*** Failed to create sim")
             quit()
-        self._create_envs(self.num_envs, self.config['env']['envSpacing'], int(np.sqrt(self.num_envs)))
+        self._create_envs(
+            self.num_envs, self.config["env"]["envSpacing"], int(np.sqrt(self.num_envs))
+        )
 
     @abc.abstractmethod
     def _create_envs(self, num_envs, spacing, num_per_row):
@@ -251,7 +300,9 @@ class VecTask(Env):
     def post_physics_step(self):
         """Compute reward and observations, reset any environments that require it."""
 
-    def step(self, actions: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
+    def step(
+        self, actions: torch.Tensor
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
         """Step the physics of the environment.
 
         Args:
@@ -267,27 +318,44 @@ class VecTask(Env):
 
         # step physics and render each frame
         import random
+
         force_indices = random.choices(list(range(self.control_freq_inv)), k=2)
         for i in range(self.control_freq_inv):
-            if self.device == 'cpu':
+            if self.device == "cpu":
                 self.gym.fetch_results(self.sim, True)
             self.update_low_level_control(i)
             if i in force_indices:
                 self.update_rigid_body_force()
             self.gym.simulate(self.sim)
+            # IMPORTANT: In headless mode (no viewer/cameras), GPU PhysX can run asynchronously.
+            # If we don't fetch results, subsequent tensor refreshes may read undefined data.
+            if (
+                self.device != "cpu"
+                and (self.viewer is None)
+                and (not self.enable_camera_sensors)
+            ):
+                self.gym.fetch_results(self.sim, True)
             self.render()
 
         # fill time out buffer
         self.timeout_buf = torch.where(
             torch.greater_equal(self.progress_buf, self.max_episode_length - 1),
-            torch.ones_like(self.timeout_buf), torch.zeros_like(self.timeout_buf)
+            torch.ones_like(self.timeout_buf),
+            torch.zeros_like(self.timeout_buf),
         )
 
         # compute observations, rewards, resets, ...
         self.post_physics_step()
-        self.extras['time_outs'] = self.timeout_buf.to(self.rl_device)
-        self.obs_dict['obs'] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
-        return self.obs_dict, self.rew_buf.to(self.rl_device), self.reset_buf.to(self.rl_device), self.extras
+        self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
+        self.obs_dict["obs"] = torch.clamp(
+            self.obs_buf, -self.clip_obs, self.clip_obs
+        ).to(self.rl_device)
+        return (
+            self.obs_dict,
+            self.rew_buf.to(self.rl_device),
+            self.reset_buf.to(self.rl_device),
+            self.extras,
+        )
 
     def update_low_level_control(self, step_id):
         pass
@@ -301,7 +369,11 @@ class VecTask(Env):
         Returns:
             A buffer of zero torch actions
         """
-        actions = torch.zeros([self.num_envs, self.num_actions], dtype=torch.float32, device=self.rl_device)
+        actions = torch.zeros(
+            [self.num_envs, self.num_actions],
+            dtype=torch.float32,
+            device=self.rl_device,
+        )
 
         return actions
 
@@ -315,7 +387,9 @@ class VecTask(Env):
         zero_actions = self.zero_actions()
         # step the simulator
         self.step(zero_actions)
-        self.obs_dict['obs'] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
+        self.obs_dict["obs"] = torch.clamp(
+            self.obs_buf, -self.clip_obs, self.clip_obs
+        ).to(self.rl_device)
         return self.obs_dict
 
     def reset_idx(self, env_ids):
@@ -333,13 +407,13 @@ class VecTask(Env):
 
             # check for keyboard events
             for evt in self.gym.query_viewer_action_events(self.viewer):
-                if evt.action == 'QUIT' and evt.value > 0:
+                if evt.action == "QUIT" and evt.value > 0:
                     sys.exit()
-                elif evt.action == 'toggle_viewer_sync' and evt.value > 0:
+                elif evt.action == "toggle_viewer_sync" and evt.value > 0:
                     self.enable_viewer_sync = not self.enable_viewer_sync
 
             # fetch results
-            if self.device != 'cpu':
+            if self.device != "cpu":
                 self.gym.fetch_results(self.sim, True)
                 results_fetched = True
 
@@ -355,12 +429,14 @@ class VecTask(Env):
 
         # fetch results and step graphics for cameras, but don't repeat if already done
         if self.enable_camera_sensors:
-            if not results_fetched and self.device != 'cpu':
+            if not results_fetched and self.device != "cpu":
                 self.gym.fetch_results(self.sim, True)
             if not graphics_stepped:
                 self.gym.step_graphics(self.sim)
 
-    def _parse_sim_params(self, physics_engine: str, config_sim: Dict[str, Any]) -> gymapi.SimParams:
+    def _parse_sim_params(
+        self, physics_engine: str, config_sim: Dict[str, Any]
+    ) -> gymapi.SimParams:
         """Parse the config dictionary for physics stepping settings.
 
         Args:
@@ -372,39 +448,43 @@ class VecTask(Env):
         sim_params = gymapi.SimParams()
 
         # check correct up-axis
-        if config_sim['up_axis'] not in ['z', 'y']:
+        if config_sim["up_axis"] not in ["z", "y"]:
             msg = f"Invalid physics up-axis: {config_sim['up_axis']}"
             print(msg)
             raise ValueError(msg)
 
         # assign general sim parameters
-        sim_params.dt = config_sim['dt']
-        sim_params.num_client_threads = config_sim.get('num_client_threads', 0)
-        sim_params.use_gpu_pipeline = config_sim['use_gpu_pipeline']
-        sim_params.substeps = config_sim.get('substeps', 2)
+        sim_params.dt = config_sim["dt"]
+        sim_params.num_client_threads = config_sim.get("num_client_threads", 0)
+        sim_params.use_gpu_pipeline = config_sim["use_gpu_pipeline"]
+        sim_params.substeps = config_sim.get("substeps", 2)
 
         # assign up-axis
-        if config_sim['up_axis'] == 'z':
+        if config_sim["up_axis"] == "z":
             sim_params.up_axis = gymapi.UP_AXIS_Z
         else:
             sim_params.up_axis = gymapi.UP_AXIS_Y
 
         # assign gravity
-        sim_params.gravity = gymapi.Vec3(*config_sim['gravity'])
+        sim_params.gravity = gymapi.Vec3(*config_sim["gravity"])
 
         # configure physics parameters
-        if physics_engine == 'physx':
+        if physics_engine == "physx":
             # set the parameters
-            if 'physx' in config_sim:
-                for opt in config_sim['physx'].keys():
-                    if opt == 'contact_collection':
-                        setattr(sim_params.physx, opt, gymapi.ContactCollection(config_sim['physx'][opt]))
+            if "physx" in config_sim:
+                for opt in config_sim["physx"].keys():
+                    if opt == "contact_collection":
+                        setattr(
+                            sim_params.physx,
+                            opt,
+                            gymapi.ContactCollection(config_sim["physx"][opt]),
+                        )
                     else:
-                        setattr(sim_params.physx, opt, config_sim['physx'][opt])
+                        setattr(sim_params.physx, opt, config_sim["physx"][opt])
         else:
             # set the parameters
-            if 'flex' in config_sim:
-                for opt in config_sim['flex'].keys():
-                    setattr(sim_params.flex, opt, config_sim['flex'][opt])
+            if "flex" in config_sim:
+                for opt in config_sim["flex"].keys():
+                    setattr(sim_params.flex, opt, config_sim["flex"][opt])
 
         return sim_params

@@ -14,5 +14,5 @@ task.env.numEnvs=6 test=True \
 train.algo=PPO \
 task.env.reset_dist_threshold=0.12 \
 wandb_activate=False \
-checkpoint=last.pth \
+"checkpoint=outputs/XHandHoraScrewDriver_teacher/${CACHE}/stage1_nn/best_reward_*.pth" \
 ${EXTRA_ARGS}

@@ -28,9 +28,11 @@
 
 
 from dexscrew.tasks.xhand_hora import XHandHora
+from dexscrew.tasks.xhand_pasini import XHandPasini
 
 # Mappings from strings to environments
 isaacgym_task_map = {
-    'XHandHoraNutBolt': XHandHora,
-    'XHandHoraScrewDriver': XHandHora,
+    "XHandHoraNutBolt": XHandHora,
+    "XHandHoraScrewDriver": XHandHora,
+    "XHandPasiniScrewDriver": XHandPasini,
 }

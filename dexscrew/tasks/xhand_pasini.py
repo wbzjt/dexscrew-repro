@@ -38,13 +38,13 @@ from dexscrew.utils.misc import tprint
 import torch.nn.functional as F
 
 
-class XHandHora(VecTask):
+class XHandPasini(VecTask):
     def __init__(self, config, sim_device, graphics_device_id, headless):
         self.config = config
         # before calling init in VecTask, need to do
         # 0. setup the dim info
         self.numActions = config["env"]["numActions"]
-        self.fingers_num = 5
+        self.fingers_num = 4
         # 1. setup randomization
         self._setup_domain_rand_config(config["env"]["randomization"])
         # 2. setup privileged information
@@ -148,74 +148,117 @@ class XHandHora(VecTask):
 
         self.saved_grasping_states = {}
         num_random_poses = 5000
-        if self.config["env"]["initPose"] == "nutbolt_inclined":
-            joint_values = {
-                "left_hand_index_bend_joint": -0.17,
-                "left_hand_index_joint1": 1.1,
-                "left_hand_index_joint2": 0.4,
-                "left_hand_mid_joint1": 1.1,
-                "left_hand_mid_joint2": 0.4,
-                "left_hand_pinky_joint1": 0,
-                "left_hand_pinky_joint2": 0,
-                "left_hand_ring_joint1": 0,
-                "left_hand_ring_joint2": 0,
-                "left_hand_thumb_bend_joint": 1.3,
-                "left_hand_thumb_rota_joint1": 0.5,
-                "left_hand_thumb_rota_joint2": 0.45,
-            }
-        elif self.config["env"]["initPose"] == "screwdriver_inclined":
-            joint_values = {
-                "left_hand_index_bend_joint": -0.036,
-                "left_hand_index_joint1": 1.15,
-                "left_hand_index_joint2": 0.5,
-                "left_hand_mid_joint1": 0.925,
-                "left_hand_mid_joint2": 0.58,
-                "left_hand_pinky_joint1": 0,
-                "left_hand_pinky_joint2": 0,
-                "left_hand_ring_joint1": 1.3,
-                "left_hand_ring_joint2": 0.43,
-                "left_hand_thumb_bend_joint": 1.455,
-                "left_hand_thumb_rota_joint1": 0.817,
-                "left_hand_thumb_rota_joint2": 0.154,
-            }
+        expected_dof_names = [
+            "right_index_joint_0",
+            "right_index_joint_1",
+            "right_index_joint_2",
+            "right_index_joint_3",
+            "right_middle_joint_0",
+            "right_middle_joint_1",
+            "right_middle_joint_2",
+            "right_middle_joint_3",
+            "right_ring_joint_0",
+            "right_ring_joint_1",
+            "right_ring_joint_2",
+            "right_ring_joint_3",
+            "right_thumb_joint_0",
+            "right_thumb_joint_1",
+            "right_thumb_joint_2",
+            "right_thumb_joint_3",
+        ]
+        dof_names = self.gym.get_asset_dof_names(self.hand_asset)
+        if list(dof_names) != expected_dof_names:
+            raise ValueError(
+                f"Unexpected Pasini DOF order.\nExpected: {expected_dof_names}\nGot: {list(dof_names)}"
+            )
 
-        assert self.gym.get_asset_dof_names(self.hand_asset) == list(
-            joint_values.keys()
-        )
+        if self.config["env"]["initPose"] == "nutbolt_inclined":
+            joint_values = OrderedDict(
+                zip(
+                    dof_names,
+                    [
+                        -0.17,
+                        1.40,
+                        0.0,
+                        0.4,
+                        0.0,
+                        1.4,
+                        0.0,
+                        0.4,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.4,
+                        0.5,
+                        0.45,
+                    ],
+                )
+            )
+        elif self.config["env"]["initPose"] == "screwdriver_inclined":
+            joint_values = OrderedDict(
+                zip(
+                    dof_names,
+                    [
+                        -0.04,
+                        1.15,
+                        0.0,
+                        0.73,
+                        0.0,
+                        1.3,
+                        0.0,
+                        0.43,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.54,
+                        0.82,
+                        0.15,
+                    ],
+                )
+            )
+        else:
+            raise ValueError(
+                f"Unsupported initPose: {self.config['env']['initPose']} for Pasini"
+            )
+
         self.joint_values_lst = list(joint_values.values())
+        hand_dof_dim = self.num_xhand_hand_dofs
+        obj_start = hand_dof_dim
+        pose_dim = hand_dof_dim + 7
+
         for s in self.randomize_scale_list:
             scale_key = str(s)
             random_pose_data = torch.zeros(
-                (num_random_poses, 19), device=self.device, dtype=torch.float
+                (num_random_poses, pose_dim), device=self.device, dtype=torch.float
             )
 
-            # Pre-defined pose
-            for i in range(12):
-                lower, upper = (
-                    self.xhand_dof_lower_limits[i],
-                    self.xhand_dof_upper_limits[i],
-                )
+            for i in range(hand_dof_dim):
                 random_pose_data[:, i] = (
                     torch.ones(num_random_poses, device=self.device)
                     * self.joint_values_lst[i]
                 )
-            random_pose_data[:, 12] = torch.zeros(
-                num_random_poses, device=self.device
-            )  # x
-            random_pose_data[:, 13] = torch.zeros(
-                num_random_poses, device=self.device
-            )  # y
-            random_pose_data[:, 14] = (
+
+            random_pose_data[:, obj_start + 0] = 0.0  # x
+            random_pose_data[:, obj_start + 1] = 0.0  # y
+            random_pose_data[:, obj_start + 2] = (
                 self.reset_z_threshold + 0.1
             )  # z - slightly above threshold
-            random_pose_data[:, 15:18] = 0.0
-            random_pose_data[:, 18] = 1.0
-            quat_norm = torch.norm(random_pose_data[:, 15:19], dim=1, keepdim=True)
-            random_pose_data[:, 15:19] = random_pose_data[:, 15:19] / quat_norm
+            random_pose_data[:, obj_start + 3 : obj_start + 6] = 0.0
+            random_pose_data[:, obj_start + 6] = 1.0
+            quat_norm = torch.norm(
+                random_pose_data[:, obj_start + 3 : obj_start + 7], dim=1, keepdim=True
+            )
+            random_pose_data[:, obj_start + 3 : obj_start + 7] = (
+                random_pose_data[:, obj_start + 3 : obj_start + 7] / quat_norm
+            )
 
             self.saved_grasping_states[scale_key] = random_pose_data
             print(
-                f"Generated {num_random_poses} random initial poses for XHand at scale {s}"
+                f"Generated {num_random_poses} random initial poses for Pasini at scale {s}"
             )
 
         self.rot_axis_buf = torch.zeros(
@@ -1312,10 +1355,11 @@ class XHandHora(VecTask):
     def step(self, actions, extrin_record: Optional[torch.Tensor] = None):
         # Save extrinsics if evaluating on just one object.
         action_mask = torch.ones_like(actions)
-        if self.config["env"]["initPose"] == "screwdriver_inclined":
-            action_mask[:, 5:7] = 0.0
-        else:
-            action_mask[:, 5:9] = 0.0  # mask out pinky, and ring finger actions
+        # Keep Hora semantics but adapt to Pasini's DOF layout (4 fingers x 4 DOFs):
+        # Hora masks the pinky always; Pasini has no pinky.
+        # For nutbolt-like poses, Hora also masks the ring finger; in Pasini that's actions[8:12].
+        if self.config["env"]["initPose"] != "screwdriver_inclined":
+            action_mask[:, 8:12] = 0.0
         actions = actions * action_mask
         actions = F.pad(
             actions, (0, 1), value=0.0
@@ -1356,6 +1400,32 @@ class XHandHora(VecTask):
         # Refresh DOF state first; on startup the wrapped tensors may contain
         # uninitialized values. Using them before a refresh can inject NaNs into torques.
         self.gym.refresh_dof_state_tensor(self.sim)
+        if self.torque_control:
+            # Guard: if DOF state is still non-finite (can happen on the first GPU step),
+            # do not send NaN torques into the simulator.
+            if (not torch.isfinite(self.xhand_hand_dof_pos).all()) or (
+                not torch.isfinite(self.xhand_hand_dof_vel).all()
+            ):
+                if not hasattr(self, "_debug_nonfinite_dof_once"):
+                    self._debug_nonfinite_dof_once = True
+                    nonfinite_pos = int(
+                        (~torch.isfinite(self.xhand_hand_dof_pos)).sum().item()
+                    )
+                    nonfinite_vel = int(
+                        (~torch.isfinite(self.xhand_hand_dof_vel)).sum().item()
+                    )
+                    print(
+                        f"[XHandPasini] Non-finite DOF state at control step {step_id}: pos={nonfinite_pos}, vel={nonfinite_vel}"
+                    )
+                torques = torch.zeros(
+                    (self.num_envs, self.num_dofs),
+                    device=self.device,
+                    dtype=torch.float,
+                )
+                self.gym.set_dof_actuation_force_tensor(
+                    self.sim, gymtorch.unwrap_tensor(torques)
+                )
+                return
         random_action_noise_t = torch.normal(
             0,
             self.random_action_noise_t_scale,
@@ -1526,19 +1596,24 @@ class XHandHora(VecTask):
         self.randomize_scale_lower = rand_config["randomizeScaleLower"]
         self.randomize_scale_upper = rand_config["randomizeScaleUpper"]
         # Store joint-specific randomization parameters
+        # Pasini (dexh13_right) uses 4 fingers with 4 DOFs each.
         dof_names = [
-            "left_hand_index_bend_joint",
-            "left_hand_index_joint1",
-            "left_hand_index_joint2",
-            "left_hand_mid_joint1",
-            "left_hand_mid_joint2",
-            "left_hand_pinky_joint1",
-            "left_hand_pinky_joint2",
-            "left_hand_ring_joint1",
-            "left_hand_ring_joint2",
-            "left_hand_thumb_bend_joint",
-            "left_hand_thumb_rota_joint1",
-            "left_hand_thumb_rota_joint2",
+            "right_index_joint_0",
+            "right_index_joint_1",
+            "right_index_joint_2",
+            "right_index_joint_3",
+            "right_middle_joint_0",
+            "right_middle_joint_1",
+            "right_middle_joint_2",
+            "right_middle_joint_3",
+            "right_ring_joint_0",
+            "right_ring_joint_1",
+            "right_ring_joint_2",
+            "right_ring_joint_3",
+            "right_thumb_joint_0",
+            "right_thumb_joint_1",
+            "right_thumb_joint_2",
+            "right_thumb_joint_3",
         ]
         self.joint_p_gain_lower = {}
         self.joint_p_gain_upper = {}
@@ -1651,6 +1726,17 @@ class XHandHora(VecTask):
             s, e = self.priv_info_dict[name]
             if type(value) is list:
                 value = to_torch(value, dtype=torch.float, device=self.device)
+            if torch.is_tensor(value):
+                nonfinite = (~torch.isfinite(value)).sum().item()
+                if nonfinite:
+                    if not hasattr(self, "_debug_priv_nonfinite_once"):
+                        self._debug_priv_nonfinite_once = set()
+                    if name not in self._debug_priv_nonfinite_once:
+                        self._debug_priv_nonfinite_once.add(name)
+                        print(
+                            f"[XHandPasini] Non-finite priv_info '{name}': {int(nonfinite)} elements"
+                        )
+                    value = torch.nan_to_num(value, nan=0.0, posinf=0.0, neginf=0.0)
             self.priv_info_buf[env_id, s:e] = value
 
     def _setup_object_info(self, o_config):
@@ -1802,14 +1888,14 @@ class XHandHora(VecTask):
         self.hand_asset = self.gym.load_asset(
             self.sim, asset_root, hand_asset_file, hand_asset_options
         )
+        # Fingertip rigid bodies for dexh13_right (order matters: index first, thumb last)
         self.fingertip_handles = [
             self.gym.find_asset_rigid_body_index(self.hand_asset, name)
             for name in [
-                "left_hand_index_rota_tip",
-                "left_hand_mid_tip",
-                "left_hand_pinky_tip",
-                "left_hand_ring_tip",
-                "left_hand_thumb_rota_tip",
+                "right_index_link_3",
+                "right_middle_link_3",
+                "right_ring_link_3",
+                "right_thumb_link_3",
             ]
         ]
 
@@ -1877,70 +1963,60 @@ class XHandHora(VecTask):
         self.xhand_hand_dof_lower_limits = []
         self.xhand_hand_dof_upper_limits = []
 
-        hand_asset_file = self.config["env"]["asset"]["handAsset"]
         xhand_dof_lower_limits = [
-            -0.175,
+            -0.35,
             0.0,
             0.0,
             0.0,
+            -0.35,
             0.0,
             0.0,
             0.0,
+            -0.35,
             0.0,
             0.0,
             0.0,
-            -1.05,
-            -0.17,
+            -0.35,
+            0.0,
+            0.0,
+            0.0,
         ]
         self.xhand_dof_lower_limits = np.array(xhand_dof_lower_limits)
 
         xhand_dof_upper_limits = [
-            0.175,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.83,
+            0.35,
             1.57,
-            1.83,
+            1.57,
+            1.57,
+            0.35,
+            1.57,
+            1.57,
+            1.57,
+            0.35,
+            1.57,
+            1.57,
+            1.57,
+            0.35,
+            1.57,
+            1.57,
+            1.57,
         ]
-        if self.config["env"]["object"]["thumb_range_limit"]:
-            xhand_dof_upper_limits[9] = 1.73
-            xhand_dof_lower_limits[9] = 0.6
         self.xhand_dof_upper_limits = np.array(xhand_dof_upper_limits)
 
-        # Effort limits from the actuatorfrcrange in the MJCF file
-        xhand_effort_limits = [
-            0.4,
-            1.1,
-            0.4,
-            1.1,
-            0.4,
-            1.1,
-            0.4,
-            1.1,
-            1.1,
-            0.4,
-            1.1,
-            1.1,
-            0.4,
-        ]
+        xhand_effort_limits = [1.0 for _ in xhand_dof_lower_limits]
+        # IMPORTANT: The dexh13_right URDF sets DOF velocity limits to 0.
+        # A zero velocity limit can lead to non-finite DOF state tensors on GPU pipeline.
+        xhand_velocity_limits = [10.0 for _ in xhand_dof_lower_limits]
 
         for i in range(self.num_xhand_hand_dofs):
-            # Set the joint limits based on the URDF
             xhand_hand_dof_props["lower"][i] = xhand_dof_lower_limits[i]
             xhand_hand_dof_props["upper"][i] = xhand_dof_upper_limits[i]
             self.xhand_hand_dof_lower_limits.append(xhand_dof_lower_limits[i])
             self.xhand_hand_dof_upper_limits.append(xhand_dof_upper_limits[i])
 
-            # Set the effort limit
             xhand_hand_dof_props["effort"][i] = xhand_effort_limits[i]
+            xhand_hand_dof_props["velocity"][i] = xhand_velocity_limits[i]
 
-            # Set controller properties
             if self.torque_control:
                 xhand_hand_dof_props["stiffness"][i] = 0.0
                 xhand_hand_dof_props["damping"][i] = 0.0
@@ -1953,7 +2029,6 @@ class XHandHora(VecTask):
                     "dgain"
                 ]
 
-            # From URDF dynamics, all joints have damping=1 and friction=1
             xhand_hand_dof_props["friction"][i] = 0.01
             xhand_hand_dof_props["armature"][i] = 0.001
 
