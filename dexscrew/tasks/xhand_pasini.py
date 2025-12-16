@@ -22,6 +22,7 @@ from collections import OrderedDict
 
 from isaacgym import gymtorch
 from isaacgym import gymapi
+from isaacgym import gymutil
 from isaacgym.torch_utils import (
     quat_conjugate,
     quat_mul,
@@ -167,6 +168,7 @@ class XHandPasini(VecTask):
             "right_thumb_joint_3",
         ]
         dof_names = self.gym.get_asset_dof_names(self.hand_asset)
+        self.hand_dof_names = list(dof_names)
         if list(dof_names) != expected_dof_names:
             raise ValueError(
                 f"Unexpected Pasini DOF order.\nExpected: {expected_dof_names}\nGot: {list(dof_names)}"
@@ -200,23 +202,41 @@ class XHandPasini(VecTask):
             joint_values = OrderedDict(
                 zip(
                     dof_names,
+                    # [
+                    #     -0.05805448815226555,
+                    #     1.0668147802352905,
+                    #     0.1302536576986313,
+                    #     0.8433865308761597,
+                    #     0.34999972581863403,
+                    #     0.8451662063598633,
+                    #     0.4183003902435303,
+                    #     0.7970210313796997,
+                    #     -0.17020170390605927,
+                    #     1.3792879581451416,
+                    #     0.1139976978302002,
+                    #     1.4113634824752808,
+                    #     -0.09274748712778091,
+                    #     1.520601749420166,
+                    #     0.4007279872894287,
+                    #     1.4473716020584106
+                    # ],
                     [
-                        -0.04,
-                        1.15,
+                        0.02,
+                        1.10,
+                        0.14,
+                        0.91,
                         0.0,
-                        0.73,
-                        0.0,
-                        1.3,
-                        0.0,
-                        0.43,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.54,
-                        0.82,
-                        0.15,
+                        0.71,
+                        0.32,
+                        0.56,
+                        0.00,
+                        1.10,
+                        0.22,
+                        0.91,
+                        -0.31,  # Thumb 0 (Abduction) - Straight
+                        1.51,  # Thumb 1 (Proximal) - Slightly curled
+                        0.74,  # Thumb 2
+                        0.90,  # Thumb 3 (Distal) - Slightly curled
                     ],
                 )
             )
@@ -224,6 +244,18 @@ class XHandPasini(VecTask):
             raise ValueError(
                 f"Unsupported initPose: {self.config['env']['initPose']} for Pasini"
             )
+
+        # Optional: override the initial DOF pose from config to support pose bootstrapping.
+        # Example override (length must match DOF count, i.e. 16 for Pasini):
+        #   env:
+        #     customInitDofPos: [..16 floats..]
+        custom_init = self.config["env"].get("customInitDofPos", None)
+        if custom_init is not None:
+            if len(custom_init) != len(dof_names):
+                raise ValueError(
+                    f"env.customInitDofPos must have length {len(dof_names)}; got {len(custom_init)}"
+                )
+            joint_values = OrderedDict(zip(dof_names, [float(x) for x in custom_init]))
 
         self.joint_values_lst = list(joint_values.values())
         hand_dof_dim = self.num_xhand_hand_dofs
@@ -382,6 +414,13 @@ class XHandPasini(VecTask):
         self.num_xhand_hand_bodies = self.gym.get_asset_rigid_body_count(
             self.hand_asset
         )
+
+        # Find thumb rigid body indices for collision detection
+        hand_rb_names = self.gym.get_asset_rigid_body_names(self.hand_asset)
+        self.thumb_rb_indices = [
+            i for i, name in enumerate(hand_rb_names) if "thumb" in name
+        ]
+
         self.num_xhand_hand_shapes = self.gym.get_asset_rigid_shape_count(
             self.hand_asset
         )
@@ -421,9 +460,9 @@ class XHandPasini(VecTask):
                     env_ptr, max_agg_bodies * 20, max_agg_shapes * 20, True
                 )
 
-            # add hand - collision filter = -1 to use asset collision filters set in mjcf loader
+            # add hand - collision filter = 1 to disable self-collisions (bodies in same group don't collide)
             hand_actor = self.gym.create_actor(
-                env_ptr, self.hand_asset, hand_pose, "hand", i, -1, 1
+                env_ptr, self.hand_asset, hand_pose, "hand", i, 1, 1
             )
             self.gym.set_actor_dof_properties(env_ptr, hand_actor, xhand_hand_dof_props)
             hand_idx = self.gym.get_actor_index(env_ptr, hand_actor, gymapi.DOMAIN_SIM)
@@ -772,16 +811,16 @@ class XHandPasini(VecTask):
             full_dof_state = torch.cat([pos, screw_joint_init], dim=1)
             self.init_pose_buf[s_ids, :] = full_dof_state
 
-        # X-axis rotation
+        # X-axis rotation,红线逆时针为正
         random_degrees_x = (
-            torch.rand(len(env_ids), device=self.device) * 10 + 20
+            torch.rand(len(env_ids), device=self.device) * 10 + 90
         )  # randomize orientation bewteen 20-30 degrees
         angles_x = np.pi / 2 - random_degrees_x * (np.pi / 180)
         cos_half_x, sin_half_x = torch.cos(angles_x / 2), torch.sin(angles_x / 2)
 
         # Y-axis rotation
         random_degrees_y = (
-            torch.rand(len(env_ids), device=self.device) * 10 - 5 + 90
+            torch.rand(len(env_ids), device=self.device) * 10 - 5 - 90
         )  # randomize orientation bewteen -5-5 degrees, 90 is the correction term for y
         angles_y = np.pi / 2 - random_degrees_y * (np.pi / 180)
         cos_half_y, sin_half_y = torch.cos(angles_y / 2), torch.sin(angles_y / 2)
@@ -832,10 +871,22 @@ class XHandPasini(VecTask):
         self.root_state_tensor[hand_env_indices, 3:7] = quats
         self._update_priv_buf(env_id=env_ids, name="hand_orientation", value=quats)
 
+        # # position randomization
+        # # We want the "Palm Center" to be at (0, 0, 1.0), not the Wrist (Root).
+        # # Based on URDF, fingers start at x=0.135. Let's define palm center at x=0.10 local.
+        # target_pos = torch.zeros_like(self.root_state_tensor[hand_env_indices, :3])
+        # target_pos[:, 2] = 0.57  # Target Z height for the palm center
+        # target_pos[:, :3] = torch.tensor([0.13, -0.06, 0.57], device=self.device)
+        # # 相对于isaacgym环境坐标系作偏移，绿y反红x正
+
         # position randomization
         original_pos = torch.zeros_like(self.root_state_tensor[hand_env_indices, :3])
-        original_pos[:, 2] = 0.21
-        pos = original_pos + torch.rand_like(original_pos) * 0.001
+        original_pos[:, :3] = torch.as_tensor(
+            [0.14, 0.07, 0.18], device=self.device, dtype=original_pos.dtype
+        )  # Target XYZ position for the palm center
+        pos = original_pos
+        # + torch.rand_like(original_pos) * 0.001
+
         self.root_state_tensor[hand_env_indices, :3] = pos
         self._update_priv_buf(env_id=env_ids, name="hand_position", value=pos)
 
@@ -1008,7 +1059,10 @@ class XHandPasini(VecTask):
         self.obj_angvel_at_cf[at_reset_env_ids] = self.object_angvel[at_reset_env_ids]
         self.ft_linvel_at_cf[at_reset_env_ids] = self.fingertip_linvel[at_reset_env_ids]
         self.ft_angvel_at_cf[at_reset_env_ids] = self.fingertip_angvel[at_reset_env_ids]
-        self.nut_dof_vel_cf[at_reset_env_ids] = self.nut_dof_vel[at_reset_env_ids]
+        # Fix shape mismatch: nut_dof_vel_cf is (N, 1), nut_dof_vel is (N, 1)
+        # But indexing with at_reset_env_ids might cause dimension issues if not handled carefully
+        if len(at_reset_env_ids) > 0:
+            self.nut_dof_vel_cf[at_reset_env_ids] = self.nut_dof_vel[at_reset_env_ids]
 
         self.at_reset_buf[at_reset_env_ids] = 0
         rand_rpy = torch.normal(
@@ -1378,7 +1432,74 @@ class XHandPasini(VecTask):
             )
 
         self.pre_state = self.xhand_hand_dof_pos[0]
-        super().step(actions)
+        return super().step(actions)
+
+    def dump_current_pose(self, env_id: int = 0, out_dir: str = "outputs/pose_dumps"):
+        """Dump the current hand/object pose to a json file.
+
+        Designed for bootstrapping a better init pose:
+        1) Run visualization (headless=False)
+        2) Pause at a good grasp (press P)
+        3) Dump pose (press O)
+        4) Copy `hand_dof_pos` into env.customInitDofPos
+        """
+        import json
+        import os
+        import time
+
+        env_id = int(env_id)
+        os.makedirs(out_dir, exist_ok=True)
+
+        # Ensure indices are python ints
+        hand_actor = int(self.hand_indices[env_id].item())
+        obj_actor = int(self.object_indices[env_id].item())
+
+        hand_root = (
+            self.root_state_tensor[hand_actor, 0:7].detach().cpu().numpy().tolist()
+        )  # [x,y,z,qx,qy,qz,qw]
+        obj_root = (
+            self.root_state_tensor[obj_actor, 0:7].detach().cpu().numpy().tolist()
+        )
+        hand_dof_pos = (
+            self.xhand_hand_dof_pos[env_id, : self.num_xhand_hand_dofs]
+            .detach()
+            .cpu()
+            .numpy()
+            .tolist()
+        )
+
+        nut_dof_pos = None
+        nut_dof_vel = None
+        if hasattr(self, "nut_dof_pos"):
+            nut_dof_pos = float(self.nut_dof_pos[env_id].item())
+        if hasattr(self, "nut_dof_vel"):
+            nut_dof_vel = float(self.nut_dof_vel[env_id].item())
+
+        payload = {
+            "timestamp_ms": int(time.time() * 1000),
+            "env_id": env_id,
+            "hand_dof_names": getattr(self, "hand_dof_names", None),
+            "hand_dof_pos": hand_dof_pos,
+            "hand_root_state_xyzw": hand_root,
+            "object_root_state_xyzw": obj_root,
+            "nut_dof_pos": nut_dof_pos,
+            "nut_dof_vel": nut_dof_vel,
+            "suggested_config_override": {
+                "env.customInitDofPos": hand_dof_pos,
+            },
+        }
+
+        out_path = os.path.join(
+            out_dir, f"pasini_pose_env{env_id}_{payload['timestamp_ms']}.json"
+        )
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+        print(f"[dump_current_pose] wrote: {out_path}")
+        print(
+            "[dump_current_pose] copy this into configs/task/XHandPasiniScrewDriver.yaml -> env.customInitDofPos"
+        )
+        return out_path
         self.obs_dict["priv_info"] = self.priv_info_buf.to(self.rl_device)
         # stage 2 buffer
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
@@ -1880,6 +2001,10 @@ class XHandPasini(VecTask):
         hand_asset_options.disable_gravity = True
         hand_asset_options.thickness = 0.001
         hand_asset_options.angular_damping = 0.01
+        # Explicitly disable self-collisions to prevent initial explosion
+        # hand_asset_options.self_collisions = False
+        # Collapse fixed joints to merge tactile sensors into parent links (prevents self-collision between fixed bodies)
+        hand_asset_options.collapse_fixed_joints = True
 
         if self.torque_control:
             hand_asset_options.default_dof_drive_mode = int(gymapi.DOF_MODE_EFFORT)

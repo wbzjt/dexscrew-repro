@@ -385,10 +385,14 @@ class PPO(object):
             }
             mu, extrin, extrin_gt = self.model.act_inference(input_dict)
             mu = torch.clamp(mu, -1.0, 1.0)
-            obs_dict, r, done, info = self.env.step(mu, extrin_record=extrin)
+            next_obs_dict, r, done, info = self.env.step(mu, extrin_record=extrin)
             num_frames += 1
-            if done[0].item():
-                break
+            # Keep the viewer running: when an episode ends, reset and continue.
+            # The previous behavior broke on done[0] and exited after one episode.
+            if torch.any(done):
+                obs_dict = self.env.reset()
+            else:
+                obs_dict = next_obs_dict
 
     def train_epoch(self):
         # collect minibatch data

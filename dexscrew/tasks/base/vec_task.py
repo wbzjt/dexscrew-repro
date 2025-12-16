@@ -178,6 +178,7 @@ class VecTask(Env):
     def _set_viewer(self):
         self.enable_viewer_sync = True
         self.viewer = None
+        self.paused = False
 
         # if running with a viewer, set up keyboard shortcuts and camera
         if not self.headless:
@@ -188,6 +189,12 @@ class VecTask(Env):
             )
             self.gym.subscribe_viewer_keyboard_event(
                 self.viewer, gymapi.KEY_V, "toggle_viewer_sync"
+            )
+            self.gym.subscribe_viewer_keyboard_event(
+                self.viewer, gymapi.KEY_P, "toggle_pause"
+            )
+            self.gym.subscribe_viewer_keyboard_event(
+                self.viewer, gymapi.KEY_O, "dump_pose"
             )
 
             # set the camera position based on up axis
@@ -318,9 +325,15 @@ class VecTask(Env):
 
         # step physics and render each frame
         import random
+        import time
 
         force_indices = random.choices(list(range(self.control_freq_inv)), k=2)
         for i in range(self.control_freq_inv):
+            # Handle pause
+            while self.paused and self.viewer:
+                self.render()
+                time.sleep(0.01)
+
             if self.device == "cpu":
                 self.gym.fetch_results(self.sim, True)
             self.update_low_level_control(i)
@@ -411,6 +424,12 @@ class VecTask(Env):
                     sys.exit()
                 elif evt.action == "toggle_viewer_sync" and evt.value > 0:
                     self.enable_viewer_sync = not self.enable_viewer_sync
+                elif evt.action == "toggle_pause" and evt.value > 0:
+                    self.paused = not self.paused
+                elif evt.action == "dump_pose" and evt.value > 0:
+                    dump_fn = getattr(self, "dump_current_pose", None)
+                    if callable(dump_fn):
+                        dump_fn()
 
             # fetch results
             if self.device != "cpu":
