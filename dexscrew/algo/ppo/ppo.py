@@ -204,8 +204,22 @@ class PPO(object):
         )
 
         for k, v in self.extra_info.items():
-            if isinstance(v, torch.Tensor) and len(v.shape) != 0:
-                continue
+            # Only log scalars; skip vectors/matrices to avoid TB errors.
+            if isinstance(v, torch.Tensor):
+                if v.numel() != 1:
+                    continue
+                v = float(v.item())
+            else:
+                # Support numpy scalars or other scalar-like objects.
+                if hasattr(v, "item"):
+                    try:
+                        v = v.item()
+                    except Exception:
+                        continue
+
+                if not isinstance(v, (int, float)):
+                    continue
+
             self.writer.add_scalar(f"{k}", v, self.agent_steps)
 
     def set_eval(self):

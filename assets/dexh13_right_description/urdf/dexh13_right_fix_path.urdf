@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_palm_link.STL" />
+          filename="../meshes/right_palm_link.STL" scale="0.1 0.1 0.1"/>
       </geometry>
     </collision>
   </link>

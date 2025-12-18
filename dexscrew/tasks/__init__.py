@@ -35,4 +35,5 @@ isaacgym_task_map = {
     "XHandHoraNutBolt": XHandHora,
     "XHandHoraScrewDriver": XHandHora,
     "XHandPasiniScrewDriver": XHandPasini,
+    "XHandPasiniBulb": XHandPasini,
 }

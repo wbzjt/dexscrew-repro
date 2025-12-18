@@ -1,10 +1,10 @@
-name: XHandPasiniScrewDriver
+name: XHandPasiniBulb
 physics_engine: ${..physics_engine}
 on_evaluation: False
 eval_cache_name: debug
 
 env:
-  initPose: 'screwdriver_inclined'
+  initPose: 'bulb_inclined'
   numEnvs: ${resolve_default:8192,${...num_envs}}
   numActions: 16 # pasini = 16
   envSpacing: 0.5
@@ -24,13 +24,13 @@ env:
 
   clipObservations: 5.0
   clipActions: 1.0
-  reset_dist_threshold: 0.2 # 手指与 nut 距离超过 reset_dist_threshold 则重置（等价于“脱离任务区域”就结束）。
+  # Terminate if thumb/index get too far from the bulb's rotating joint body.
+  reset_dist_threshold: 0.2
   reset_z_threshold: 0.0
 
   # Proximity shaping threshold (independent from termination).
   # Smaller => must get closer to earn proximity reward.
   proximity_dist_threshold: 0.05
-
 
   # Random forces applied to the object
   forceScale: 0.0
@@ -43,16 +43,16 @@ env:
     point_cloud_sampled_dim: 100
 
   reward:
-    angvelClipMin: -4.0 #旋转速度惩罚的裁剪范围
+    angvelClipMin: -4.0
     angvelClipMax: 4.0
     angvelPenaltyThres: [7.5, 15.0, 30000000, 60000000]
-    rotate_reward_scale: 4.0 # 旋转奖励系数，鼓励手旋转螺丝刀
-    pose_diff_penalty_scale: -0.02 # 姿态差异惩罚系数，鼓励手部姿态接近init姿态
-    torque_penalty_scale: -3.0 # 扭矩惩罚系数，防止使用过大力矩
-    work_penalty_scale: -0.01 # 功工作用惩罚系数，防止手部做过多无用功，防止大力+速度快导致震荡
-    rotate_penalty_scale: -0.5 # 旋转惩罚系数，防止过快旋转保证稳定
-    pc_z_dist_penalty_scale: -1.0 # 点云Z轴距离惩罚系数，鼓励手靠近螺丝刀
-    proximity_reward_scale: 6.0 # 接近奖励系数，鼓励手靠近螺丝刀
+    rotate_reward_scale: 10.0
+    pose_diff_penalty_scale: -0.02
+    torque_penalty_scale: -3.0
+    work_penalty_scale: -0.01
+    rotate_penalty_scale: -0.5
+    pc_z_dist_penalty_scale: -1.0
+    proximity_reward_scale: 4.0
 
   baseObjScale: 1.0
   randomization:
@@ -116,7 +116,8 @@ env:
     enable_dgain: False
 
   object:
-    type: 'screw_driver'
+    # Treat bulb as a single 1-DOF screw-like object.
+    type: 'bulb'
     evalObjectType: null
     sampleProb: [1.0]
     nut_termination_history_len: 60
@@ -131,7 +132,7 @@ env:
   enableCameraSensors: False
 
 sim:
-  dt: 0.005 # 200 Hz
+  dt: 0.005
   substeps: 1
   up_axis: 'z'
   use_gpu_pipeline: ${eq:${...pipeline},'gpu'}

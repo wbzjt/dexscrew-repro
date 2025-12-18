@@ -42,6 +42,41 @@ import torch.nn.functional as F
 class XHandPasini(VecTask):
     def __init__(self, config, sim_device, graphics_device_id, headless):
         self.config = config
+
+        # Debug toggles (Hydra overrides). Must be set before super().__init__
+        # because VecTask.__init__ -> create_sim() -> _create_envs() uses them.
+        env_cfg = self.config.get("env", {})
+
+        def _cfg_bool(v, default=False):
+            if v is None:
+                return default
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, (int, float)):
+                return bool(v)
+            if isinstance(v, str):
+                s = v.strip().lower()
+                if s in ("true", "1", "yes", "y", "on"):
+                    return True
+                if s in ("false", "0", "no", "n", "off"):
+                    return False
+            return default
+
+        self.debug_disable_object_collisions = _cfg_bool(
+            env_cfg.get("debug_disable_object_collisions", False), default=False
+        )
+        self.debug_use_asset_collision_filter = _cfg_bool(
+            env_cfg.get("debug_use_asset_collision_filter", True), default=True
+        )
+        self.debug_print_top_hand_contacts = _cfg_bool(
+            env_cfg.get("debug_print_top_hand_contacts", False), default=False
+        )
+
+        # When True, log extra debug metrics (lots of `debug/*` + `term/*`).
+        # Keep this off by default to make retraining runs clean.
+        self.log_debug_metrics = _cfg_bool(
+            env_cfg.get("log_debug_metrics", False), default=False
+        )
         # before calling init in VecTask, need to do
         # 0. setup the dim info
         self.numActions = config["env"]["numActions"]
@@ -61,6 +96,13 @@ class XHandPasini(VecTask):
         self.rotation_axis = config["env"]["rotation_axis"]
         self.reset_z_threshold = self.config["env"]["reset_z_threshold"]
         self.reset_dist_threshold = self.config["env"]["reset_dist_threshold"]
+        # Proximity shaping threshold (can be independent from termination threshold).
+        # If not provided, fall back to reset_dist_threshold for backward compatibility.
+        self.proximity_dist_threshold = float(
+            self.config["env"].get(
+                "proximity_dist_threshold", self.reset_dist_threshold
+            )
+        )
         self.with_camera = config["env"]["enableCameraSensors"]
         self.nut_termination_history_len = config["env"]["object"][
             "nut_termination_history_len"
@@ -198,46 +240,73 @@ class XHandPasini(VecTask):
                     ],
                 )
             )
+        elif self.config["env"]["initPose"] == "bulb_inclined":
+            # Bulb twisting pose: keep a screwdriver-like pre-grasp by default.
+            # This is intentionally separated from screwdriver/nutbolt so the bulb task can be tuned
+            # independently (and can still be overridden by env.customInitDofPos).
+            joint_values = OrderedDict(
+                zip(
+                    dof_names,
+                    [
+                        0.31805448815226555,
+                        0.7768147802352905,
+                        0.2902536576986313,
+                        1.0633865308761597,
+                        0.03999972581863403,
+                        0.5151662063598633,
+                        0.7383003902435303,
+                        0.7970210313796997,
+                        -0.17020170390605927,
+                        0.8792879581451416,
+                        0.1139976978302002,
+                        1.4113634824752808,
+                        -0.35274748712778091,
+                        1.57,
+                        0.07279872894287,
+                        0.4473716020584106,
+                    ],
+                )
+            )
         elif self.config["env"]["initPose"] == "screwdriver_inclined":
             joint_values = OrderedDict(
                 zip(
                     dof_names,
-                    # [
-                    #     -0.05805448815226555,
-                    #     1.0668147802352905,
-                    #     0.1302536576986313,
-                    #     0.8433865308761597,
-                    #     0.34999972581863403,
-                    #     0.8451662063598633,
-                    #     0.4183003902435303,
-                    #     0.7970210313796997,
-                    #     -0.17020170390605927,
-                    #     1.3792879581451416,
-                    #     0.1139976978302002,
-                    #     1.4113634824752808,
-                    #     -0.09274748712778091,
-                    #     1.520601749420166,
-                    #     0.4007279872894287,
-                    #     1.4473716020584106
-                    # ],
                     [
-                        0.02,
-                        1.10,
-                        0.14,
-                        0.91,
-                        0.0,
-                        0.71,
-                        0.32,
-                        0.56,
-                        0.00,
-                        1.10,
-                        0.22,
-                        0.91,
-                        -0.31,  # Thumb 0 (Abduction) - Straight
-                        1.51,  # Thumb 1 (Proximal) - Slightly curled
-                        0.74,  # Thumb 2
-                        0.90,  # Thumb 3 (Distal) - Slightly curled
+                        0.31805448815226555,
+                        1.2668147802352905,
+                        0.2902536576986313,
+                        1.0633865308761597,
+                        0.03999972581863403,
+                        0.8451662063598633,
+                        0.7383003902435303,
+                        0.7970210313796997,
+                        -0.17020170390605927,
+                        1.3792879581451416,
+                        0.1139976978302002,
+                        1.4113634824752808,
+                        -0.35274748712778091,
+                        1.57,
+                        0.5107279872894287,
+                        0.6873716020584106,
                     ],
+                    # [
+                    #     0.02,
+                    #     1.10,
+                    #     0.14,
+                    #     0.91,
+                    #     0.0,
+                    #     0.71,
+                    #     0.32,
+                    #     0.56,
+                    #     0.00,
+                    #     1.10,
+                    #     0.22,
+                    #     0.91,
+                    #     -0.31,  # Thumb 0 (Abduction) - Straight
+                    #     1.51,  # Thumb 1 (Proximal) - Slightly curled
+                    #     0.74,  # Thumb 2
+                    #     0.90,  # Thumb 3 (Distal) - Slightly curled
+                    # ],
                 )
             )
         else:
@@ -415,10 +484,21 @@ class XHandPasini(VecTask):
             self.hand_asset
         )
 
-        # Find thumb rigid body indices for collision detection
-        hand_rb_names = self.gym.get_asset_rigid_body_names(self.hand_asset)
+        # Cache hand rigid body names (hand-only indices: 0..num_xhand_hand_bodies-1)
+        self.hand_rb_names = list(self.gym.get_asset_rigid_body_names(self.hand_asset))
+
+        # Useful groupings for self-collision debugging (substring match)
         self.thumb_rb_indices = [
-            i for i, name in enumerate(hand_rb_names) if "thumb" in name
+            i for i, name in enumerate(self.hand_rb_names) if "thumb" in name
+        ]
+        self.index_rb_indices = [
+            i for i, name in enumerate(self.hand_rb_names) if "index" in name
+        ]
+        self.middle_rb_indices = [
+            i for i, name in enumerate(self.hand_rb_names) if "middle" in name
+        ]
+        self.ring_rb_indices = [
+            i for i, name in enumerate(self.hand_rb_names) if "ring" in name
         ]
 
         self.num_xhand_hand_shapes = self.gym.get_asset_rigid_shape_count(
@@ -460,9 +540,16 @@ class XHandPasini(VecTask):
                     env_ptr, max_agg_bodies * 20, max_agg_shapes * 20, True
                 )
 
-            # add hand - collision filter = 1 to disable self-collisions (bodies in same group don't collide)
+            # # add hand
+            # # - group=-1 uses asset collision filters (usually enables finger-finger self-collision)
+            # # - group=1, filter=1 disables self-collisions for bodies in the same group
+            # if self.debug_use_asset_collision_filter:
+            #     hand_group, hand_filter = -1, 1
+            # else:
+            #     hand_group, hand_filter = 1, 1
+
             hand_actor = self.gym.create_actor(
-                env_ptr, self.hand_asset, hand_pose, "hand", i, 1, 1
+                env_ptr, self.hand_asset, hand_pose, "hand", i, -1, 1
             )
             self.gym.set_actor_dof_properties(env_ptr, hand_actor, xhand_hand_dof_props)
             hand_idx = self.gym.get_actor_index(env_ptr, hand_actor, gymapi.DOMAIN_SIM)
@@ -618,6 +705,18 @@ class XHandPasini(VecTask):
                 prop = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
                 self._update_priv_buf(env_id=i, name="obj_mass", value=prop[0].mass)
 
+            # Debug: isolate pure hand self-collision by disabling all object collisions.
+            # This keeps the object for observation/state, but removes contact constraints.
+            if self.debug_disable_object_collisions:
+                obj_shape_props = self.gym.get_actor_rigid_shape_properties(
+                    env_ptr, object_handle
+                )
+                for p in obj_shape_props:
+                    p.filter = 0
+                self.gym.set_actor_rigid_shape_properties(
+                    env_ptr, object_handle, obj_shape_props
+                )
+
             if self.point_cloud_sampled_dim > 0:
                 self.obj_point_clouds.append(
                     self.asset_point_clouds[object_type_id] * self.obj_scale
@@ -749,6 +848,17 @@ class XHandPasini(VecTask):
                 ), np.random.uniform(0, 0.0075)
                 self.object_x, self.object_y, self.object_z = (
                     0.0175 + random_noise_x,
+                    0.06 + random_noise_y,
+                    0,
+                )
+            elif self.config["env"]["initPose"] == "bulb_inclined":
+                # Start the bulb where screwdriver used to be by default.
+                # If the bulb URDF differs significantly in size, override via task YAML or Hydra.
+                random_noise_x, random_noise_y = np.random.uniform(
+                    0, 0.0075
+                ), np.random.uniform(0, 0.0075)
+                self.object_x, self.object_y, self.object_z = (
+                    0.009 + random_noise_x,
                     0.06 + random_noise_y,
                     0,
                 )
@@ -1249,7 +1359,11 @@ class XHandPasini(VecTask):
             index_pos - nut_pos, dim=-1
         )
         mean_dist = 0.5 * (thumb_dist + index_dist)
-        ratio = mean_dist / self.reset_dist_threshold
+        proximity_thres = getattr(
+            self, "proximity_dist_threshold", self.reset_dist_threshold
+        )
+        proximity_thres = max(float(proximity_thres), 1e-6)
+        ratio = mean_dist / proximity_thres
         proximity_reward = torch.clamp(1.0 - ratio, min=0.0, max=1.0)
 
         nut_dof_linvel = (
@@ -1316,26 +1430,143 @@ class XHandPasini(VecTask):
         )
 
         self.reset_buf[:] = self.check_termination(self.object_pos)
-        self.extras["step_all_reward"] = self.rew_buf.mean()
-        self.extras["rotation_reward"] = rotate_reward.mean()
-        self.extras["pose_diff_penalty"] = pose_diff_penalty.mean()
-        self.extras["work_done"] = work_penalty.mean()
-        self.extras["torques"] = torque_penalty.mean()
-        self.extras["roll"] = torch.abs(object_angvel[:, 0]).mean()
-        self.extras["pitch"] = torch.abs(object_angvel[:, 1]).mean()
-        self.extras["yaw"] = torch.abs(object_angvel[:, 2]).mean()
-        self.extras["z_dist_penalty"] = z_dist_penalty.mean()
-        self.extras["rotate_penalty"] = rotate_penalty.mean()
+        self.extras["step_all_reward"] = float(self.rew_buf.mean().item())
+        self.extras["rotation_reward"] = float(rotate_reward.mean().item())
+        self.extras["pose_diff_penalty"] = float(pose_diff_penalty.mean().item())
+        self.extras["work_done"] = float(work_penalty.mean().item())
+        self.extras["torques"] = float(torque_penalty.mean().item())
+        self.extras["roll"] = float(torch.abs(object_angvel[:, 0]).mean().item())
+        self.extras["pitch"] = float(torch.abs(object_angvel[:, 1]).mean().item())
+        self.extras["yaw"] = float(torch.abs(object_angvel[:, 2]).mean().item())
+        self.extras["z_dist_penalty"] = float(z_dist_penalty.mean().item())
+        self.extras["rotate_penalty"] = float(rotate_penalty.mean().item())
 
         # curriculum tracking
-        self.extras["curriculum/angvel_penalty_threshold"] = (
+        self.extras["curriculum/angvel_penalty_threshold"] = float(
             current_angvel_penalty_threshold
         )
 
         # screw-specific metrics
-        self.extras["screw/angular_velocity"] = self.nut_dof_vel.mean()
-        self.extras["screw/angular_position"] = self.nut_dof_pos.mean()
-        self.extras["screw/positive_vel_ratio"] = (self.nut_dof_vel > 0).float().mean()
+        # Prefer finite-difference velocity (more stable/consistent across assets)
+        self.extras["screw/angular_velocity"] = float(self.nut_dof_vel_cf.mean().item())
+        self.extras["screw/angular_position"] = float(self.nut_dof_pos.mean().item())
+        self.extras["screw/positive_vel_ratio"] = float(
+            (self.nut_dof_vel_cf > 0).float().mean().item()
+        )
+
+        # ---- debug metrics (opt-in) ----
+        if self.log_debug_metrics:
+            # Disambiguate torque-avoidance vs reset-avoidance (thumb/index)
+            self.extras["debug/thumb_dist_mean"] = float(thumb_dist.mean().item())
+            self.extras["debug/index_dist_mean"] = float(index_dist.mean().item())
+            self.extras["debug/thumb_dist_margin_mean"] = float(
+                (thumb_dist - self.reset_dist_threshold).mean().item()
+            )
+            self.extras["debug/index_dist_margin_mean"] = float(
+                (index_dist - self.reset_dist_threshold).mean().item()
+            )
+
+            # Action magnitude per finger (policy output). For Pasini DOF layout: 4 fingers x 4 DOFs.
+            # Note: `self.actions` is padded elsewhere to include the nut joint; here we only use the 16 hand actions.
+            hand_actions = self.actions[:, : self.num_actions]
+            self.extras["debug/action_norm/index_mean"] = float(
+                torch.norm(hand_actions[:, 0:4], dim=-1).mean().item()
+            )
+            self.extras["debug/action_norm/middle_mean"] = float(
+                torch.norm(hand_actions[:, 4:8], dim=-1).mean().item()
+            )
+            self.extras["debug/action_norm/ring_mean"] = float(
+                torch.norm(hand_actions[:, 8:12], dim=-1).mean().item()
+            )
+            self.extras["debug/action_norm/thumb_mean"] = float(
+                torch.norm(hand_actions[:, 12:16], dim=-1).mean().item()
+            )
+
+            # Torque magnitude per finger (from low-level control torques buffer)
+            hand_torques = self.torques[:, -1, : self.num_actions]
+            self.extras["debug/torque_norm/index_mean"] = float(
+                torch.norm(hand_torques[:, 0:4], dim=-1).mean().item()
+            )
+            self.extras["debug/torque_norm/middle_mean"] = float(
+                torch.norm(hand_torques[:, 4:8], dim=-1).mean().item()
+            )
+            self.extras["debug/torque_norm/ring_mean"] = float(
+                torch.norm(hand_torques[:, 8:12], dim=-1).mean().item()
+            )
+            self.extras["debug/torque_norm/thumb_mean"] = float(
+                torch.norm(hand_torques[:, 12:16], dim=-1).mean().item()
+            )
+
+            # Heavy-tail indicators: a few exploding envs can dominate learning dynamics.
+            if self.num_envs >= 4:
+                self.extras["debug/torque_penalty_p95"] = float(
+                    torch.quantile(torque_penalty, 0.95).item()
+                )
+                self.extras["debug/work_penalty_p95"] = float(
+                    torch.quantile(work_penalty, 0.95).item()
+                )
+
+            # Termination reason fractions (computed inside check_termination)
+            reasons = getattr(self, "_last_termination_reasons", None)
+            if isinstance(reasons, dict):
+                for k, v in reasons.items():
+                    self.extras[f"term/{k}_frac"] = float(v.float().mean().item())
+            self.extras["term/any_reset_frac"] = float(
+                self.reset_buf.float().mean().item()
+            )
+
+        # Hand contact force stats are useful for debugging self-collision; compute only when needed.
+        need_hand_cf = self.log_debug_metrics or self.debug_print_top_hand_contacts
+        if need_hand_cf:
+            hand_cf = torch.norm(
+                self.contact_forces[:, : self.num_xhand_hand_bodies, :], dim=-1
+            )  # (num_envs, hand_bodies)
+
+            if self.log_debug_metrics:
+                self.extras["debug/hand_contact_force_mean"] = float(
+                    hand_cf.mean().item()
+                )
+                if self.num_envs >= 4:
+                    self.extras["debug/hand_contact_force_p95"] = float(
+                        torch.quantile(hand_cf.mean(dim=1), 0.95).item()
+                    )
+
+                def _group_mean(indices):
+                    if not indices:
+                        return 0.0
+                    return float(hand_cf[:, indices].mean().item())
+
+                self.extras["debug/hand_contact_force/thumb_mean"] = _group_mean(
+                    getattr(self, "thumb_rb_indices", [])
+                )
+                self.extras["debug/hand_contact_force/index_mean"] = _group_mean(
+                    getattr(self, "index_rb_indices", [])
+                )
+                self.extras["debug/hand_contact_force/middle_mean"] = _group_mean(
+                    getattr(self, "middle_rb_indices", [])
+                )
+                self.extras["debug/hand_contact_force/ring_mean"] = _group_mean(
+                    getattr(self, "ring_rb_indices", [])
+                )
+
+            if (
+                self.debug_print_top_hand_contacts
+                and int(self.progress_buf.max().item()) < 5
+                and hasattr(self, "hand_rb_names")
+            ):
+                mean_cf = hand_cf.mean(dim=0)
+                topk = min(8, mean_cf.numel())
+                vals, idx = torch.topk(mean_cf, k=topk)
+                msg = "top_hand_contact_forces=" + ", ".join(
+                    [
+                        f"{self.hand_rb_names[int(i)]}:{float(v):.3f}"
+                        for v, i in zip(
+                            vals.detach().cpu().tolist(),
+                            idx.detach().cpu().tolist(),
+                        )
+                    ]
+                )
+                tprint(msg)
 
         if self.evaluate:
             vec_dot = (object_angvel * self.rot_axis_buf).sum(-1)
@@ -1620,7 +1851,6 @@ class XHandPasini(VecTask):
         index_pos = self.rigid_body_states[:, self.fingertip_handles[0], :3]
         thumb_dist = torch.norm(thumb_pos - nut_pos, dim=-1)
         index_dist = torch.norm(index_pos - nut_pos, dim=-1)
-        # Reset logging
         finger_dist_reset = torch.logical_or(
             thumb_dist > self.reset_dist_threshold,
             index_dist > self.reset_dist_threshold,
@@ -1644,6 +1874,7 @@ class XHandPasini(VecTask):
         resets = torch.logical_or(resets, no_contact_reset)
 
         # screw joint limit check for automatic reset
+        screw_at_limit = torch.zeros_like(resets)
         if hasattr(self, "dof_state"):
             current_screw_dof_state = self.dof_state.view(self.num_envs, -1, 2)[
                 :, self.num_xhand_hand_dofs :
@@ -1656,6 +1887,17 @@ class XHandPasini(VecTask):
 
             screw_at_limit = current_screw_pos > reset_threshold
             resets = torch.logical_or(resets, screw_at_limit)
+
+        # Store detailed termination reasons for debugging/logging.
+        # Keep this opt-in so default runs stay clean.
+        if getattr(self, "log_debug_metrics", False):
+            self._last_termination_reasons = {
+                "max_eps": term_by_max_eps,
+                "finger_dist": finger_dist_reset,
+                "nut_stagnant": nut_pos_stagnant,
+                "no_contact": no_contact_reset,
+                "screw_limit": screw_at_limit,
+            }
         return resets
 
     def _refresh_gym(self):
@@ -1879,6 +2121,8 @@ class XHandPasini(VecTask):
             "simple_tennis_ball": "assets/ball.urdf",
             "simple_cube": "assets/cube.urdf",
             "simple_cylin4cube": "assets/cylinder4cube.urdf",
+            # bulb task
+            "bulb": "assets/bulb/0000bulb.urdf",
         }
         for p_id, prim in enumerate(primitive_list):
             if "screw" in prim:
@@ -2004,7 +2248,7 @@ class XHandPasini(VecTask):
         # Explicitly disable self-collisions to prevent initial explosion
         # hand_asset_options.self_collisions = False
         # Collapse fixed joints to merge tactile sensors into parent links (prevents self-collision between fixed bodies)
-        hand_asset_options.collapse_fixed_joints = True
+        # hand_asset_options.collapse_fixed_joints = False
 
         if self.torque_control:
             hand_asset_options.default_dof_drive_mode = int(gymapi.DOF_MODE_EFFORT)

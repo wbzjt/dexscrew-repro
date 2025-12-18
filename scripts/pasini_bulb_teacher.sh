@@ -10,16 +10,15 @@ EXTRA_ARGS=${array[@]:4:$len}
 
 NUM_ENVS_ARG=""
 if [ "$HEADLESS" = "False" ] || [ "$HEADLESS" = "false" ]; then
-    # Adjust minibatch size to match reduced batch size (16 envs * 12 horizon = 192)
+    # Small env count for viewer runs (ensure PPO batch-size assertion passes)
     NUM_ENVS_ARG="task.env.numEnvs=1 train.ppo.minibatch_size=12"
 fi
 
 CUDA_VISIBLE_DEVICES=${GPUS} \
-python train.py task=XHandPasiniScrewDriver headless=${HEADLESS} seed=${SEED} \
+python train.py task=XHandPasiniBulb headless=${HEADLESS} seed=${SEED} \
 experiment=rl \
 train.algo=PPO \
-task.env.reset_dist_threshold=0.2 \
 wandb_activate=True \
-train.ppo.output_name=XHandPasiniScrewDriver_teacher/${CACHE} \
+train.ppo.output_name=XHandPasiniBulb_teacher/${CACHE} \
 ${NUM_ENVS_ARG} \
 ${EXTRA_ARGS}
