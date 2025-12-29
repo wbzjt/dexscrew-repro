@@ -5,6 +5,25 @@ eval_cache_name: debug
 
 env:
   initPose: 'screwdriver_inclined'
+  # Task-specific initial pose override (from pose dump).
+
+  customInitDofPos: [0.34266707360744476, 
+  1.2325279521942139, 
+  0.28289711773395538, 
+  1.1292990016937256, 
+  0.00888176321983337, 
+  0.7502785110473633, 
+  0.8105450248718262, 
+  0.825642421245575, 
+  -0.3587684601545334, 
+  1.3127488565444946, 
+  0.0030379545688629, 
+  1.5381801319122314, 
+  -0.35994077682495117, 
+  1.5656383037567139, 
+  0.5520286703109741, 
+  0.531196631193161]
+
   numEnvs: ${resolve_default:8192,${...num_envs}}
   numActions: 16 # pasini = 16
   envSpacing: 0.5
@@ -18,18 +37,29 @@ env:
     pgain: 3
     dgain: 0.01
     action_scale: 0.05
+    # Optional: low-pass filter joint targets to reduce high-frequency twitching.
+    # 0.0 disables; 0.1~0.3 is a reasonable starting range for fine-tuning.
+    target_smoothing_alpha: 0.0
     torque_limit: 300.0
 
   rotation_axis: '+z'
 
   clipObservations: 5.0
   clipActions: 1.0
-  reset_dist_threshold: 0.2 # 手指与 nut 距离超过 reset_dist_threshold 则重置（等价于“脱离任务区域”就结束）。
+  reset_dist_threshold: 0.2 # 与 Hora ScrewDriver teacher 脚本一致
   reset_z_threshold: 0.0
 
   # Proximity shaping threshold (independent from termination).
   # Smaller => must get closer to earn proximity reward.
-  proximity_dist_threshold: 0.05
+  proximity_dist_threshold: 0.2
+
+  # Debug-only metrics for diagnosing resets/collisions.
+  log_debug_metrics: False
+  debug_print_top_hand_contacts: False
+
+  # When True (default), the thumb joints are excluded from pose-diff penalty (Hora semantics).
+  # Set False if you want to discourage "thumb-only" solutions and encourage other fingers to contribute.
+  mask_thumb_pose_diff_penalty: True
 
 
   # Random forces applied to the object
@@ -46,13 +76,18 @@ env:
     angvelClipMin: -4.0 #旋转速度惩罚的裁剪范围
     angvelClipMax: 4.0
     angvelPenaltyThres: [7.5, 15.0, 30000000, 60000000]
-    rotate_reward_scale: 4.0 # 旋转奖励系数，鼓励手旋转螺丝刀
-    pose_diff_penalty_scale: -0.02 # 姿态差异惩罚系数，鼓励手部姿态接近init姿态
+    rotate_reward_scale: 2.5 # 旋转奖励系数，鼓励手旋转螺丝刀
+    pose_diff_penalty_scale: -0.1 # 姿态差异惩罚系数，鼓励手部姿态接近init姿态
     torque_penalty_scale: -3.0 # 扭矩惩罚系数，防止使用过大力矩
-    work_penalty_scale: -0.01 # 功工作用惩罚系数，防止手部做过多无用功，防止大力+速度快导致震荡
-    rotate_penalty_scale: -0.5 # 旋转惩罚系数，防止过快旋转保证稳定
+    # NOTE: 降低 work penalty 以减少“点戳/抽搐”型策略的动机，鼓励更长时间接触与更平滑的旋转。
+    # 如需完全对齐 Hora，可改回 -0.01 或在命令行覆盖：task.env.reward.work_penalty_scale=-0.01
+    work_penalty_scale: -0.005
+    # Optional smoothness regularization: penalize action change across steps.
+    # Set to a small negative value (e.g. -0.001 ~ -0.01) if you still see “抽搐/点戳”策略。
+    action_rate_penalty_scale: 0.0
+    rotate_penalty_scale: -0.3 # 旋转惩罚系数，防止过快旋转保证稳定
     pc_z_dist_penalty_scale: -1.0 # 点云Z轴距离惩罚系数，鼓励手靠近螺丝刀
-    proximity_reward_scale: 6.0 # 接近奖励系数，鼓励手靠近螺丝刀
+    proximity_reward_scale: 2.0 # 接近奖励系数，鼓励手靠近螺丝刀
 
   baseObjScale: 1.0
   randomization:

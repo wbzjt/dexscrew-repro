@@ -362,6 +362,21 @@ class PPO(object):
             self.point_cloud_mean_std.load_state_dict(
                 checkpoint["point_cloud_mean_std"]
             )
+        # If the checkpoint filename encodes a best-reward value, initialize the tracker from it.
+        # This avoids confusing logs like "Current Best: 0.00" right after resuming from a best ckpt.
+        # Note: this is only used for logging/saving within the current run.
+        try:
+            import re
+            from pathlib import Path
+
+            fn_str = str(fn).strip()
+            match = re.search(
+                r"best_reward_(-?\d+(?:\.\d+)?)\.pth$", Path(fn_str).name
+            )
+            if match:
+                self.best_rewards = float(match.group(1))
+        except Exception:
+            pass
 
     def restore_test(self, fn):
         checkpoint = torch.load(fn)

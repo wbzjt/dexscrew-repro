@@ -18,7 +18,9 @@ CUDA_VISIBLE_DEVICES=${GPUS} \
 python train.py task=XHandPasiniScrewDriver headless=${HEADLESS} seed=${SEED} \
 experiment=rl \
 train.algo=PPO \
+task.env.log_debug_metrics=True \
+task.env.debug_print_top_hand_contacts=True \
 wandb_activate=True \
-train.ppo.output_name=XHandPasiniScrewDriver_teacher/${CACHE} \
+train.ppo.output_name=XHandPasiniScrewDriver_teacher/${CACHE}_debug \
 ${NUM_ENVS_ARG} \
 ${EXTRA_ARGS}

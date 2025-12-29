@@ -46,6 +46,8 @@ CUDA_VISIBLE_DEVICES=${GPUS} \
 python train.py task=XHandHoraScrewDriver headless=${HEADLESS} seed=${SEED} \
 experiment=rl \
 train.algo=PPO \
+task.env.log_debug_metrics=True \
+task.env.debug_print_top_hand_contacts=True \
 task.env.reset_dist_threshold=0.1 \
 wandb_activate=False \
 train.ppo.output_name=XHandHoraScrewDriver_teacher/${CACHE} \

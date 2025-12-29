@@ -103,6 +103,16 @@ class XHandPasini(VecTask):
                 "proximity_dist_threshold", self.reset_dist_threshold
             )
         )
+        # Optional low-pass filtering on joint targets to reduce high-frequency “抽搐式”动作.
+        # 0.0 disables; closer to 1.0 means heavier smoothing (more lag).
+        ctrl_cfg = self.config["env"].get("controller", {})
+        try:
+            self.target_smoothing_alpha = float(ctrl_cfg.get("target_smoothing_alpha", 0.0))
+        except Exception:
+            self.target_smoothing_alpha = 0.0
+        self.target_smoothing_alpha = float(
+            max(0.0, min(1.0, self.target_smoothing_alpha))
+        )
         self.with_camera = config["env"]["enableCameraSensors"]
         self.nut_termination_history_len = config["env"]["object"][
             "nut_termination_history_len"
@@ -142,13 +152,15 @@ class XHandPasini(VecTask):
         self.xhand_hand_dof_pos = self.xhand_hand_dof_state[..., 0]
         self.xhand_hand_dof_vel = self.xhand_hand_dof_state[..., 1]
         self.pre_state = torch.zeros_like(self.xhand_hand_dof_pos)
-        # Disable pose-diff penalty for thumb joints by masking them out (thumb DOFs contain 'thumb' in name)
+        # Optionally disable pose-diff penalty for thumb joints by masking them out.
+        # Default behavior keeps the historical "Hora semantics": thumb is not penalized for deviating from init pose.
         dof_names = self.gym.get_asset_dof_names(self.hand_asset)
         thumb_indices = [i for i, name in enumerate(dof_names) if "thumb" in name]
         self.pose_diff_penalty_mask = torch.ones(
             self.num_actions, device=self.device, dtype=torch.float
         )
-        if len(thumb_indices) > 0:
+        mask_thumb = bool(config["env"].get("mask_thumb_pose_diff_penalty", True))
+        if mask_thumb and len(thumb_indices) > 0:
             self.pose_diff_penalty_mask[thumb_indices] = 0.0
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(
             self.num_envs, -1, 3
@@ -271,42 +283,22 @@ class XHandPasini(VecTask):
             joint_values = OrderedDict(
                 zip(
                     dof_names,
-                    [
-                        0.31805448815226555,
-                        1.2668147802352905,
-                        0.2902536576986313,
-                        1.0633865308761597,
-                        0.03999972581863403,
-                        0.8451662063598633,
-                        0.7383003902435303,
-                        0.7970210313796997,
-                        -0.17020170390605927,
-                        1.3792879581451416,
-                        0.1139976978302002,
-                        1.4113634824752808,
-                        -0.35274748712778091,
-                        1.57,
-                        0.5107279872894287,
-                        0.6873716020584106,
-                    ],
-                    # [
-                    #     0.02,
-                    #     1.10,
-                    #     0.14,
-                    #     0.91,
-                    #     0.0,
-                    #     0.71,
-                    #     0.32,
-                    #     0.56,
-                    #     0.00,
-                    #     1.10,
-                    #     0.22,
-                    #     0.91,
-                    #     -0.31,  # Thumb 0 (Abduction) - Straight
-                    #     1.51,  # Thumb 1 (Proximal) - Slightly curled
-                    #     0.74,  # Thumb 2
-                    #     0.90,  # Thumb 3 (Distal) - Slightly curled
-                    # ],
+[0.34266707360744476, 
+  1.2325279521942139, 
+  0.28289711773395538, 
+  1.1292990016937256, 
+  0.00888176321983337, 
+  0.7502785110473633, 
+  0.8105450248718262, 
+  0.825642421245575, 
+  -0.3587684601545334, 
+  1.3127488565444946, 
+  0.0030379545688629, 
+  1.5381801319122314, 
+  -0.35994077682495117, 
+  1.5656383037567139, 
+  0.5520286703109741, 
+  0.531196631193161],
                 )
             )
         else:
@@ -992,7 +984,7 @@ class XHandPasini(VecTask):
         # position randomization
         original_pos = torch.zeros_like(self.root_state_tensor[hand_env_indices, :3])
         original_pos[:, :3] = torch.as_tensor(
-            [0.14, 0.07, 0.18], device=self.device, dtype=original_pos.dtype
+            [0.14, 0.05, 0.18], device=self.device, dtype=original_pos.dtype
         )  # Target XYZ position for the palm center
         pos = original_pos
         # + torch.rand_like(original_pos) * 0.001
@@ -1355,9 +1347,15 @@ class XHandPasini(VecTask):
             self.rigid_body_states[:, self.fingertip_handles[-1], :3],
             self.rigid_body_states[:, self.fingertip_handles[0], :3],
         )
+        middle_pos, ring_pos = (
+            self.rigid_body_states[:, self.fingertip_handles[1], :3],
+            self.rigid_body_states[:, self.fingertip_handles[2], :3],
+        )
         thumb_dist, index_dist = torch.norm(thumb_pos - nut_pos, dim=-1), torch.norm(
             index_pos - nut_pos, dim=-1
         )
+        middle_dist = torch.norm(middle_pos - nut_pos, dim=-1)
+        ring_dist = torch.norm(ring_pos - nut_pos, dim=-1)
         mean_dist = 0.5 * (thumb_dist + index_dist)
         proximity_thres = getattr(
             self, "proximity_dist_threshold", self.reset_dist_threshold
@@ -1429,6 +1427,31 @@ class XHandPasini(VecTask):
             self._get_reward_scale_by_name("proximity_reward"),
         )
 
+        # Optional smoothness regularization: penalize high-frequency action changes.
+        # This helps reduce “抽搐/点戳”式策略（短时接触 + 高频振荡）并鼓励更平滑的持续接触旋转。
+        if "action_rate_penalty" in self.reward_scale_dict:
+            action_rate_pscale = self._get_reward_scale_by_name("action_rate_penalty")
+            if abs(float(action_rate_pscale)) > 0.0:
+                hand_actions = actions[:, : self.num_actions]
+                action_rate_penalty = ((hand_actions - self.prev_hand_actions) ** 2).sum(
+                    -1
+                )
+                # Avoid cross-episode penalty: `at_reset_buf==1` means the env was just reset last step.
+                action_rate_penalty = action_rate_penalty * (
+                    1.0 - self.at_reset_buf.float()
+                )
+                self.rew_buf[:] = self.rew_buf + action_rate_penalty * action_rate_pscale
+                self.extras["action_rate_penalty"] = float(
+                    action_rate_penalty.mean().item()
+                )
+                if self.log_debug_metrics and self.num_envs >= 4:
+                    self.extras["debug/action_rate_penalty_p95"] = float(
+                        torch.quantile(action_rate_penalty, 0.95).item()
+                    )
+
+        # Update action history buffer (always), used by optional smoothness terms.
+        self.prev_hand_actions[:] = actions[:, : self.num_actions]
+
         self.reset_buf[:] = self.check_termination(self.object_pos)
         self.extras["step_all_reward"] = float(self.rew_buf.mean().item())
         self.extras["rotation_reward"] = float(rotate_reward.mean().item())
@@ -1459,11 +1482,19 @@ class XHandPasini(VecTask):
             # Disambiguate torque-avoidance vs reset-avoidance (thumb/index)
             self.extras["debug/thumb_dist_mean"] = float(thumb_dist.mean().item())
             self.extras["debug/index_dist_mean"] = float(index_dist.mean().item())
+            self.extras["debug/middle_dist_mean"] = float(middle_dist.mean().item())
+            self.extras["debug/ring_dist_mean"] = float(ring_dist.mean().item())
             self.extras["debug/thumb_dist_margin_mean"] = float(
                 (thumb_dist - self.reset_dist_threshold).mean().item()
             )
             self.extras["debug/index_dist_margin_mean"] = float(
                 (index_dist - self.reset_dist_threshold).mean().item()
+            )
+            self.extras["debug/middle_dist_margin_mean"] = float(
+                (middle_dist - self.reset_dist_threshold).mean().item()
+            )
+            self.extras["debug/ring_dist_margin_mean"] = float(
+                (ring_dist - self.reset_dist_threshold).mean().item()
             )
 
             # Action magnitude per finger (policy output). For Pasini DOF layout: 4 fingers x 4 DOFs.
@@ -1614,11 +1645,18 @@ class XHandPasini(VecTask):
         self.actions = actions.clone().to(self.device)
 
         targets = self.prev_targets + self.action_scale * self.actions
-        self.cur_targets[:, : self.num_xhand_hand_dofs] = tensor_clamp(
+        targets[:, : self.num_xhand_hand_dofs] = tensor_clamp(
             targets[:, : self.num_xhand_hand_dofs],
             self.xhand_hand_dof_lower_limits,
             self.xhand_hand_dof_upper_limits,
         )
+        if self.target_smoothing_alpha > 0.0:
+            a = self.target_smoothing_alpha
+            targets[:, : self.num_xhand_hand_dofs] = (
+                a * self.prev_targets[:, : self.num_xhand_hand_dofs]
+                + (1.0 - a) * targets[:, : self.num_xhand_hand_dofs]
+            )
+        self.cur_targets[:, : self.num_xhand_hand_dofs] = targets[:, : self.num_xhand_hand_dofs]
 
         # get prev* buffer here
         self.prev_targets[:] = self.cur_targets
@@ -2198,6 +2236,10 @@ class XHandPasini(VecTask):
         )
         self.last_nut_pos = torch.zeros(
             (num_envs,), device=self.device, dtype=torch.float
+        )
+        # For smoothness regularization (optional): penalize action changes across control steps.
+        self.prev_hand_actions = torch.zeros(
+            (num_envs, self.num_actions), device=self.device, dtype=torch.float
         )
 
     def _setup_reward_config(self, r_config):

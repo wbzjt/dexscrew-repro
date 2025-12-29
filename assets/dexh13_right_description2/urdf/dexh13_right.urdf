@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_palm_link.STL" />
+          filename="package://dexh13_right_description/meshes/right_palm_link.STL" />
       </geometry>
       <material
         name="">
@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_palm_link.STL" scale="0.1 0.1 0.1"/>
+          filename="package://dexh13_right_description/meshes/right_palm_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -66,7 +66,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -80,7 +80,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_0.STL" />
       </geometry>
     </collision>
   </link>
@@ -124,7 +124,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -138,16 +138,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_1.STL" scale="0.98 0.98 0.98" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.00726310654650064 0.00249999999992634 0"
-        rpy="-1.06831157850435 -1.57079631189374 -0.502484829452999" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_index_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_1.STL" />
       </geometry>
     </collision>
   </link>
@@ -191,7 +182,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_2.STL" />
       </geometry>
       <material
         name="">
@@ -205,16 +196,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_2.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.0041708 0.0024988 0"
-        rpy="1.5708 -1.5708 3.1413" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_index_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_2.STL" />
       </geometry>
     </collision>
   </link>
@@ -258,7 +240,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_3.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_3.STL" />
       </geometry>
       <material
         name="">
@@ -272,16 +254,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_link_3.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.0029533 -0.0067786 0"
-        rpy="1.3775 -1.5708 3.1413" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_index_tactile_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_link_3.STL" />
       </geometry>
     </collision>
   </link>
@@ -325,7 +298,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_tactile_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_tactile_link_2.STL" />
       </geometry>
       <material
         name="">
@@ -333,6 +306,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_index_tactile_link_2.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_index_tactile_joint_2"
@@ -369,7 +351,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_tactile_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -377,6 +359,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_index_tactile_link_1.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_index_tactile_joint_1"
@@ -413,7 +404,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_index_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_index_tactile_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -421,6 +412,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_index_tactile_link_0.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_index_tactile_joint_0"
@@ -457,7 +457,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -471,7 +471,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_0.STL" />
       </geometry>
     </collision>
   </link>
@@ -515,7 +515,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -529,16 +529,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_1.STL" scale="0.98 0.98 0.98" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.00726310654650086 0.00249999999992631 0"
-        rpy="-0.84788407643303 -1.57079631189374 -0.722912356845784" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_middle_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_1.STL" />
       </geometry>
     </collision>
   </link>
@@ -582,7 +573,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_2.STL" />
       </geometry>
       <material
         name="">
@@ -596,16 +587,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_2.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.0041708 0.0024988 0"
-        rpy="1.5705 -1.5708 3.1413" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_middle_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_2.STL" />
       </geometry>
     </collision>
   </link>
@@ -649,7 +631,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_3.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_3.STL" />
       </geometry>
       <material
         name="">
@@ -663,16 +645,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_link_3.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.00295438540336046 -0.00677973560068104 0"
-        rpy="1.40509637836892 -1.57079631189374 3.11401126729545" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_middle_tactile_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_link_3.STL" />
       </geometry>
     </collision>
   </link>
@@ -716,7 +689,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_tactile_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_tactile_link_2.STL" />
       </geometry>
       <material
         name="">
@@ -724,6 +697,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_middle_tactile_link_2.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_middle_tactile_joint_2"
@@ -760,7 +742,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_tactile_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -768,6 +750,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_middle_tactile_link_1.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_middle_tactile_joint_1"
@@ -804,7 +795,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_middle_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_middle_tactile_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -812,6 +803,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_middle_tactile_link_0.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_middle_tactile_joint_0"
@@ -848,7 +848,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -862,7 +862,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_0.STL" />
       </geometry>
     </collision>
   </link>
@@ -906,7 +906,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -920,16 +920,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_1.STL" scale="0.98 0.98 0.98" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.00726310654642626 0.00249999999992626 0"
-        rpy="-0.5180483006148 -1.57079631189374 -1.05274816235248" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_ring_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_1.STL" />
       </geometry>
     </collision>
   </link>
@@ -973,7 +964,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_2.STL" />
       </geometry>
       <material
         name="">
@@ -987,16 +978,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_2.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.0041703799528815 0.00249940030013757 0"
-        rpy="1.57079299275979 -1.57079631189374 3.14145218161306" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_ring_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_2.STL" />
       </geometry>
     </collision>
   </link>
@@ -1040,7 +1022,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_3.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_3.STL" />
       </geometry>
       <material
         name="">
@@ -1054,16 +1036,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_link_3.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.00295557105770472 -0.00678474247944069 0"
-        rpy="1.4053112662538 -1.57079630572147 3.1138122196849" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_ring_tactile_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_link_3.STL" />
       </geometry>
     </collision>
   </link>
@@ -1107,7 +1080,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_tactile_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_tactile_link_2.STL" />
       </geometry>
       <material
         name="">
@@ -1115,6 +1088,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_ring_tactile_link_2.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_ring_tactile_joint_2"
@@ -1151,7 +1133,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_tactile_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -1159,6 +1141,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_ring_tactile_link_1.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_ring_tactile_joint_1"
@@ -1195,7 +1186,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_ring_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_ring_tactile_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -1203,6 +1194,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_ring_tactile_link_0.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_ring_tactile_joint_0"
@@ -1239,7 +1239,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -1253,7 +1253,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_0.STL" />
       </geometry>
     </collision>
   </link>
@@ -1297,7 +1297,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -1311,7 +1311,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_1.STL" />
       </geometry>
     </collision>
   </link>
@@ -1355,7 +1355,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_2.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_2.STL" />
       </geometry>
       <material
         name="">
@@ -1369,16 +1369,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_2.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.0063893 0.004585 -0.0060631"
-        rpy="1.584 -1.5708 3.1413" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_thumb_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_2.STL" />
       </geometry>
     </collision>
   </link>
@@ -1422,7 +1413,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_3.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_3.STL" />
       </geometry>
       <material
         name="">
@@ -1436,16 +1427,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_link_3.STL" />
-      </geometry>
-    </collision>
-    <collision>
-      <origin
-        xyz="0.0044234 -0.0069828 -0.0060631"
-        rpy="1.4007 -1.5708 3.1413" />
-      <geometry>
-        <mesh
-          filename="../meshes/right_thumb_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_link_3.STL" />
       </geometry>
     </collision>
   </link>
@@ -1489,7 +1471,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_tactile_link_1.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_tactile_link_1.STL" />
       </geometry>
       <material
         name="">
@@ -1497,6 +1479,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_thumb_tactile_link_1.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_thumb_tactile_joint_1"
@@ -1533,7 +1524,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/right_thumb_tactile_link_0.STL" />
+          filename="package://dexh13_right_description/meshes/right_thumb_tactile_link_0.STL" />
       </geometry>
       <material
         name="">
@@ -1541,6 +1532,15 @@
           rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://dexh13_right_description/meshes/right_thumb_tactile_link_0.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint
     name="right_thumb_tactile_joint_0"
