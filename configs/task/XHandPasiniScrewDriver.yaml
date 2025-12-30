@@ -11,18 +11,18 @@ env:
   1.2325279521942139, 
   0.28289711773395538, 
   1.1292990016937256, 
-  0.00888176321983337, 
-  0.7502785110473633, 
-  0.8105450248718262, 
-  0.825642421245575, 
-  -0.3587684601545334, 
-  1.3127488565444946, 
+  -0.14888176321983337, 
+  0.8502785110473633, 
+  0.9005450248718262, 
+  0.355642421245575, 
+  -0.3487684601545334, 
+  0.0027488565444946, 
   0.0030379545688629, 
-  1.5381801319122314, 
-  -0.35994077682495117, 
+  0.0081801319122314, 
+  -0.1494077682495117, 
   1.5656383037567139, 
-  0.5520286703109741, 
-  0.531196631193161]
+  0.6220286703109741, 
+  0.651196631193161]
 
   numEnvs: ${resolve_default:8192,${...num_envs}}
   numActions: 16 # pasini = 16
@@ -46,12 +46,12 @@ env:
 
   clipObservations: 5.0
   clipActions: 1.0
-  reset_dist_threshold: 0.2 # 与 Hora ScrewDriver teacher 脚本一致
+  reset_dist_threshold: 0.15 # 与 Hora ScrewDriver teacher 脚本一致
   reset_z_threshold: 0.0
 
   # Proximity shaping threshold (independent from termination).
   # Smaller => must get closer to earn proximity reward.
-  proximity_dist_threshold: 0.2
+  proximity_dist_threshold: 0.15
 
   # Debug-only metrics for diagnosing resets/collisions.
   log_debug_metrics: False

@@ -984,7 +984,7 @@ class XHandPasini(VecTask):
         # position randomization
         original_pos = torch.zeros_like(self.root_state_tensor[hand_env_indices, :3])
         original_pos[:, :3] = torch.as_tensor(
-            [0.14, 0.05, 0.18], device=self.device, dtype=original_pos.dtype
+            [0.14, 0.07, 0.18], device=self.device, dtype=original_pos.dtype
         )  # Target XYZ position for the palm center
         pos = original_pos
         # + torch.rand_like(original_pos) * 0.001
