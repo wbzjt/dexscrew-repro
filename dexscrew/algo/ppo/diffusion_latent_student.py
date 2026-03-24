@@ -134,6 +134,9 @@ class DiffusionLatentStudent(ProprioAdapt):
         self.base_action_anchor_coef = float(
             self.ppo_config.get("diffusion_base_action_anchor_coef", 0.0)
         )
+        self.action_l2_coef = float(
+            self.ppo_config.get("diffusion_action_l2_coef", 0.0)
+        )
         self.optim = torch.optim.Adam(
             list(self.diffusion_model.parameters()) + extra_trainable_params,
             lr=float(self.ppo_config.get("diffusion_lr", 3e-4)),
@@ -415,12 +418,14 @@ class DiffusionLatentStudent(ProprioAdapt):
                 base_action_anchor_loss = torch.zeros(
                     (), device=self.device, dtype=bc_loss.dtype
                 )
+            action_l2_loss = student_mu_clamped.pow(2).mean()
 
             loss = (
                 self.diffusion_loss_coef * diffusion_loss
                 + self.bc_loss_coef * bc_loss
                 + self.latent_recon_coef * latent_recon_loss
                 + self.base_action_anchor_coef * base_action_anchor_loss
+                + self.action_l2_coef * action_l2_loss
             )
             self.optim.zero_grad()
             loss.backward()
@@ -446,6 +451,7 @@ class DiffusionLatentStudent(ProprioAdapt):
             self.direct_info["base_action_anchor_loss"] = float(
                 base_action_anchor_loss.detach().cpu()
             )
+            self.direct_info["action_l2_loss"] = float(action_l2_loss.detach().cpu())
             self.direct_info["total_loss"] = float(loss.detach().cpu())
             self.direct_info["done_rate"] = float(done.float().mean().detach().cpu())
             self._update_env_info(info)
