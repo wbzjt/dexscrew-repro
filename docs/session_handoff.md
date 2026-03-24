@@ -1,4 +1,4 @@
-# Session Handoff Summary（2026-03-20）
+﻿# Session Handoff Summary（2026-03-20）
 
 ## 1. 当前阶段一句话
 当前主线已从“仅能跑 teacher/student”推进到“基线可比 + diffusion 可跑 + teacher rollout 可采集且可被 diffusion 消费 + P2 train-range ablation 已具备可跑入口”的状态，正处于 `PLANS.md` 的 `P2/M2` 与 `P4/M4` 并行收敛阶段。
@@ -1449,3 +1449,110 @@ scripts/screwdriver_student_padapt_trainrange_15min_docker.sh 0 42 run_a 900 run
 
 ### 单一推荐下一步
 - 先审阅并修改 `plan2.md`，把你想保留或删掉的研究目标定下来；之后再按新计划推进 `latent diffusion` 主线优化。
+
+## 46. 2026-03-24 追加（执行总结会话：Plan v1 GPT 交接文档）
+### 目标子项
+- 产出一份面向 GPT 治理更新的 Plan v1 阶段总结（非研究扩展、非大规模代码实现）。
+
+### 本次改动
+- 新增：
+  - `plan_summary_v1.md`
+- 行为影响：
+  - 不改训练/评测代码路径；
+  - 提供结构化事实总结，区分“已完成”“已验证”“未验证/风险”和“下一阶段建议”，用于下一轮 GPT 更新 `AGENTS.md / PLANS.md`。
+
+### 本次验证（只读核对）
+- 已核对治理与阶段文档：
+  - `AGENTS.md`
+  - `PLANS.md`
+  - `docs/session_handoff.md`
+  - `docs/stage_acceptance_summary.md`
+  - `plan2.md`
+- 已核对活动代码与脚本入口：
+  - `train.py`, `student_eval.py`
+  - `dexscrew/algo/ppo/padapt.py`
+  - `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - `dexscrew/algo/ppo/diffusion_action_chunk_student.py`
+  - `dexscrew/algo/ppo/ppo.py`
+  - `scripts/screwdriver_student_*`, `scripts/collect_screwdriver_teacher_rollout*.sh`, `scripts/eval_screwdriver_student_robustness*.sh`
+- 关键结果：
+  - `plan_summary_v1.md` 已按 8 段固定结构落地；
+  - 已明确当前证据主要来自文档与代码状态；
+  - 当前工作区无 `outputs/` 目录，无法在本会话直接复核历史产物文件。
+
+### 当前阻塞/风险
+- 多份文档对同一指标存在口径/数值不一致（如 latent 峰值写法）；
+- 当前会话无法直接访问历史 `outputs/...` 实物产物，证据可追溯性依赖文档记录；
+- `plan2.md` 仍是草案，尚未转化为正式治理文件。
+
+### 单一推荐下一步
+- 由 GPT 先基于 `plan_summary_v1.md` 决定是否正式切换到 `plan2` 导向，并给出下一版 `PLANS.md` 的硬性验收口径（特别是 multiseed 与三挡扰动统一口径）。
+
+
+## 47. 2026-03-24 追加（执行总结会话：plan_summary_v1 产出）
+### 目标子项
+- 完成 Plan v1 的结构化 handoff 文档，供 GPT 下一轮治理更新使用。
+
+### 本次改动
+- 新增：
+  - `plan_summary_v1.md`
+- 影响：
+  - 不改变训练/评测/导出代码路径，仅新增总结文档。
+
+### 本次验证
+- 只读核对已执行：
+  - `AGENTS.md`
+  - `PLANS.md`
+  - `docs/session_handoff.md`
+  - `docs/stage_acceptance_summary.md`
+  - `docs/stage_closure.md`
+  - `docs/robustness_eval_summary.md`
+  - `train.py`
+  - `student_eval.py`
+  - `dexscrew/algo/ppo/{ppo,padapt,diffusion_latent_student,diffusion_action_chunk_student}.py`
+  - `scripts/` 关键训练/评测/rollout 脚本
+- 快照结论：
+  - `plan_summary_v1.md` 已按 8 段固定结构落地；
+  - 当前仓库不含 `outputs/` 训练工件，历史结果复核主要依赖文档证据。
+
+### 当前阻塞/风险
+- 主线叙事存在文档层面的张力（PLANS 的 action-chunk-first 与近期 handoff 的 latent-mainline 倾向）。
+- 证据可追溯性受限于工件未随仓库快照提供。
+
+### 单一推荐下一步
+- 由 GPT 先基于 `plan_summary_v1.md` 明确下一版 `PLANS.md` 的唯一主线与硬性证据规范（multiseed + 三挡口径 + 工件清单）。
+
+## 48. 2026-03-24 追加（P5 v39：Plan v1 治理/证据汇总交接）
+### 目标子项
+- 面向 GPT 下一轮治理更新，完成一次“只读型”Plan v1 执行总结：对齐 AGENTS/PLANS、当前代码路径、文档证据与风险点，产出结构化交接文档。
+
+### 本次改动
+- 新增：
+  - `plan_summary_v1.md`
+- 影响：
+  - 不改训练/评测代码语义；仅新增一份面向 GPT 的阶段总结工件，明确“已完成/已验证/未验证/风险/下一阶段方向”。
+
+### 本次验证（可复现）
+- `Get-Content AGENTS.md`
+- `Get-Content -Encoding UTF8 PLANS.md`
+- `Get-Content -Encoding UTF8 docs/session_handoff.md`
+- `Get-Content -Encoding UTF8 docs/stage_acceptance_summary.md`
+- `Get-Content -Encoding UTF8 train.py`
+- `Get-Content -Encoding UTF8 dexscrew/algo/ppo/padapt.py`
+- `Get-Content -Encoding UTF8 dexscrew/algo/ppo/diffusion_latent_student.py`
+- `Get-Content -Encoding UTF8 dexscrew/algo/ppo/diffusion_action_chunk_student.py`
+- `rg -n "collect_rollout|rollout_pretrain|train.algo|DiffusionLatentStudent|DiffusionActionChunkStudent" dexscrew/algo/ppo scripts train.py student_eval.py`
+
+关键结果：
+- 代码路径层面：canonical Hora teacher-student + diffusion 路径与评测脚本齐全。
+- 证据层面：当前仓库快照无 `outputs/` 目录，实验结论主要依赖文档记录而非本地工件复核。
+- 风险层面：发现一个需治理确认的语义风险（`collect_rollout` 在 diffusion student 下是否真正走 diffusion 采样路径）。
+
+### 当前阻塞/风险
+- `PLANS.md`（action-chunk-first）与 `plan2.md`/最新 handoff（latent-first）存在主线叙事漂移。
+- 本地缺少运行工件，导致部分“已完成”结论只能做文档级信任，不能工件级复核。
+- rollout diagnostics 语义一致性需要在下一阶段先明确后再作为关键决策依据。
+
+### 单一推荐下一步
+- 先由 GPT 基于 `plan_summary_v1.md` 对 AGENTS/PLANS 做一次治理收敛（主线与验收证据标准统一），再进入下一轮执行。
+
