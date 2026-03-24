@@ -423,6 +423,109 @@ class PPO(object):
             else:
                 obs_dict = next_obs_dict
 
+    def collect_rollout(self, num_steps=256, save_path=None, save_point_cloud=True):
+        self.set_eval()
+        obs_dict = self.env.reset()
+
+        obs_buf = []
+        proprio_hist_buf = []
+        priv_info_buf = []
+        point_cloud_buf = [] if save_point_cloud else None
+        action_buf = []
+        reward_buf = []
+        done_buf = []
+        done_rate_buf = []
+        extra_scalar_buf = {}
+
+        with torch.no_grad():
+            for _ in range(int(num_steps)):
+                if self.normalize_point_cloud:
+                    point_cloud = self.point_cloud_mean_std(
+                        obs_dict["point_cloud_info"].reshape(-1, 3)
+                    ).reshape((obs_dict["obs"].shape[0], -1, 3))
+                else:
+                    point_cloud = obs_dict["point_cloud_info"]
+
+                input_dict = {
+                    "obs": self.running_mean_std(obs_dict["obs"]),
+                    "priv_info": (
+                        self.priv_mean_std(obs_dict["priv_info"])
+                        if self.normalize_priv
+                        else obs_dict["priv_info"]
+                    ),
+                    "proprio_hist": obs_dict["proprio_hist"],
+                    "point_cloud_info": point_cloud,
+                }
+                mu, extrin, _ = self.model.act_inference(input_dict)
+                mu = torch.clamp(mu, -1.0, 1.0)
+                next_obs_dict, rewards, done, info = self.env.step(mu, extrin_record=extrin)
+
+                obs_buf.append(obs_dict["obs"].detach().cpu())
+                proprio_hist_buf.append(obs_dict["proprio_hist"].detach().cpu())
+                priv_info_buf.append(obs_dict["priv_info"].detach().cpu())
+                if save_point_cloud:
+                    point_cloud_buf.append(obs_dict["point_cloud_info"].detach().cpu())
+                action_buf.append(mu.detach().cpu())
+                reward_buf.append(rewards.detach().cpu())
+                done_buf.append(done.detach().cpu())
+                done_rate_buf.append(done.float().mean().item())
+                for key, value in info.items():
+                    scalar_value = None
+                    if torch.is_tensor(value):
+                        scalar_value = float(value.detach().float().mean().cpu())
+                    elif isinstance(value, (float, int, bool)):
+                        scalar_value = float(value)
+                    if scalar_value is None:
+                        continue
+                    extra_scalar_buf.setdefault(str(key), []).append(scalar_value)
+
+                obs_dict = next_obs_dict
+
+        payload = {
+            "meta": {
+                "num_steps": int(num_steps),
+                "num_envs": int(self.env.num_envs),
+                "normalize_input": bool(self.normalize_input),
+                "normalize_priv": bool(self.normalize_priv),
+                "normalize_point_cloud": bool(self.normalize_point_cloud),
+                "save_point_cloud": bool(save_point_cloud),
+            },
+            "obs": torch.stack(obs_buf, dim=0),  # [T, N, obs_dim]
+            "proprio_hist": torch.stack(proprio_hist_buf, dim=0),  # [T, N, H, proprio_dim]
+            "priv_info": torch.stack(priv_info_buf, dim=0),  # [T, N, priv_dim]
+            "actions": torch.stack(action_buf, dim=0),  # [T, N, act_dim]
+            "rewards": torch.stack(reward_buf, dim=0),  # [T, N]
+            "dones": torch.stack(done_buf, dim=0),  # [T, N]
+            "done_rate_per_step": torch.tensor(done_rate_buf, dtype=torch.float32),  # [T]
+            "extras": {
+                key: torch.tensor(values, dtype=torch.float32)
+                for key, values in extra_scalar_buf.items()
+            },
+        }
+        if save_point_cloud:
+            payload["point_cloud_info"] = torch.stack(point_cloud_buf, dim=0)  # [T, N, P, 3]
+
+        if not save_path:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            save_dir = os.path.join(self.output_dir, "teacher_rollouts")
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, f"rollout_steps{int(num_steps)}_{ts}.pt")
+        else:
+            save_dir = os.path.dirname(save_path)
+            if save_dir:
+                os.makedirs(save_dir, exist_ok=True)
+
+        torch.save(payload, save_path)
+
+        mean_reward = payload["rewards"].mean().item()
+        mean_done_rate = payload["done_rate_per_step"].mean().item()
+        print(
+            f"Saved rollout dataset: {save_path}\n"
+            f"collect_steps={int(num_steps)} | num_envs={self.env.num_envs} | "
+            f"mean_reward={mean_reward:.4f} | mean_done_rate={mean_done_rate:.4f}"
+        )
+        return save_path
+
     def train_epoch(self):
         # collect minibatch data
         _t = time.time()

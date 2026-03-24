@@ -9,6 +9,9 @@ import torch
 import torch.nn as nn
 
 from dexscrew.algo.ppo.padapt import ProprioAdapt
+from dexscrew.algo.ppo.pure_bc import PureBC
+from dexscrew.algo.ppo.diffusion_latent_student import DiffusionLatentStudent
+from dexscrew.algo.ppo.diffusion_action_chunk_student import DiffusionActionChunkStudent
 from dexscrew.tasks import isaacgym_task_map
 from dexscrew.utils.reformat import omegaconf_to_dict, print_dict
 from dexscrew.utils.misc import set_seed
@@ -71,7 +74,12 @@ def export_jit_model(agent, output_dir: str, obs_dict=None, jit_output_name: str
     if hasattr(agent, 'point_cloud_mean_std'):
         agent.point_cloud_mean_std = agent.point_cloud_mean_std.cpu()
 
-    if isinstance(agent, ProprioAdapt):
+    if isinstance(agent, (DiffusionLatentStudent, DiffusionActionChunkStudent)):
+        raise ValueError(
+            "Diffusion student JIT export is not supported in student_eval.py yet. "
+            "This export path would bypass diffusion sampling semantics."
+        )
+    elif isinstance(agent, ProprioAdapt):
         student_obs = obs_dict['obs']
         input_dict = {
             'obs': agent.running_mean_std(student_obs).cpu(),
@@ -130,7 +138,21 @@ def main(config: DictConfig):
         step_c = 0
         
         while step_c < 3:
-            if isinstance(agent, ProprioAdapt):
+            if isinstance(agent, DiffusionLatentStudent):
+                student_obs = obs_dict['obs']
+                proprio_hist = agent.sa_mean_std(obs_dict['proprio_hist'])
+                obs = agent.running_mean_std(student_obs)
+                latent = agent.sample_latent(proprio_hist)
+                student_obs_input = torch.cat([obs, latent], dim=-1)
+                student_x = agent.model.actor_mlp(student_obs_input)
+                mu = torch.clamp(agent.model.mu(student_x), -1.0, 1.0)
+            elif isinstance(agent, DiffusionActionChunkStudent):
+                student_obs = obs_dict['obs']
+                proprio_hist = agent.sa_mean_std(obs_dict['proprio_hist'])
+                obs = agent.running_mean_std(student_obs)
+                chunk_actions = agent.sample_action_chunk(obs, proprio_hist)
+                mu = torch.clamp(chunk_actions[:, 0, :], -1.0, 1.0)
+            elif isinstance(agent, ProprioAdapt):
                 student_obs = obs_dict['obs']
                 input_dict = {
                     'obs': agent.running_mean_std(student_obs),
@@ -139,11 +161,10 @@ def main(config: DictConfig):
                     if agent.normalize_point_cloud
                     else obs_dict['point_cloud_info'],
                 }
+                mu_gt, extrin, extrin_gt = agent.model.act_inference(input_dict)
+                mu = torch.clamp(mu_gt, -1.0, 1.0)
             else:
                 raise ValueError(f"Unsupported agent type during evaluation: {type(agent)}")
-
-            mu_gt, extrin, extrin_gt = agent.model.act_inference(input_dict)
-            mu = torch.clamp(mu_gt, -1.0, 1.0)
 
             obs_dict, r, done, info = env.step(mu, extrin_record=None)
             step_c += 1

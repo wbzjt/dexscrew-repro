@@ -93,13 +93,25 @@ class ProprioAdapt(object):
         self.best_rewards = -10000
         self.agent_steps = 0
         # ---- Optim ----
+        self.student_trainable_param_patterns = self._resolve_trainable_param_patterns()
         adapt_params = []
         for name, p in self.model.named_parameters():
-            if 'adapt_tconv' in name:
+            if self._is_trainable_param(name):
                 adapt_params.append(p)
             else:
                 p.requires_grad = False
+        if not adapt_params:
+            raise ValueError(
+                "No trainable params matched train.ppo.student_trainable_param_patterns="
+                f"{list(self.student_trainable_param_patterns)}"
+            )
         self.optim = torch.optim.Adam(adapt_params, lr=3e-4)
+        self.trainable_param_count = int(sum(p.numel() for p in adapt_params))
+        tprint(
+            "ProprioAdapt trainable patterns: "
+            f"{list(self.student_trainable_param_patterns)} | "
+            f"trainable params: {self.trainable_param_count}"
+        )
         # ---- Training Misc
         self.internal_counter = 0
         self.latent_loss_stat = 0
@@ -107,9 +119,58 @@ class ProprioAdapt(object):
         batch_size = self.num_actors
         self.step_reward = torch.zeros(batch_size, dtype=torch.float32, device=self.device)
         self.step_length = torch.zeros(batch_size, dtype=torch.float32, device=self.device)
+        self.test_num_steps = int(full_config.get("test_num_steps", 0))
+
+    def _resolve_trainable_param_patterns(self):
+        patterns = self.ppo_config.get("student_trainable_param_patterns", ["adapt_tconv"])
+        if isinstance(patterns, (str, bytes)):
+            patterns = [patterns]
+        elif not isinstance(patterns, (list, tuple)):
+            # Hydra's ListConfig is iterable; keep parsing logic generic to avoid hard dependency.
+            try:
+                patterns = list(patterns)
+            except TypeError as exc:
+                raise TypeError(
+                    "train.ppo.student_trainable_param_patterns must be list/tuple/str, "
+                    f"got {type(patterns)}"
+                ) from exc
+        if not isinstance(patterns, (list, tuple)):
+            raise TypeError(
+                "train.ppo.student_trainable_param_patterns must be list/tuple/str, "
+                f"got {type(patterns)}"
+            )
+        cleaned = []
+        for p in patterns:
+            token = str(p).strip()
+            if token:
+                cleaned.append(token)
+        if not cleaned:
+            raise ValueError(
+                "train.ppo.student_trainable_param_patterns cannot be empty"
+            )
+        return tuple(cleaned)
+
+    def _is_trainable_param(self, param_name):
+        return any(pattern in param_name for pattern in self.student_trainable_param_patterns)
 
     def recon_criterion(self, out, target):
         return (out - target).pow(2)
+
+    def _update_env_info(self, info):
+        """Log numeric fields from env info dict for richer acceptance metrics."""
+        if not isinstance(info, dict):
+            return
+        for k, v in info.items():
+            val = None
+            if torch.is_tensor(v):
+                if v.numel() == 0:
+                    continue
+                val = float(v.float().mean().detach().cpu())
+            elif isinstance(v, (int, float, np.number)):
+                val = float(v)
+            if val is None or not np.isfinite(val):
+                continue
+            self.direct_info[f"env/{k}"] = val
 
     def set_eval(self):
         self.model.eval()
@@ -122,6 +183,8 @@ class ProprioAdapt(object):
         self.set_eval()
         obs_dict = self.env.reset()
         c = 0
+        eval_reward_sum = 0.0
+        eval_done_sum = 0.0
         while True:
             if self.normalize_point_cloud:
                 point_cloud_info = self.point_cloud_mean_std(obs_dict['point_cloud_info'].reshape(-1, 3)).reshape((obs_dict['obs'].shape[0], -1, 3))
@@ -136,7 +199,116 @@ class ProprioAdapt(object):
             mu = torch.clamp(mu, -1.0, 1.0)
             obs_dict, r, done, info = self.env.step(mu)
             c += 1
+            if self.test_num_steps > 0:
+                eval_reward_sum += float(r.float().mean().detach().cpu())
+                eval_done_sum += float(done.float().mean().detach().cpu())
             print(f"Step {c}")
+            if self.test_num_steps > 0 and c >= self.test_num_steps:
+                avg_reward = eval_reward_sum / float(c)
+                avg_done_rate = eval_done_sum / float(c)
+                print(
+                    "EvalSummary "
+                    f"steps={c} avg_reward={avg_reward:.6f} avg_done_rate={avg_done_rate:.6f}"
+                )
+                break
+
+    def collect_rollout(self, num_steps=256, save_path=None, save_point_cloud=True):
+        self.set_eval()
+        obs_dict = self.env.reset()
+
+        obs_buf = []
+        proprio_hist_buf = []
+        priv_info_buf = []
+        point_cloud_buf = [] if save_point_cloud else None
+        action_buf = []
+        reward_buf = []
+        done_buf = []
+        done_rate_buf = []
+        extra_scalar_buf = {}
+
+        with torch.no_grad():
+            for _ in range(int(num_steps)):
+                if self.normalize_point_cloud:
+                    point_cloud_info = self.point_cloud_mean_std(
+                        obs_dict["point_cloud_info"].reshape(-1, 3)
+                    ).reshape((obs_dict["obs"].shape[0], -1, 3))
+                else:
+                    point_cloud_info = obs_dict["point_cloud_info"]
+                input_dict = {
+                    "obs": self.running_mean_std(obs_dict["obs"]),
+                    "proprio_hist": self.sa_mean_std(obs_dict["proprio_hist"].detach()),
+                    "point_cloud_info": point_cloud_info,
+                }
+                mu, extrin, extrin_gt = self.model.act_inference(input_dict)
+                mu = torch.clamp(mu, -1.0, 1.0)
+                next_obs_dict, rewards, done, info = self.env.step(mu)
+
+                obs_buf.append(obs_dict["obs"].detach().cpu())
+                proprio_hist_buf.append(obs_dict["proprio_hist"].detach().cpu())
+                priv_info_buf.append(obs_dict["priv_info"].detach().cpu())
+                if save_point_cloud:
+                    point_cloud_buf.append(obs_dict["point_cloud_info"].detach().cpu())
+                action_buf.append(mu.detach().cpu())
+                reward_buf.append(rewards.detach().cpu())
+                done_buf.append(done.detach().cpu())
+                done_rate_buf.append(done.float().mean().item())
+
+                for key, value in info.items():
+                    scalar_value = None
+                    if torch.is_tensor(value):
+                        scalar_value = float(value.detach().float().mean().cpu())
+                    elif isinstance(value, (float, int, bool, np.number)):
+                        scalar_value = float(value)
+                    if scalar_value is None:
+                        continue
+                    extra_scalar_buf.setdefault(str(key), []).append(scalar_value)
+
+                obs_dict = next_obs_dict
+
+        payload = {
+            "meta": {
+                "num_steps": int(num_steps),
+                "num_envs": int(self.env.num_envs),
+                "normalize_input": bool(True),
+                "normalize_priv": bool(self.normalize_priv),
+                "normalize_point_cloud": bool(self.normalize_point_cloud),
+                "save_point_cloud": bool(save_point_cloud),
+            },
+            "obs": torch.stack(obs_buf, dim=0),
+            "proprio_hist": torch.stack(proprio_hist_buf, dim=0),
+            "priv_info": torch.stack(priv_info_buf, dim=0),
+            "actions": torch.stack(action_buf, dim=0),
+            "rewards": torch.stack(reward_buf, dim=0),
+            "dones": torch.stack(done_buf, dim=0),
+            "done_rate_per_step": torch.tensor(done_rate_buf, dtype=torch.float32),
+            "extras": {
+                key: torch.tensor(values, dtype=torch.float32)
+                for key, values in extra_scalar_buf.items()
+            },
+        }
+        if save_point_cloud:
+            payload["point_cloud_info"] = torch.stack(point_cloud_buf, dim=0)
+
+        if not save_path:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            save_dir = os.path.join(self.output_dir, "student_rollouts")
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, f"rollout_steps{int(num_steps)}_{ts}.pt")
+        else:
+            save_dir = os.path.dirname(save_path)
+            if save_dir:
+                os.makedirs(save_dir, exist_ok=True)
+
+        torch.save(payload, save_path)
+
+        mean_reward = payload["rewards"].mean().item()
+        mean_done_rate = payload["done_rate_per_step"].mean().item()
+        print(
+            f"Saved rollout dataset: {save_path}\n"
+            f"collect_steps={int(num_steps)} | num_envs={self.env.num_envs} | "
+            f"mean_reward={mean_reward:.4f} | mean_done_rate={mean_done_rate:.4f}"
+        )
+        return save_path
 
     def train(self):
         _t = time.time()
@@ -191,6 +363,8 @@ class ProprioAdapt(object):
             self.direct_info['latent_loss'] = float(latent_loss.detach().cpu())
             self.direct_info['bc_loss'] = float(bc_loss.detach().cpu())
             self.direct_info['total_loss'] = float(loss.detach().cpu())
+            self.direct_info['done_rate'] = float(done.float().mean().detach().cpu())
+            self._update_env_info(info)
 
             self.log_tensorboard()
 

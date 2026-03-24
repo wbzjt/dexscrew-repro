@@ -16,9 +16,11 @@ EXTRA_ARGS=("${array[@]:3:$len}")
 CUDA_VISIBLE_DEVICES=${GPUS} \
 python train.py task=XHandHoraScrewDriver headless=False seed=${SEED} \
 task.env.numEnvs=10 test=True \
-train.algo=ProprioAdapt \
+train.algo=DiffusionLatentStudent \
 train.ppo.proprio_adapt=True \
 wandb_activate=False \
 task.env.reset_dist_threshold=0.12 \
-"checkpoint=outputs/XHandHoraScrewDriver_student_padapt/${CACHE}/stage2_nn/model_best.ckpt" \
++train.ppo.diffusion_steps=10 \
++train.ppo.diffusion_steps_infer=10 \
+"checkpoint=outputs/XHandHoraScrewDriver_student_diffusion_latent/${CACHE}/stage2_diffusion_nn/model_best.ckpt" \
 "${EXTRA_ARGS[@]}"

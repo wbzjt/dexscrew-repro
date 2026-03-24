@@ -40,6 +40,9 @@ from hydra.utils import to_absolute_path
 
 from dexscrew.algo.ppo.ppo import PPO
 from dexscrew.algo.ppo.padapt import ProprioAdapt
+from dexscrew.algo.ppo.pure_bc import PureBC
+from dexscrew.algo.ppo.diffusion_latent_student import DiffusionLatentStudent
+from dexscrew.algo.ppo.diffusion_action_chunk_student import DiffusionActionChunkStudent
 from dexscrew.tasks import isaacgym_task_map
 from dexscrew.utils.reformat import omegaconf_to_dict, print_dict
 from dexscrew.utils.misc import set_np_formatting, set_seed, git_hash, git_diff_config
@@ -107,7 +110,24 @@ def main(config: DictConfig):
     if config.test:
         assert config.train.load_path
         agent.restore_test(config.train.load_path)
-        agent.test()
+        if bool(config.get("collect_rollout", False)):
+            if not hasattr(agent, "collect_rollout"):
+                raise ValueError(
+                    f"{config.train.algo} does not support collect_rollout mode"
+                )
+            collect_steps = int(config.get("collect_steps", 256))
+            collect_out = config.get("collect_out", "")
+            collect_out = to_absolute_path(collect_out) if collect_out else None
+            collect_save_point_cloud = bool(
+                config.get("collect_save_point_cloud", True)
+            )
+            agent.collect_rollout(
+                num_steps=collect_steps,
+                save_path=collect_out,
+                save_point_cloud=collect_save_point_cloud,
+            )
+        else:
+            agent.test()
     else:
         date = str(datetime.datetime.now().strftime('%m%d%H'))
         print(git_diff_config('./'))

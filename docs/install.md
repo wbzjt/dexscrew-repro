@@ -36,3 +36,15 @@ tar -xzvf IsaacGym_Preview_4_Package.tar.gz
 cd isaacgym/python
 pip install -e .
 ```
+
+## Stable Docker Runtime (Recommended)
+
+Isaac Gym Preview4 in this repo is aligned with Python 3.8 bindings (`gym_38.so`).
+If your host Python is 3.10/3.12, use docker wrappers for stable training/eval:
+
+```
+export ISAACGYM_DIR=$HOME/Codefield/third_party/isaacgym_preview4
+docker build -t dexscrew:ig20-py38 -f Dockerfile.isaacgym .
+scripts/screwdriver_student_padapt_15min_docker.sh 0 42 run_a 900
+scripts/collect_screwdriver_teacher_rollout_docker.sh 0 42 run_a 256 run_a_collect
+```

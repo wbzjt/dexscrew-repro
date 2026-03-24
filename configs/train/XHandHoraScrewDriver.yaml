@@ -45,3 +45,4 @@ ppo:
   proprio_len: 30
   proprio_dim: 24
   proprio_adapt: False
+  student_trainable_param_patterns: [adapt_tconv]
