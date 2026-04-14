@@ -1530,3 +1530,218 @@ rollout 采样（seed44, steps=512, `light_v2`）：
    - “向 base student 动作靠拢”可能确实碰到了问题的一部分
    - 但现在这版全局、静态的动作锚定过粗，只是把收益集中到个别 seed，而没有带来稳定的整体增益
 4. 下一步不应继续盲扫 `bc_loss_coef / base_action_anchor_coef`，而应先用 rollout 诊断明确 `baseanchor03` 的 `seed44` 提升是否真的来自中段 `pose_diff_penalty / torques` 回落，再决定是否值得实现更直接的 torque-aware / action-magnitude regularizer。
+
+## 41. Latent 诊断推进：`baseanchor03` 阶段对照与 `action_l2=0.01`
+目的：
+- 先完成 `latent_recon05 vs baseanchor03` 在 `seed42/44 + light_v2` 下的阶段诊断，再据此验证一个更直接、更轻量的全局动作幅度正则。
+
+### 41.1 `baseanchor03` rollout 阶段诊断
+新增 rollout：
+- seed42：
+  - `outputs/diagnostics/latent_baseanchor03_light_seed42_steps512.pt`
+  - `mean_reward=0.9031`, `mean_done_rate=0.0023`
+- seed44：
+  - `outputs/diagnostics/latent_baseanchor03_light_seed44_steps512.pt`
+  - `mean_reward=0.8226`, `mean_done_rate=0.0021`
+
+关键对照 A：`latent_recon05 -> baseanchor03`（seed42）
+- `reward_per_step`
+  - early：`0.843274 -> 0.828503`
+  - mid：`0.966963 -> 0.908913`
+  - late：`0.913008 -> 0.971481`
+- `rotation_reward`
+  - early：`0.375052 -> 0.377986`
+  - mid：`0.377728 -> 0.350038`
+  - late：`0.366978 -> 0.388252`
+- `pose_diff_penalty`
+  - early：`0.384656 -> 0.381631`
+  - mid：`0.443243 -> 0.436809`
+  - late：`0.424187 -> 0.412276`
+
+结论：
+- `baseanchor03` 在 seed42 下不是单纯更稳，而是明显牺牲了中段推进，换来后段略好。
+- 它的代价压制是有效的，但过粗，压掉了中段有效动作。
+
+关键对照 B：`latent_recon05 -> baseanchor03`（seed44）
+- `reward_per_step`
+  - early：`0.867773 -> 0.761453`
+  - mid：`0.869660 -> 0.838943`
+  - late：`0.906077 -> 0.867086`
+- `rotation_reward`
+  - early：`0.395524 -> 0.368766`
+  - mid：`0.397807 -> 0.367355`
+  - late：`0.370437 -> 0.377346`
+- `pose_diff_penalty`
+  - early：`0.401137 -> 0.399395`
+  - mid：`0.453893 -> 0.418299`
+  - late：`0.453329 -> 0.423362`
+- `torques`
+  - early：`0.355693 -> 0.367208`
+  - mid：`0.351320 -> 0.342736`
+  - late：`0.317508 -> 0.333064`
+- `angular_position`
+  - early：`1.772533 -> 1.656514`
+  - mid：`2.835959 -> 2.633136`
+  - late：`2.957677 -> 2.612854`
+
+结论：
+- `baseanchor03` 在 seed44 下确实降低了部分中后段代价项，但同时把推进幅度也压下去了。
+- 说明“全局向 base 动作靠拢”并不是真正需要的机制；它更像过强的静态收缩。
+
+### 41.2 更直接的全局动作幅度正则：`action_l2=0.01`
+代码改动：
+- `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - 新增 `train.ppo.diffusion_action_l2_coef`
+  - 新增 `action_l2_loss = mean(student_mu^2)`，默认关闭
+
+验证：
+- 语法：
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(..., 'exec') ... PY`
+- smoke：
+  - `./docker-run-isaacgym.sh timeout 120 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_actionl2_001_smoke "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_action_l2_coef=0.01 task.env.numEnvs=8`
+- 15min：
+  - `./docker-run-isaacgym.sh timeout 900 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_actionl2_001_seed42_15min "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_action_l2_coef=0.01`
+  - `Current Best=1824.54`
+- 最小验收：
+  - `light_v2 seed42 / 512 = 1.532299`, `done_rate=0.001261`
+
+对比：
+- `latent_recon05` 原版 seed42：`1.731917`
+- `baseanchor03` seed42：`1.570475`
+- `action_l2=0.01` seed42：`1.532299`
+
+阶段结论：
+1. 这轮结果把“全局静态收缩”这类方向又收窄了一步：
+   - `baseanchor03` 不够好
+   - `action_l2=0.01` 也不够好
+2. 两者共同说明：
+   - 问题不是简单“动作太大，需要整体压小”
+   - 更像“只在某些阶段/某些样本上存在过激动作或 reward alignment 偏差”
+3. 因此下一步若继续推进 latent，不应再做全局动作抑制，而应转向：
+   - 更有方向性的 tail-only / thresholded regularizer
+   - 或者只对 student-teacher 偏差过大的样本加额外约束
+
+## 42. Latent 定向正则推进：`teacher_delta_tail`
+目的：
+- 按上一轮结论，把“全局静态收缩”进一步收窄为更有方向性的 tail-only 正则，只惩罚 student 动作相对 teacher 动作偏差过大的尾部。
+
+代码改动：
+- `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - 新增 `train.ppo.diffusion_teacher_delta_tail_coef`
+  - 新增 `train.ppo.diffusion_teacher_delta_tail_threshold`
+  - 新增
+    - `teacher_delta_tail = relu(abs(student_mu - teacher_mu) - threshold)`
+    - `teacher_delta_tail_loss = mean(teacher_delta_tail^2)`
+  - 训练日志新增 `teacher_delta_tail_loss`
+
+验证：
+- 语法：
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(..., 'exec') ... PY`
+- smoke：
+  - `./docker-run-isaacgym.sh timeout 120 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_deltatail_smoke "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_threshold=0.25 task.env.numEnvs=8`
+  - 结果：训练能正常启动并持续输出，无新的实现级报错
+- 15min：
+  - `./docker-run-isaacgym.sh timeout 900 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_deltatail05_t025_seed42_15min "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_threshold=0.25`
+  - `Current Best=1863.07`
+- 最小验收：
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/eval_screwdriver_student_robustness.sh 0 42 DiffusionLatentStudent outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_recon05_deltatail05_t025_seed42_15min/stage2_diffusion_nn/model_best.ckpt 512 latent_recon05_deltatail05_t025_light_seed42 task.env.randomization.obs_noise_e_scale=0.03 task.env.randomization.obs_noise_t_scale=0.015 task.env.forceScale=1.0 task.env.randomForceProbScalar=0.2`
+  - `light_v2 seed42 / 512 = 1.602075`, `done_rate=0.001506`
+
+对比：
+- `latent_recon05` 原版 seed42：`1.731917`
+- `baseanchor03` seed42：`1.570475`
+- `action_l2=0.01` seed42：`1.532299`
+- `teacher_delta_tail` seed42：`1.602075`
+
+阶段结论：
+1. `teacher_delta_tail` 比之前两条更粗的全局静态正则略好：
+   - `1.602075 > 1.570475 > 1.532299`
+2. 但它仍然没有超过当前主代表 `latent_recon05` 原版：
+   - `1.602075 < 1.731917`
+3. 这说明：
+   - “只约束大偏差尾部”比“整体压动作/整体向 base 靠拢”更接近正确方向
+   - 但当前实现仍然过于静态，它没有区分阶段，也没有区分哪些样本的偏差真正有害
+4. 因此这条线暂不升级主线，下一步更适合继续缩小作用范围：
+   - 只对高偏差样本加权
+   - 或只在 rollout 诊断指向的问题阶段做定向约束
+
+## 43. Latent 定向正则推进：`teacher_delta_tail_selective`
+目的：
+- 在 `teacher_delta_tail` 已证明“方向比全局静态正则更接近正确”之后，继续缩小作用范围，验证“只对真正激活的高偏差样本计入正则”是否能避免普通样本被过度约束。
+
+代码改动：
+- `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - 新增 `train.ppo.diffusion_teacher_delta_tail_selective`
+  - 当开启时，仅对 `teacher_delta_tail > 0` 的样本计算 `teacher_delta_tail_loss`
+  - 新增日志：`teacher_delta_tail_active_ratio`
+
+验证：
+- 语法：
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(..., 'exec') ... PY`
+- smoke：
+  - `./docker-run-isaacgym.sh timeout 120 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_deltatail_sel_smoke "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_threshold=0.25 +train.ppo.diffusion_teacher_delta_tail_selective=True task.env.numEnvs=8`
+  - 结果：训练能正常启动并持续输出，无新的实现级报错
+- 15min：
+  - `./docker-run-isaacgym.sh timeout 900 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_deltatail05_t025_sel_seed42_15min "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_threshold=0.25 +train.ppo.diffusion_teacher_delta_tail_selective=True`
+  - `Current Best=1941.87`
+- 最小验收：
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/eval_screwdriver_student_robustness.sh 0 42 DiffusionLatentStudent outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_recon05_deltatail05_t025_sel_seed42_15min/stage2_diffusion_nn/model_best.ckpt 512 latent_recon05_deltatail05_t025_sel_light_seed42 task.env.randomization.obs_noise_e_scale=0.03 task.env.randomization.obs_noise_t_scale=0.015 task.env.forceScale=1.0 task.env.randomForceProbScalar=0.2`
+  - `light_v2 seed42 / 512 = 1.471573`, `done_rate=0.001302`
+
+对比：
+- `latent_recon05` 原版 seed42：`1.731917`
+- `teacher_delta_tail` seed42：`1.602075`
+- `teacher_delta_tail_selective` seed42：`1.471573`
+
+阶段结论：
+1. 这轮结果把“只对激活样本计入尾部正则”先判为失败：
+   - 虽然训练峰值继续升高到 `1941.87`
+   - 但部署评测反而退到 `1.471573`
+2. 这说明当前 selective 版本把训练目标进一步推离了最终部署目标：
+   - 只保留激活样本的 tail loss，反而可能让正则过于稀疏、过于尖锐
+   - 训练端更容易抬高 `Current Best`
+   - 但没有转化成 `light_v2` 的稳定收益
+3. 因此当前可收束的判断是：
+   - 继续做“样本级静态 gating”并不是正确下一步
+   - 如果还要沿正则线推进，应转向更有阶段语义的约束，而不是继续改静态样本选择逻辑
+
+## 44. Latent 阶段感知正则：`teacher_delta_tail_mid_only`
+目的：
+- 在静态 `teacher_delta_tail` 和 `teacher_delta_tail_selective` 都没把部署评测拉回主代表之上后，转向更贴近 rollout 诊断的阶段感知版本，只在 episode 中段施加 tail regularizer。
+
+代码改动：
+- `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - 新增 `train.ppo.diffusion_teacher_delta_tail_mid_only`
+  - 新增 `train.ppo.diffusion_teacher_delta_tail_progress_start`
+  - 新增 `train.ppo.diffusion_teacher_delta_tail_progress_end`
+  - 当开启时，仅在 `step_length / max_episode_length` 落在指定窗口内时施加 `teacher_delta_tail_loss`
+
+验证：
+- 语法：
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(..., 'exec') ... PY`
+- smoke：
+  - `./docker-run-isaacgym.sh timeout 120 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_deltatail_mid_smoke "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_threshold=0.25 +train.ppo.diffusion_teacher_delta_tail_mid_only=True +train.ppo.diffusion_teacher_delta_tail_progress_start=0.25 +train.ppo.diffusion_teacher_delta_tail_progress_end=0.75 task.env.numEnvs=8`
+  - 结果：训练能正常启动，无新的实现级报错
+- 15min：
+  - `./docker-run-isaacgym.sh timeout 900 scripts/screwdriver_student_diffusion_latent_robust_light.sh 0 42 run_a_latent_recon05_deltatail05_mid2575_seed42_15min "checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_*.pth" +train.ppo.diffusion_latent_recon_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_coef=0.5 +train.ppo.diffusion_teacher_delta_tail_threshold=0.25 +train.ppo.diffusion_teacher_delta_tail_mid_only=True +train.ppo.diffusion_teacher_delta_tail_progress_start=0.25 +train.ppo.diffusion_teacher_delta_tail_progress_end=0.75`
+  - `Current Best=1814.62`
+- 最小验收：
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/eval_screwdriver_student_robustness.sh 0 42 DiffusionLatentStudent outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_recon05_deltatail05_mid2575_seed42_15min/stage2_diffusion_nn/model_best.ckpt 512 latent_recon05_deltatail05_mid2575_light_seed42 task.env.randomization.obs_noise_e_scale=0.03 task.env.randomization.obs_noise_t_scale=0.015 task.env.forceScale=1.0 task.env.randomForceProbScalar=0.2`
+  - `light_v2 seed42 / 512 = 1.662729`, `done_rate=0.001139`
+
+对比：
+- `latent_recon05` 原版 seed42：`1.731917`
+- `teacher_delta_tail` seed42：`1.602075`
+- `teacher_delta_tail_selective` seed42：`1.471573`
+- `teacher_delta_tail_mid_only(0.25-0.75)` seed42：`1.662729`
+
+阶段结论：
+1. 这是当前正则线里第一次明确的部署侧回升：
+   - `1.471573 -> 1.662729`
+   - 也超过了静态 tail 的 `1.602075`
+2. 说明“阶段感知”比“静态样本 gating”更接近正确方向。
+3. 但它仍未超过当前主代表 `latent_recon05`：
+   - `1.662729 < 1.731917`
+4. 因此当前最合理的判断是：
+   - 中段窗口约束是有效线索，但窗口和强度还没调到最佳
+   - 后续应优先沿这条线做小范围收敛，而不是回到静态正则

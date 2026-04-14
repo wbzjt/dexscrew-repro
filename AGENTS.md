@@ -24,7 +24,7 @@ Codeagent should focus on local execution work:
 - prefer small, reversible changes over broad refactors
 - keep existing train/eval/export entrypoints usable
 - treat Hora as the default active path unless told otherwise
-- use `PLANS.md` for current priorities and milestones, not this file
+- use `PLANS_v2.md` for current priorities and milestones, not this file
 
 ## What codeagent can handle directly
 Codeagent may directly do:
@@ -62,13 +62,15 @@ If escalation is needed, `codeagent_issue.md` must contain:
 
 ## Governance boundary
 `AGENTS.md` is for stable workflow rules only.
-`PLANS.md` is for current-stage goals, milestones, priorities, and acceptance criteria.
-If something is stage-specific, put it in `PLANS.md`, not here.
+`PLANS_v2.md` is for current-stage goals, milestones, priorities, and acceptance criteria.
+If something is stage-specific, put it in `PLANS_v2.md`, not here.
 
 ## Session Handoff (Required)
 After each meaningful execution session, codeagent must update:
 
-- `docs/session_handoff.md`
+- `docs/session_handoff_v2.md` (the only running handoff for Plan v2 execution)
+
+`docs/session_handoff.md` is reserved for Plan v1 historical indexing/archive only, not for ongoing Plan v2 logging.
 
 The handoff update must include:
 
@@ -86,12 +88,15 @@ Purpose:
 ## Session Bootstrap (Required)
 At the beginning of a new execution session, codeagent must read:
 
-- `docs/session_handoff.md`
+- `docs/session_handoff_v2.md`
 - `docs/stage_acceptance_summary.md`
+
+Optional historical context only (when needed):
+- `docs/session_handoff.md`
 
 Before any code change or new experiment, codeagent must also do a quick bootstrap check:
 
-- confirm the latest "single recommended next step" from `docs/session_handoff.md`
+- confirm the latest "single recommended next step" from `docs/session_handoff_v2.md`
 - avoid rerunning already-failed settings unless testing a clear fix hypothesis
 - record the current target milestone/subgoal in the first execution update
 
@@ -99,3 +104,14 @@ Purpose:
 
 - recover the latest experiment state before new changes
 - avoid repeating already-failed settings or redundant runs
+
+## Continuous Execution Preference
+Unless the user explicitly pauses or redirects, codeagent should run in continuous execution mode:
+
+- continue plan-aligned local validation/probe work across multiple ideas in one stretch
+- do not stop for per-probe confirmation when the work is routine and inside current governance
+- stop and report when one of the following is true:
+  - a significant experimental breakthrough appears
+  - a clearly acceptable engineering/code optimization progress is achieved
+  - an escalation boundary in this file is triggered
+  - user asks to stop or re-prioritize

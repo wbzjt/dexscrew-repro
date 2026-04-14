@@ -67,14 +67,25 @@ class DiffusionLatentStudent(ProprioAdapt):
 
         self.latent_dim = self.model.adapt_tconv.low_dim_proj.out_features
         self.diffusion_steps = int(self.ppo_config.get("diffusion_steps", 10))
-        self.diffusion_steps_infer = int(
+        requested_diffusion_steps_infer = int(
             self.ppo_config.get("diffusion_steps_infer", self.diffusion_steps)
         )
         # Keep inference schedule valid under current training schedule.
-        self.diffusion_steps_infer = min(self.diffusion_steps_infer, self.diffusion_steps)
+        self.diffusion_steps_infer = min(requested_diffusion_steps_infer, self.diffusion_steps)
+        if self.diffusion_steps_infer != requested_diffusion_steps_infer:
+            tprint(
+                "DiffusionLatent note: "
+                f"diffusion_steps_infer={requested_diffusion_steps_infer} "
+                f"clamped to {self.diffusion_steps_infer} "
+                f"(diffusion_steps={self.diffusion_steps})."
+            )
         self.stochastic_infer = bool(self.ppo_config.get("diffusion_stochastic_infer", False))
         # Optional residual mode: diffuse only the correction around the frozen adapt_tconv latent.
         self.residual_base = bool(self.ppo_config.get("diffusion_residual_base", False))
+        self.residual_target_scale = float(
+            self.ppo_config.get("diffusion_residual_target_scale", 1.0)
+        )
+        self.residual_target_scale = max(self.residual_target_scale, 1e-6)
         # Optional obs-noise curriculum: linearly ramp env observation noise during training.
         self.obs_noise_curriculum = bool(
             self.ppo_config.get("diffusion_obs_noise_curriculum", False)
@@ -131,11 +142,43 @@ class DiffusionLatentStudent(ProprioAdapt):
         self.latent_recon_coef = float(
             self.ppo_config.get("diffusion_latent_recon_coef", 0.0)
         )
+        self.latent_recon_coef_start = float(
+            self.ppo_config.get(
+                "diffusion_latent_recon_coef_start", self.latent_recon_coef
+            )
+        )
+        self.latent_recon_coef_end = float(
+            self.ppo_config.get(
+                "diffusion_latent_recon_coef_end", self.latent_recon_coef
+            )
+        )
+        self.latent_recon_coef_schedule_steps = max(
+            1,
+            int(self.ppo_config.get("diffusion_latent_recon_coef_schedule_steps", 1)),
+        )
         self.base_action_anchor_coef = float(
             self.ppo_config.get("diffusion_base_action_anchor_coef", 0.0)
         )
         self.action_l2_coef = float(
             self.ppo_config.get("diffusion_action_l2_coef", 0.0)
+        )
+        self.teacher_delta_tail_coef = float(
+            self.ppo_config.get("diffusion_teacher_delta_tail_coef", 0.0)
+        )
+        self.teacher_delta_tail_threshold = float(
+            self.ppo_config.get("diffusion_teacher_delta_tail_threshold", 0.25)
+        )
+        self.teacher_delta_tail_selective = bool(
+            self.ppo_config.get("diffusion_teacher_delta_tail_selective", False)
+        )
+        self.teacher_delta_tail_mid_only = bool(
+            self.ppo_config.get("diffusion_teacher_delta_tail_mid_only", False)
+        )
+        self.teacher_delta_tail_progress_start = float(
+            self.ppo_config.get("diffusion_teacher_delta_tail_progress_start", 0.25)
+        )
+        self.teacher_delta_tail_progress_end = float(
+            self.ppo_config.get("diffusion_teacher_delta_tail_progress_end", 0.75)
         )
         self.optim = torch.optim.Adam(
             list(self.diffusion_model.parameters()) + extra_trainable_params,
@@ -152,6 +195,13 @@ class DiffusionLatentStudent(ProprioAdapt):
             )
         else:
             tprint("DiffusionLatent extra trainable patterns: [] | extra params: 0")
+        # Eval-only switches for Plan v2 M2 evidence hardening.
+        self.eval_decode_only = bool(
+            self.ppo_config.get("diffusion_eval_decode_only", False)
+        )
+        self.eval_report_recon = bool(
+            self.ppo_config.get("diffusion_eval_report_recon", True)
+        )
 
     def _resolve_diffusion_trainable_param_patterns(self):
         patterns = self.ppo_config.get("diffusion_student_trainable_param_patterns", [])
@@ -222,6 +272,7 @@ class DiffusionLatentStudent(ProprioAdapt):
             else:
                 x = mean
         if base_latent is not None:
+            x = x / self.residual_target_scale
             x = x + base_latent
         return torch.tanh(x)
 
@@ -311,28 +362,100 @@ class DiffusionLatentStudent(ProprioAdapt):
         c = 0
         eval_reward_sum = 0.0
         eval_done_sum = 0.0
+        eval_latent_mse_sum = 0.0
+        eval_latent_l1_sum = 0.0
+        eval_action_mse_sum = 0.0
+        eval_residual_abs_sum = 0.0
+        eval_residual_l2_sum = 0.0
+        eval_residual_ratio_sum = 0.0
+        eval_action_corr_abs_sum = 0.0
+        eval_action_corr_l2_sum = 0.0
+        eval_base_action_mse_sum = 0.0
+        eval_pred_residual_abs_sum = 0.0
+        eval_pred_to_target_ratio_sum = 0.0
+        eval_mode = "decode_only" if self.eval_decode_only else "diffusion"
         while True:
-            if self.normalize_point_cloud:
-                point_cloud_info = self.point_cloud_mean_std(
-                    obs_dict["point_cloud_info"].reshape(-1, 3)
-                ).reshape((obs_dict["obs"].shape[0], -1, 3))
-            else:
-                point_cloud_info = obs_dict["point_cloud_info"]
+            with torch.no_grad():
+                if self.normalize_point_cloud:
+                    point_cloud_info = self.point_cloud_mean_std(
+                        obs_dict["point_cloud_info"].reshape(-1, 3)
+                    ).reshape((obs_dict["obs"].shape[0], -1, 3))
+                else:
+                    point_cloud_info = obs_dict["point_cloud_info"]
 
-            proprio_hist = self.sa_mean_std(obs_dict["proprio_hist"].detach())
-            obs = self.running_mean_std(obs_dict["obs"])
-            latent = self.sample_latent(proprio_hist)
-            student_obs_input = torch.cat([obs, latent], dim=-1)
-            student_x = self.model.actor_mlp(student_obs_input)
-            mu = self.model.mu(student_x)
+                proprio_hist = self.sa_mean_std(obs_dict["proprio_hist"].detach())
+                obs = self.running_mean_std(obs_dict["obs"])
+                input_dict = {
+                    "obs": obs,
+                    "priv_info": self.priv_mean_std(obs_dict["priv_info"])
+                    if self.normalize_priv
+                    else obs_dict["priv_info"],
+                    "proprio_hist": proprio_hist,
+                    "point_cloud_info": point_cloud_info,
+                }
+                _, _, _, _, e_gt = self.model._actor_critic(input_dict)
+                base_latent = self._get_base_latent(proprio_hist)
+                if self.eval_decode_only:
+                    latent = base_latent
+                else:
+                    latent = self.sample_latent(proprio_hist)
 
-            mu = torch.clamp(mu, -1.0, 1.0)
-            obs_dict, r, done, _ = self.env.step(mu)
+                student_obs_input = torch.cat([obs, latent], dim=-1)
+                student_x = self.model.actor_mlp(student_obs_input)
+                mu = self.model.mu(student_x)
+                mu = torch.clamp(mu, -1.0, 1.0)
+
+                teacher_obs_input = torch.cat([obs, e_gt.detach()], dim=-1)
+                teacher_x = self.model.actor_mlp(teacher_obs_input)
+                teacher_mu = torch.clamp(self.model.mu(teacher_x), -1.0, 1.0)
+                base_obs_input = torch.cat([obs, base_latent], dim=-1)
+                base_x = self.model.actor_mlp(base_obs_input)
+                base_mu = torch.clamp(self.model.mu(base_x), -1.0, 1.0)
+
+                latent_mse = ((latent - e_gt.detach()) ** 2).mean()
+                latent_l1 = (latent - e_gt.detach()).abs().mean()
+                action_mse_to_teacher = ((mu - teacher_mu) ** 2).mean()
+                residual_latent = e_gt.detach() - base_latent
+                residual_abs_mean = residual_latent.abs().mean()
+                residual_l2_mean = torch.sqrt(
+                    (residual_latent.pow(2)).sum(dim=-1) + 1e-8
+                ).mean()
+                residual_ratio = residual_abs_mean / (e_gt.detach().abs().mean() + 1e-8)
+                pred_residual_latent = latent - base_latent
+                pred_residual_abs_mean = pred_residual_latent.abs().mean()
+                pred_to_target_ratio = pred_residual_abs_mean / (residual_abs_mean + 1e-8)
+                action_correction = mu - base_mu
+                action_corr_abs_mean = action_correction.abs().mean()
+                action_corr_l2_mean = torch.sqrt(
+                    (action_correction.pow(2)).sum(dim=-1) + 1e-8
+                ).mean()
+                base_action_mse_to_teacher = ((base_mu - teacher_mu) ** 2).mean()
+
+                obs_dict, r, done, _ = self.env.step(mu)
             c += 1
             print(f"Step {c}")
             if self.test_num_steps > 0:
                 eval_reward_sum += float(r.float().mean().detach().cpu())
                 eval_done_sum += float(done.float().mean().detach().cpu())
+                if self.eval_report_recon:
+                    eval_latent_mse_sum += float(latent_mse.detach().cpu())
+                    eval_latent_l1_sum += float(latent_l1.detach().cpu())
+                    eval_action_mse_sum += float(action_mse_to_teacher.detach().cpu())
+                    if self.residual_base:
+                        eval_residual_abs_sum += float(residual_abs_mean.detach().cpu())
+                        eval_residual_l2_sum += float(residual_l2_mean.detach().cpu())
+                        eval_residual_ratio_sum += float(residual_ratio.detach().cpu())
+                        eval_action_corr_abs_sum += float(action_corr_abs_mean.detach().cpu())
+                        eval_action_corr_l2_sum += float(action_corr_l2_mean.detach().cpu())
+                        eval_base_action_mse_sum += float(
+                            base_action_mse_to_teacher.detach().cpu()
+                        )
+                        eval_pred_residual_abs_sum += float(
+                            pred_residual_abs_mean.detach().cpu()
+                        )
+                        eval_pred_to_target_ratio_sum += float(
+                            pred_to_target_ratio.detach().cpu()
+                        )
                 if c >= self.test_num_steps:
                     avg_reward = eval_reward_sum / float(c)
                     avg_done_rate = eval_done_sum / float(c)
@@ -340,7 +463,177 @@ class DiffusionLatentStudent(ProprioAdapt):
                         "EvalSummary "
                         f"steps={c} avg_reward={avg_reward:.6f} avg_done_rate={avg_done_rate:.6f}"
                     )
+                    if self.eval_report_recon:
+                        avg_latent_mse = eval_latent_mse_sum / float(c)
+                        avg_latent_l1 = eval_latent_l1_sum / float(c)
+                        avg_action_mse = eval_action_mse_sum / float(c)
+                        print(
+                            "EvalReconSummary "
+                            f"steps={c} mode={eval_mode} "
+                            f"latent_mse={avg_latent_mse:.6f} "
+                            f"latent_l1={avg_latent_l1:.6f} "
+                            f"action_mse_to_teacher={avg_action_mse:.6f}"
+                        )
+                        if self.residual_base:
+                            avg_residual_abs = eval_residual_abs_sum / float(c)
+                            avg_residual_l2 = eval_residual_l2_sum / float(c)
+                            avg_residual_ratio = eval_residual_ratio_sum / float(c)
+                            avg_action_corr_abs = eval_action_corr_abs_sum / float(c)
+                            avg_action_corr_l2 = eval_action_corr_l2_sum / float(c)
+                            avg_base_action_mse = eval_base_action_mse_sum / float(c)
+                            avg_pred_residual_abs = eval_pred_residual_abs_sum / float(c)
+                            avg_pred_to_target_ratio = (
+                                eval_pred_to_target_ratio_sum / float(c)
+                            )
+                            print(
+                                "EvalResidualSummary "
+                                f"steps={c} mode={eval_mode} "
+                                f"residual_abs_mean={avg_residual_abs:.6f} "
+                                f"residual_l2_mean={avg_residual_l2:.6f} "
+                                f"residual_to_target_ratio={avg_residual_ratio:.6f} "
+                                f"pred_residual_abs_mean={avg_pred_residual_abs:.6f} "
+                                f"pred_to_target_ratio={avg_pred_to_target_ratio:.6f} "
+                                f"action_correction_abs_mean={avg_action_corr_abs:.6f} "
+                                f"action_correction_l2_mean={avg_action_corr_l2:.6f} "
+                                f"base_action_mse_to_teacher={avg_base_action_mse:.6f}"
+                            )
                     break
+
+    def collect_rollout(self, num_steps=256, save_path=None, save_point_cloud=True):
+        """Collect rollout payload using the same diffusion action path as test()."""
+        self.set_eval()
+        obs_dict = self.env.reset()
+        eval_mode = "decode_only" if self.eval_decode_only else "diffusion"
+
+        obs_buf = []
+        proprio_hist_buf = []
+        priv_info_buf = []
+        point_cloud_buf = [] if save_point_cloud else None
+        action_buf = []
+        reward_buf = []
+        done_buf = []
+        done_rate_buf = []
+        extra_scalar_buf = {}
+
+        with torch.no_grad():
+            for _ in range(int(num_steps)):
+                if self.normalize_point_cloud:
+                    point_cloud_info = self.point_cloud_mean_std(
+                        obs_dict["point_cloud_info"].reshape(-1, 3)
+                    ).reshape((obs_dict["obs"].shape[0], -1, 3))
+                else:
+                    point_cloud_info = obs_dict["point_cloud_info"]
+
+                proprio_hist = self.sa_mean_std(obs_dict["proprio_hist"].detach())
+                obs = self.running_mean_std(obs_dict["obs"])
+                input_dict = {
+                    "obs": obs,
+                    "priv_info": self.priv_mean_std(obs_dict["priv_info"])
+                    if self.normalize_priv
+                    else obs_dict["priv_info"],
+                    "proprio_hist": proprio_hist,
+                    "point_cloud_info": point_cloud_info,
+                }
+
+                _, _, _, _, e_gt = self.model._actor_critic(input_dict)
+                base_latent = self._get_base_latent(proprio_hist)
+                if self.eval_decode_only:
+                    latent = base_latent
+                else:
+                    latent = self.sample_latent(proprio_hist)
+
+                student_obs_input = torch.cat([obs, latent], dim=-1)
+                student_x = self.model.actor_mlp(student_obs_input)
+                mu = torch.clamp(self.model.mu(student_x), -1.0, 1.0)
+
+                teacher_obs_input = torch.cat([obs, e_gt.detach()], dim=-1)
+                teacher_x = self.model.actor_mlp(teacher_obs_input)
+                teacher_mu = torch.clamp(self.model.mu(teacher_x), -1.0, 1.0)
+                latent_mse = ((latent - e_gt.detach()) ** 2).mean()
+                latent_l1 = (latent - e_gt.detach()).abs().mean()
+                action_mse_to_teacher = ((mu - teacher_mu) ** 2).mean()
+
+                next_obs_dict, rewards, done, info = self.env.step(mu)
+
+                obs_buf.append(obs_dict["obs"].detach().cpu())
+                proprio_hist_buf.append(obs_dict["proprio_hist"].detach().cpu())
+                priv_info_buf.append(obs_dict["priv_info"].detach().cpu())
+                if save_point_cloud:
+                    point_cloud_buf.append(obs_dict["point_cloud_info"].detach().cpu())
+                action_buf.append(mu.detach().cpu())
+                reward_buf.append(rewards.detach().cpu())
+                done_buf.append(done.detach().cpu())
+                done_rate_buf.append(done.float().mean().item())
+
+                # Keep info-based scalar stream aligned with PPO collect_rollout payload format.
+                for key, value in info.items():
+                    scalar_value = None
+                    if torch.is_tensor(value):
+                        scalar_value = float(value.detach().float().mean().cpu())
+                    elif isinstance(value, (float, int, bool)):
+                        scalar_value = float(value)
+                    if scalar_value is None:
+                        continue
+                    extra_scalar_buf.setdefault(str(key), []).append(scalar_value)
+
+                # Diffusion-specific rollout diagnostics for failure-mode comparison.
+                extra_scalar_buf.setdefault("diag/latent_mse", []).append(
+                    float(latent_mse.detach().cpu())
+                )
+                extra_scalar_buf.setdefault("diag/latent_l1", []).append(
+                    float(latent_l1.detach().cpu())
+                )
+                extra_scalar_buf.setdefault("diag/action_mse_to_teacher", []).append(
+                    float(action_mse_to_teacher.detach().cpu())
+                )
+
+                obs_dict = next_obs_dict
+
+        payload = {
+            "meta": {
+                "num_steps": int(num_steps),
+                "num_envs": int(self.env.num_envs),
+                "normalize_input": bool(getattr(self, "normalize_input", True)),
+                "normalize_priv": bool(getattr(self, "normalize_priv", True)),
+                "normalize_point_cloud": bool(getattr(self, "normalize_point_cloud", True)),
+                "save_point_cloud": bool(save_point_cloud),
+                "eval_mode": eval_mode,
+            },
+            "obs": torch.stack(obs_buf, dim=0),
+            "proprio_hist": torch.stack(proprio_hist_buf, dim=0),
+            "priv_info": torch.stack(priv_info_buf, dim=0),
+            "actions": torch.stack(action_buf, dim=0),
+            "rewards": torch.stack(reward_buf, dim=0),
+            "dones": torch.stack(done_buf, dim=0),
+            "done_rate_per_step": torch.tensor(done_rate_buf, dtype=torch.float32),
+            "extras": {
+                key: torch.tensor(values, dtype=torch.float32)
+                for key, values in extra_scalar_buf.items()
+            },
+        }
+        if save_point_cloud:
+            payload["point_cloud_info"] = torch.stack(point_cloud_buf, dim=0)
+
+        if not save_path:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            save_dir = os.path.join(self.output_dir, "teacher_rollouts")
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, f"rollout_steps{int(num_steps)}_{ts}.pt")
+        else:
+            save_dir = os.path.dirname(save_path)
+            if save_dir:
+                os.makedirs(save_dir, exist_ok=True)
+
+        torch.save(payload, save_path)
+
+        mean_reward = payload["rewards"].mean().item()
+        mean_done_rate = payload["done_rate_per_step"].mean().item()
+        print(
+            f"Saved rollout dataset: {save_path}\n"
+            f"collect_steps={int(num_steps)} | num_envs={self.env.num_envs} | "
+            f"mean_reward={mean_reward:.4f} | mean_done_rate={mean_done_rate:.4f}"
+        )
+        return save_path
 
     def train(self):
         _t = time.time()
@@ -391,6 +684,8 @@ class DiffusionLatentStudent(ProprioAdapt):
                 if residual_base_latent is not None
                 else target_latent
             )
+            if residual_base_latent is not None:
+                target_x0 = target_x0 * self.residual_target_scale
             noise = torch.randn_like(target_x0)
             x_t = self._q_sample(target_x0, t, noise)
             eps_pred = self.diffusion_model(input_dict["proprio_hist"], x_t, t)
@@ -398,6 +693,7 @@ class DiffusionLatentStudent(ProprioAdapt):
 
             x0_pred = self._predict_x0(x_t, t, eps_pred)
             if residual_base_latent is not None:
+                x0_pred = x0_pred / self.residual_target_scale
                 x0_pred = x0_pred + residual_base_latent
             pred_latent = torch.tanh(x0_pred)
             latent_recon_loss = ((pred_latent - target_latent) ** 2).mean()
@@ -405,8 +701,9 @@ class DiffusionLatentStudent(ProprioAdapt):
             student_x = self.model.actor_mlp(student_obs_input)
             student_mu = self.model.mu(student_x)
             student_mu_clamped = torch.clamp(student_mu, -1, 1)
+            teacher_mu_clamped = torch.clamp(teacher_mu, -1, 1)
             bc_loss = torch.sum(
-                self.recon_criterion(student_mu_clamped, torch.clamp(teacher_mu, -1, 1)),
+                self.recon_criterion(student_mu_clamped, teacher_mu_clamped),
                 dim=-1,
             ).mean()
             if base_student_mu is not None:
@@ -419,13 +716,59 @@ class DiffusionLatentStudent(ProprioAdapt):
                     (), device=self.device, dtype=bc_loss.dtype
                 )
             action_l2_loss = student_mu_clamped.pow(2).mean()
+            teacher_delta_tail = torch.relu(
+                (student_mu_clamped - teacher_mu_clamped).abs()
+                - self.teacher_delta_tail_threshold
+            )
+            teacher_delta_tail_per_sample = teacher_delta_tail.pow(2).mean(dim=-1)
+            teacher_delta_tail_active = (teacher_delta_tail > 0).any(dim=-1)
+            teacher_delta_tail_sample_mask = teacher_delta_tail_active
+            if self.teacher_delta_tail_mid_only:
+                episode_progress = torch.clamp(
+                    self.step_length / float(max(1, self.env.max_episode_length)),
+                    0.0,
+                    1.0,
+                )
+                teacher_delta_tail_mid_mask = (
+                    (episode_progress >= self.teacher_delta_tail_progress_start)
+                    & (episode_progress <= self.teacher_delta_tail_progress_end)
+                )
+                teacher_delta_tail_sample_mask = (
+                    teacher_delta_tail_sample_mask & teacher_delta_tail_mid_mask
+                )
+            teacher_delta_tail_active_ratio = teacher_delta_tail_sample_mask.float().mean()
+            if self.teacher_delta_tail_selective and teacher_delta_tail_sample_mask.any():
+                teacher_delta_tail_loss = teacher_delta_tail_per_sample[
+                    teacher_delta_tail_sample_mask
+                ].mean()
+            elif self.teacher_delta_tail_mid_only and teacher_delta_tail_sample_mask.any():
+                teacher_delta_tail_loss = teacher_delta_tail_per_sample[
+                    teacher_delta_tail_sample_mask
+                ].mean()
+            elif self.teacher_delta_tail_mid_only:
+                teacher_delta_tail_loss = torch.zeros(
+                    (), device=self.device, dtype=teacher_delta_tail_per_sample.dtype
+                )
+            else:
+                teacher_delta_tail_loss = teacher_delta_tail_per_sample.mean()
+
+            recon_progress = min(
+                max(self.agent_steps / float(self.latent_recon_coef_schedule_steps), 0.0),
+                1.0,
+            )
+            latent_recon_coef_cur = (
+                self.latent_recon_coef_start
+                + (self.latent_recon_coef_end - self.latent_recon_coef_start)
+                * recon_progress
+            )
 
             loss = (
                 self.diffusion_loss_coef * diffusion_loss
                 + self.bc_loss_coef * bc_loss
-                + self.latent_recon_coef * latent_recon_loss
+                + latent_recon_coef_cur * latent_recon_loss
                 + self.base_action_anchor_coef * base_action_anchor_loss
                 + self.action_l2_coef * action_l2_loss
+                + self.teacher_delta_tail_coef * teacher_delta_tail_loss
             )
             self.optim.zero_grad()
             loss.backward()
@@ -452,6 +795,15 @@ class DiffusionLatentStudent(ProprioAdapt):
                 base_action_anchor_loss.detach().cpu()
             )
             self.direct_info["action_l2_loss"] = float(action_l2_loss.detach().cpu())
+            self.direct_info["teacher_delta_tail_loss"] = float(
+                teacher_delta_tail_loss.detach().cpu()
+            )
+            self.direct_info["teacher_delta_tail_active_ratio"] = float(
+                teacher_delta_tail_active_ratio.detach().cpu()
+            )
+            self.direct_info["latent_recon_coef_cur"] = float(latent_recon_coef_cur)
+            self.direct_info["latent_recon_coef_progress"] = float(recon_progress)
+            self.direct_info["residual_target_scale"] = float(self.residual_target_scale)
             self.direct_info["total_loss"] = float(loss.detach().cpu())
             self.direct_info["done_rate"] = float(done.float().mean().detach().cpu())
             self._update_env_info(info)

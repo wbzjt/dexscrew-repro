@@ -153,6 +153,7 @@ class PPO(object):
         self.dones = torch.ones((batch_size,), dtype=torch.uint8, device=self.device)
         self.agent_steps = 0
         self.max_agent_steps = self.ppo_config["max_agent_steps"]
+        self.test_num_steps = int(full_config.get("test_num_steps", 0))
         self.best_rewards = -10000
         # ---- Timing
         self.data_collect_time = 0
@@ -394,6 +395,8 @@ class PPO(object):
         self.set_eval()
         obs_dict = self.env.reset()
         num_frames = 0
+        eval_reward_sum = 0.0
+        eval_done_sum = 0.0
         while True:
             if self.normalize_point_cloud:
                 point_cloud = self.point_cloud_mean_std(
@@ -416,12 +419,27 @@ class PPO(object):
             mu = torch.clamp(mu, -1.0, 1.0)
             next_obs_dict, r, done, info = self.env.step(mu, extrin_record=extrin)
             num_frames += 1
-            # Keep the viewer running: when an episode ends, reset and continue.
-            # The previous behavior broke on done[0] and exited after one episode.
-            if torch.any(done):
-                obs_dict = self.env.reset()
-            else:
+            if self.test_num_steps > 0:
+                eval_reward_sum += float(r.float().mean().detach().cpu())
+                eval_done_sum += float(done.float().mean().detach().cpu())
+                print(f"Step {num_frames}")
                 obs_dict = next_obs_dict
+                if num_frames >= self.test_num_steps:
+                    avg_reward = eval_reward_sum / float(num_frames)
+                    avg_done_rate = eval_done_sum / float(num_frames)
+                    print(
+                        "EvalSummary "
+                        f"steps={num_frames} avg_reward={avg_reward:.6f} "
+                        f"avg_done_rate={avg_done_rate:.6f}"
+                    )
+                    break
+            else:
+                # Keep the viewer running: when an episode ends, reset and continue.
+                # The previous behavior broke on done[0] and exited after one episode.
+                if torch.any(done):
+                    obs_dict = self.env.reset()
+                else:
+                    obs_dict = next_obs_dict
 
     def collect_rollout(self, num_steps=256, save_path=None, save_point_cloud=True):
         self.set_eval()
