@@ -53,6 +53,16 @@ if [[ -f /etc/group ]]; then
   PASSWD_GROUP_MOUNTS+=(-v /etc/group:/etc/group:ro)
 fi
 
+WANDB_AUTH_MOUNTS=()
+HOST_NETRC="${HOME}/.netrc"
+HOST_WANDB_CONFIG_DIR="${HOME}/.config/wandb"
+if [[ -f "${HOST_NETRC}" ]]; then
+  WANDB_AUTH_MOUNTS+=(-v "${HOST_NETRC}:/tmp/.netrc:ro")
+fi
+if [[ -d "${HOST_WANDB_CONFIG_DIR}" ]]; then
+  WANDB_AUTH_MOUNTS+=(-v "${HOST_WANDB_CONFIG_DIR}:/tmp/.config/wandb:ro")
+fi
+
 X11_ARGS=()
 if [[ -n "${DISPLAY:-}" ]] && [[ -d /tmp/.X11-unix ]]; then
   HOST_XAUTHORITY="${XAUTHORITY:-}"
@@ -101,6 +111,7 @@ docker run --rm "${DOCKER_TTY_FLAGS[@]}" \
   -v "${PROJECT_DIR}:/workspace/dexscrew-repro" \
   -v "${ISAACGYM_DIR}:/opt/isaacgym:ro" \
   "${PASSWD_GROUP_MOUNTS[@]}" \
+  "${WANDB_AUTH_MOUNTS[@]}" \
   "${X11_ARGS[@]}" \
   -w /workspace/dexscrew-repro \
   "${IMAGE}" \

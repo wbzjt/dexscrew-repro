@@ -252,7 +252,7 @@ class XHandPasini(VecTask):
                     ],
                 )
             )
-        elif self.config["env"]["initPose"] == "bulb_inclined":
+        elif self.config["env"]["initPose"] in ("bulb_inclined", "lightbulb_inclined"):
             # Bulb twisting pose: keep a screwdriver-like pre-grasp by default.
             # This is intentionally separated from screwdriver/nutbolt so the bulb task can be tuned
             # independently (and can still be overridden by env.customInitDofPos).
@@ -834,34 +834,14 @@ class XHandPasini(VecTask):
             sampled_pose = self.saved_grasping_states[scale_key][
                 sampled_pose_idx
             ].clone()
-            if self.config["env"]["initPose"] == "nutbolt_inclined":
-                random_noise_x, random_noise_y = np.random.uniform(
-                    0, 0.0075
-                ), np.random.uniform(0, 0.0075)
+            if self.config["env"]["initPose"] in (
+                "nutbolt_inclined",
+                "bulb_inclined",
+                "lightbulb_inclined",
+                "screwdriver_inclined",
+            ):
                 self.object_x, self.object_y, self.object_z = (
-                    0.0175 + random_noise_x,
-                    0.06 + random_noise_y,
-                    0,
-                )
-            elif self.config["env"]["initPose"] == "bulb_inclined":
-                # Start the bulb where screwdriver used to be by default.
-                # If the bulb URDF differs significantly in size, override via task YAML or Hydra.
-                random_noise_x, random_noise_y = np.random.uniform(
-                    0, 0.0075
-                ), np.random.uniform(0, 0.0075)
-                self.object_x, self.object_y, self.object_z = (
-                    0.009 + random_noise_x,
-                    0.06 + random_noise_y,
-                    0,
-                )
-            elif self.config["env"]["initPose"] == "screwdriver_inclined":
-                random_noise_x, random_noise_y = np.random.uniform(
-                    0, 0.0075
-                ), np.random.uniform(0, 0.0075)
-                self.object_x, self.object_y, self.object_z = (
-                    0.009 + random_noise_x,
-                    0.06 + random_noise_y,
-                    0,
+                    self._sample_object_init_pos()
                 )
 
             sampled_pose[:, self.numActions + 0] = (
@@ -1767,8 +1747,9 @@ class XHandPasini(VecTask):
             json.dump(payload, f, indent=2)
 
         print(f"[dump_current_pose] wrote: {out_path}")
+        task_name = str(self.config.get("name", "XHandPasini<CurrentTask>"))
         print(
-            "[dump_current_pose] copy this into configs/task/XHandPasiniScrewDriver.yaml -> env.customInitDofPos"
+            f"[dump_current_pose] copy suggested_config_override into configs/task/{task_name}.yaml -> env.customInitDofPos"
         )
         return out_path
         self.obs_dict["priv_info"] = self.priv_info_buf.to(self.rl_device)
@@ -2188,6 +2169,32 @@ class XHandPasini(VecTask):
         print("---- Object List ----")
         print(f"using {len(self.object_type_list)} training objects")
         assert len(self.object_type_list) == len(self.object_type_prob)
+
+    def _default_object_init_pos(self):
+        if self.config["env"]["initPose"] == "nutbolt_inclined":
+            return [0.0175, 0.06, 0.0]
+        if self.config["env"]["initPose"] in (
+            "bulb_inclined",
+            "lightbulb_inclined",
+            "screwdriver_inclined",
+        ):
+            return [0.009, 0.06, 0.0]
+        raise ValueError(
+            f"Unsupported initPose for object initialization: {self.config['env']['initPose']}"
+        )
+
+    def _sample_object_init_pos(self):
+        object_cfg = self.config["env"]["object"]
+        base_pos = np.asarray(
+            object_cfg.get("init_pos", self._default_object_init_pos()),
+            dtype=np.float32,
+        )
+        noise_scale = np.asarray(
+            object_cfg.get("init_pos_noise", [0.0075, 0.0075, 0.0]),
+            dtype=np.float32,
+        )
+        sampled = base_pos + np.random.uniform(0.0, 1.0, size=3) * noise_scale
+        return float(sampled[0]), float(sampled[1]), float(sampled[2])
 
     def _allocate_task_buffer(self, num_envs):
         # extra buffers for observe randomized params

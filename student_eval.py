@@ -8,9 +8,13 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
 
-from dexscrew.algo.ppo.padapt import ProprioAdapt
-from dexscrew.algo.ppo.pure_bc import PureBC
-from dexscrew.algo.ppo.diffusion_latent_student import DiffusionLatentStudent
+from dexscrew.algo.student import (
+    ProprioAdapt,
+    PureBC,
+    DiffusionLatentStudent,
+    ConsistencyLatentStudent,
+    FlowMatchingLatentStudent,
+)
 from dexscrew.algo.ppo.diffusion_action_chunk_student import DiffusionActionChunkStudent
 from dexscrew.tasks import isaacgym_task_map
 from dexscrew.utils.reformat import omegaconf_to_dict, print_dict
@@ -74,7 +78,15 @@ def export_jit_model(agent, output_dir: str, obs_dict=None, jit_output_name: str
     if hasattr(agent, 'point_cloud_mean_std'):
         agent.point_cloud_mean_std = agent.point_cloud_mean_std.cpu()
 
-    if isinstance(agent, (DiffusionLatentStudent, DiffusionActionChunkStudent)):
+    if isinstance(
+        agent,
+        (
+            DiffusionLatentStudent,
+            DiffusionActionChunkStudent,
+            ConsistencyLatentStudent,
+            FlowMatchingLatentStudent,
+        ),
+    ):
         raise ValueError(
             "Diffusion student JIT export is not supported in student_eval.py yet. "
             "This export path would bypass diffusion sampling semantics."
@@ -125,7 +137,10 @@ def main(config: DictConfig):
 
     output_dif = os.path.join('outputs', config.train.ppo.output_name)
     os.makedirs(output_dif, exist_ok=True)
-    agent = eval(config.train.algo)(env, output_dif, full_config=config, student_dim=24)
+    student_dim = int(config.train.ppo.get("proprio_dim", env.num_actions * 2))
+    agent = eval(config.train.algo)(
+        env, output_dif, full_config=config, student_dim=student_dim
+    )
     agent.restore_test(config.train.load_path)
 
     
@@ -138,7 +153,14 @@ def main(config: DictConfig):
         step_c = 0
         
         while step_c < 3:
-            if isinstance(agent, DiffusionLatentStudent):
+            if isinstance(
+                agent,
+                (
+                    DiffusionLatentStudent,
+                    ConsistencyLatentStudent,
+                    FlowMatchingLatentStudent,
+                ),
+            ):
                 student_obs = obs_dict['obs']
                 proprio_hist = agent.sa_mean_std(obs_dict['proprio_hist'])
                 obs = agent.running_mean_std(student_obs)

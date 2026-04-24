@@ -46,13 +46,14 @@ class ActorCritic(nn.Module):
         self.priv_info = kwargs['priv_info']
         self.priv_info_stage2 = kwargs['proprio_adapt']
         self.proprio_len = kwargs.get('proprio_len', 30)
+        self.proprio_dim = kwargs.get('proprio_dim', 24)
 
         if self.priv_info:
             policy_input_dim += self.priv_mlp[-1]
             # the output of env_mlp and proprioceptive regression should both be before activation
             self.env_mlp = MLP(units=self.priv_mlp, input_size=kwargs['priv_info_dim'], with_last_activation=False)
             if self.priv_info_stage2:
-                temporal_fusing_input_dim = 24
+                temporal_fusing_input_dim = self.proprio_dim
                 temporal_fusing_output_dim = 8
                 if self.use_point_cloud_info:
                     temporal_fusing_output_dim += 32

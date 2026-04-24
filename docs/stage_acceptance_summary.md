@@ -333,3 +333,273 @@
 | purebc | nominal | 1.882908 | 0.437617 | 0.001302 | 0.000199 |
 | purebc | light_v2 | 2.190508 | 0.123747 | 0.001329 | 0.000214 |
 | purebc | hard | 1.849765 | 0.033950 | 0.001411 | 0.000307 |
+
+## PLANS_v4 Closure Snapshot (2026-04-15)
+
+- final_status: `completed_suspend` (governance-confirmed)
+- plan_doc: `PLANS_v4.md`
+- final_verdict_doc: `docs/plansv4_m3_final_verdict.md`
+- thesis_bundle_doc: `docs/plansv4_thesis_result_bundle.md`
+- thesis_subsection_draft: `docs/plansv4_thesis_results_subsection_draft.md`
+
+### Key Gate Facts (Seed42, steps=256)
+
+- V3 candidates: `6/6 FAIL` (all under buggy code)
+- V4-M0 bug-fixed baseline: `FAIL`
+  - `nominal=1.738804`, `light_v2=1.588133`, `hard=1.367269`, `hard_done=0.002279`
+  - `delta_hard_vs_v3m0=-0.137635` (hard-stop triggered: `< -0.10`)
+- Overall V3+V4 candidates under single-seed gate: `7/7 FAIL`
+
+### Current Recommended Baseline Positioning
+
+- keep_mainline_baseline: `padapt`
+- diffusion_positioning: `controlled_negative_result`
+- execution_policy: `freeze_diffusion_extension_under_current_scope`
+
+## PLANS_v5 Closure Snapshot (2026-04-15)
+
+- final_status: `completed_conclude`
+- plan_doc: `PLANS_v5.md`
+- final_verdict_doc: `docs/plansv5_m4_final_verdict.md`
+- protocol: `seed=42`, `steps=256`, `nominal + light_v2 + hard`
+
+### Key Gate Facts
+
+- consistency direction:
+  - `consistency_baseline`: reward deltas all positive, but `hard_done_delta=+0.000814` (FAIL)
+  - `consistency_no_bc`: hard/light reward deltas both negative (FAIL)
+  - explicit `infer_steps=2` eval-only check: `hard_done_delta=+0.001465` (FAIL)
+- flow direction:
+  - `flow_baseline`: `hard_delta=-0.137491` and `hard_done_delta=+0.000814` (FAIL)
+- overall:
+  - single-seed initial gate pass count: `0`
+  - `V5-M3` multiseed phase未触发（无初筛通过候选）
+
+### Current Recommended Baseline Positioning
+
+- keep_mainline_baseline: `padapt`
+- diffusion_positioning: `family_partial_signal_but_gate_fail`
+- execution_policy: `freeze_v5_under_current_gate_definition`
+
+## PLANS_v5_5 Closure Snapshot (2026-04-15)
+
+- final_status: `completed_accept`
+- plan_doc: `PLANS_v5_5.md`
+- final_verdict_doc: `docs/plansv5_5_final_verdict.md`
+- accepted_candidate: `consistency_boundary_bc_tuned`
+- accepted_ckpt: `outputs/XHandHoraScrewDriver_student_consistency/v5_5_m1_boundary_bc_tuned_seed42_15min/stage2_consistency_nn/model_best.ckpt`
+
+### Accepted Config Overrides
+
+- `+train.ppo.consistency_boundary_coef=0.8`
+- `+train.ppo.consistency_num_scales=16`
+- `+train.ppo.bc_loss_coef=1.2`
+
+### Key Gate Facts
+
+- M1 candidates:
+  - A `action_l2_stable`: primary PASS, anti-regression FAIL (`hard reward`回撤超阈值)
+  - B `anchor_l2_combo`: primary FAIL (`light_v2`), anti-regression FAIL
+  - C `boundary_bc_tuned`: primary PASS + anti-regression PASS
+- M2 multiseed (candidate C, seeds 42/43/44):
+  - nominal mean `2.336284` (delta vs V3-M0 `+0.661172`)
+  - light_v2 mean `2.044725` (delta `+0.406459`)
+  - hard mean `1.714471` (delta `+0.209567`)
+  - hard done mean `0.001601` (`<=0.002372` pass)
+
+### Current Recommended Baseline Positioning
+
+- keep_mainline_baseline: `padapt`
+- promoted_diffusion_candidate: `consistency_boundary_bc_tuned` (accepted under V5.5 gate)
+- execution_policy: `use_v5_5_accept_candidate_for_next_consistency_reference`
+
+## PLANS_v6 Closure Snapshot (2026-04-16)
+
+- final_status: `completed_conclude`
+- plan_doc: `PLANS_v6.md`
+- final_verdict_doc: `docs/plansv6_final_verdict.md`
+- protocol: `seed=42`, `steps=256`, `nominal + light_v2 + hard`
+
+### Key Gate Facts
+
+- M1 probes:
+  - `capacity_boost`: hard `1.255473` (FAIL, `<1.780`)
+  - `longer_train`: hard `1.415326` (FAIL, `<1.780`)
+  - `lr_schedule`: hard `1.335743` (FAIL, `<1.780`)
+  - triggered `M1 -> M3` stop rule (`hard_delta_vs_v55_seed42 < +0.02` for all probes)
+- M3 code-level candidates:
+  - `obs_noise_curriculum`: hard `1.387970` (FAIL, `<1.780`)
+  - `infer2_align`: hard `1.622737` (FAIL, `<1.780`)
+  - `ema_target`: hard `1.723353` (best in M3 but still FAIL, `<1.780`)
+- overall:
+  - no candidate met `hard >= 1.780` precondition
+  - `M4` multiseed phase not triggered
+  - `PLANS_v6` final decision = `Conclude`
+
+### Current Recommended Baseline Positioning
+
+- keep_mainline_baseline: `padapt`
+- consistency_positioning: `competitive_secondary_but_not_hard_surpass`
+- execution_policy: `freeze_v6_and_prepare_next_plan_if_scope_changes`
+
+## PLANS_v7 Closure Snapshot (2026-04-16)
+
+- final_status: `completed_conclude`
+- plan_doc: `PLANS_v7.md`
+- final_verdict_doc: `docs/plansv7_final_verdict.md`
+- protocol: `seed=42`, `steps=256`, `nominal + light_v2 + hard`
+- corrected_single_seed_hard_gate: `1.733` (`1.838225 - 0.105458 = 1.732767`)
+
+### Key Gate Facts
+
+- V7-M1 EMA recheck on existing best V6 EMA candidate:
+  - `hard = 1.608308`, `hard_done = 0.001628`
+  - FAIL (`<1.733`)
+- V7-M2 candidate A `ema_obs_combo_seed42_15min`:
+  - nominal `0.211057`, light_v2 `0.296649`, hard `0.355474`
+  - FAIL by large margin
+- V7-M2 candidate B `ema_target_seed42_30min`:
+  - `model_best.ckpt` sha1 identical to candidate A
+  - nominal `0.211057`, light_v2 `0.296649`, hard `0.355474`
+  - FAIL; 30min EMA-only 未产生新 best artifact
+- V7-M2 candidate C `ema_alignfix_seed42_15min`:
+  - nominal `1.124038`, light_v2 `1.177704`, hard `1.135807`
+  - FAIL; 尽管训练信号改善，deploy reward 仍明显低于 gate
+- overall:
+  - single-seed entry pass count: `0`
+  - candidate D: `not_triggered`
+  - multiseed M3: `not_triggered`
+
+### Current Recommended Baseline Positioning
+
+- keep_mainline_baseline: `padapt`
+- strongest_consistency_reference: `V5.5 consistency_boundary_bc_tuned`
+- consistency_positioning: `bounded_risk_closure_complete_but_no_hard_gate_breakthrough`
+- execution_policy: `accept_v7_conclude_and_freeze_consistency_extension_under_current_scope`
+
+## PLANS_v8 Closure Snapshot (2026-04-17)
+
+- final_status: `completed_conclude`
+- plan_doc: `PLANS_v8.md`
+- final_verdict_doc: `docs/plansv8_final_verdict.md`
+- protocol: `seed=42`, `steps=256`, `nominal + light_v2 + hard`
+
+### Key Gate Facts
+
+- M0 compatibility:
+  - old `v5_m2_flow_baseline` remains numerically stable under the new code path
+- M1 eval-only probes:
+  - `infer2`: nominal `1.805502`, light_v2 `1.681982`, hard `1.428555`
+  - `infer4`: nominal `1.885794`, light_v2 `1.640372`, hard `1.189338`
+  - interpretation: `infer2 > infer4` on robust conditions, but both remain below continue-worthy level
+- M2 fresh candidates:
+  - `zeroinit_bc12`: nominal `0.992769`, light_v2 `0.921589`, hard `1.020256`
+  - `align2_rollout`: nominal `1.082436`, light_v2 `1.108353`, hard `0.750190`
+  - `align2_anchor`: nominal `1.000670`, light_v2 `0.923009`, hard `0.953265`
+  - `align2_bcheavy`: nominal `1.124580`, light_v2 `1.055061`, hard `1.053348`
+  - `align4_rollout`: nominal `1.114895`, light_v2 `1.152107`, hard `1.079496`
+- overall:
+  - best fresh candidate = `align4_rollout`
+  - no candidate met the single-seed continue gate:
+    - `nominal >= 1.95`
+    - `light_v2 >= 1.70`
+    - `hard >= 1.55`
+    - `hard_done <= 0.002372`
+  - `M2.5` 30min extension: `not_triggered`
+  - `M3` multiseed: `not_triggered`
+
+### Current Recommended Baseline Positioning
+
+- keep_mainline_baseline: `padapt`
+- strongest_accepted_diffusion_reference: `V5.5 consistency_boundary_bc_tuned`
+- flow_positioning: `recovery_sprint_completed_but_not_continue_worthy_under_current_scope`
+- execution_policy: `accept_v8_conclude_and_freeze_flow_extension_under_current_scope`
+
+## PLANS_v9 Closure Snapshot (2026-04-17)
+
+- final_status: `completed_smoke_accept`
+- plan_doc: `PLANS_v9.md`
+- final_verdict_doc: `docs/plansv9_final_verdict.md`
+- comparable_protocol: `teacher smoke + student 64-step no-noise eval`
+
+### Key Gate Facts
+
+- engineering / wiring:
+  - `Dexh13HoraLightbulb` and `XHandHoraLightbulb` both instantiate and reset in Docker Isaac Gym
+  - 5 core students all construct on both tasks
+  - old path regression stayed alive
+- `XHandHoraLightbulb`:
+  - teacher smoke PASS (`~ -655 -> -46.5`)
+  - student smoke evals:
+    - `ProprioAdapt`: `-5.448445`
+    - `PureBC`: `-5.379851`
+    - `DiffusionLatentStudent`: `-5.226565`
+    - `ConsistencyLatentStudent`: `-5.652328`
+    - `FlowMatchingLatentStudent`: `-5.256454`
+- `Dexh13HoraLightbulb`:
+  - default teacher smoke FAIL (`~ -5.6k -> -8.5k`)
+  - root-position-only probes FAIL
+  - reward-relaxed teacher smoke PASS (`~ -705 ~ -769`)
+  - student smoke evals:
+    - `ProprioAdapt`: `-9.051320`
+    - `PureBC`: `-9.049654`
+    - `DiffusionLatentStudent`: `-9.163227`
+    - `ConsistencyLatentStudent`: `-9.187637`
+    - `FlowMatchingLatentStudent`: `-9.202663`
+- common bug closure:
+  - stage2 `TemporalConv` input dim no longer hardcodes `24`
+  - now follows `train.ppo.proprio_dim`, which unblocks `Dexh13` student smoke
+
+### Current Recommended Baseline Positioning
+
+- keep_mainline_baseline: `padapt`
+- current_smoke_matrix_status: `accepted_for_lightbulb_transfer_validation`
+- new_task_positioning:
+  - `XHandHoraLightbulb`: smoke-stable teacher/student chain
+  - `Dexh13HoraLightbulb`: smoke-stable after light reward relaxation
+- execution_policy: `close_v9_and_only_open_new_plan_for_longer-run ranking work`
+
+## Mesh Lightbulb Teacher Retune Snapshot (2026-04-21)
+
+- scope: `mesh_stl_lightbulb_runtime` only
+- note:
+  - this snapshot is not directly comparable to the earlier primitive-runtime `PLANS_v9` smoke numbers
+  - runtime asset boundary must stay explicit in later reports
+
+### Key Facts
+
+- runtime cutover:
+  - `assets/screw/lightbulb/0000_lightbulb.urdf` now uses STL mesh + contact meshes from `assets/lightbulb/`
+  - `assets/lightbulb/0000_lightbulb.urdf` pathing also fixed for local viewer use
+- new task closure:
+  - `XHandPasiniLightbulb` added and trainable
+  - `Dexh13HoraLightbulb` mesh regression path still instantiates and trains, but was not advanced into the 5-run mainline
+
+### Best Teacher Tuning Outcomes
+
+| Task | Best Run | Best 5min Tail `mean_rewards` | Confirm Tail `mean_rewards` | Tuned Default |
+|---|---|---:|---:|---|
+| `XHandHoraLightbulb` | `mesh_r2_root_translation_5min` | `-12.503010` | `-12.503010` | `handRootPos=[0.0,0.004,0.206]` |
+| `XHandPasiniLightbulb` | `mesh_r1_object_align_5min` | `-69.932446` | `-73.043506` | `init_pos=[0.009,0.058,0.0]`, `init_pos_noise=[0.002,0.002,0.0]` |
+
+### Supporting Artifacts
+
+- `XHandHoraLightbulb`:
+  - best run dir: `outputs/XHandHoraLightbulb_teacher/mesh_r2_root_translation_5min/`
+  - confirm run dir: `outputs/XHandHoraLightbulb_teacher/mesh_hora_final_confirm_5min/`
+  - smoke ckpt: `outputs/XHandHoraLightbulb_teacher/mesh_hora_teacher_smoke_ckpt_60s/`
+- `XHandPasiniLightbulb`:
+  - best run dir: `outputs/XHandPasiniLightbulb_teacher/mesh_r1_object_align_5min/`
+  - confirm run dir: `outputs/XHandPasiniLightbulb_teacher/mesh_pasini_final_confirm_5min/`
+  - pose dump: `outputs/pose_dumps/pasini_pose_env0_1776763821720.json`
+  - smoke ckpt: `outputs/XHandPasiniLightbulb_teacher/mesh_pasini_teacher_smoke_ckpt_60s/`
+
+### Current Recommended Baseline Positioning
+
+- `XHandHoraLightbulb(mesh)`:
+  - teacher-side initPose retune complete under the current bounded 5-run protocol
+- `XHandPasiniLightbulb(mesh)`:
+  - teacher-side initPose retune complete, but stability is weaker than `Hora`
+- execution_policy:
+  - freeze these tuned teacher defaults
+  - only continue with student smoke / ranking under the mesh-runtime boundary

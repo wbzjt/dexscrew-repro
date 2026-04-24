@@ -63,6 +63,8 @@ pnpm-debug.log*
 # Environment
 .env
 .env.*
+.config/codex/
+.envrc
 
 
 ############################

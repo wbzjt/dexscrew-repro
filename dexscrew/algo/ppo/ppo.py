@@ -155,6 +155,17 @@ class PPO(object):
         self.max_agent_steps = self.ppo_config["max_agent_steps"]
         self.test_num_steps = int(full_config.get("test_num_steps", 0))
         self.best_rewards = -10000
+        self.best_reward_epoch = 0
+        self.best_reward_step = 0
+        self.best_reward_wallclock_sec = 0.0
+        self.epochs_since_improvement = 0
+        self.early_stop_patience = int(self.ppo_config.get("early_stop_patience", 0))
+        self.early_stop_min_improvement = float(
+            self.ppo_config.get("early_stop_min_improvement", 0.0)
+        )
+        self.early_stop_min_agent_steps = int(
+            self.ppo_config.get("early_stop_min_agent_steps", 0)
+        )
         # ---- Timing
         self.data_collect_time = 0
         self.rl_train_time = 0
@@ -273,6 +284,7 @@ class PPO(object):
         _last_t = time.time()
         self.obs = self.env.reset()
         self.agent_steps = self.batch_size
+        early_stopped = False
 
         while self.agent_steps < self.max_agent_steps:
             self.epoch_num += 1
@@ -293,35 +305,49 @@ class PPO(object):
             all_fps = self.agent_steps / (time.time() - _t)
             last_fps = self.batch_size / (time.time() - _last_t)
             _last_t = time.time()
+            has_episode_stats = len(self.episode_rewards) > 0
+            current_best_str = (
+                f"{self.best_rewards:.2f}" if has_episode_stats and self.best_reward_epoch > 0 else "N/A"
+            )
             info_string = (
                 f"Agent Steps: {int(self.agent_steps // 1e6):04}M | FPS: {all_fps:.1f} | "
                 f"Last FPS: {last_fps:.1f} | "
                 f"Collect Time: {self.data_collect_time / 60:.1f} min | "
                 f"Train RL Time: {self.rl_train_time / 60:.1f} min | "
-                f"Current Best: {self.best_rewards:.2f}"
+                f"Current Best: {current_best_str}"
             )
             print(info_string)
 
             self.write_stats(a_losses, c_losses, b_losses, entropies, kls, grad_norms)
-            mean_rewards = self.episode_rewards.get_mean()
-            mean_lengths = self.episode_lengths.get_mean()
-            self.writer.add_scalar(
-                "episode_rewards/step", mean_rewards, self.agent_steps
-            )
-            self.writer.add_scalar(
-                "episode_lengths/step", mean_lengths, self.agent_steps
-            )
+            mean_rewards = self.episode_rewards.get_mean() if has_episode_stats else float("nan")
+            mean_lengths = self.episode_lengths.get_mean() if has_episode_stats else float("nan")
+            elapsed_sec = time.time() - _t
+            if has_episode_stats:
+                self.writer.add_scalar(
+                    "episode_rewards/step", mean_rewards, self.agent_steps
+                )
+                self.writer.add_scalar(
+                    "episode_lengths/step", mean_lengths, self.agent_steps
+                )
             checkpoint_name = f"ep_{self.epoch_num}_step_{int(self.agent_steps // 1e6):04}m_reward_{mean_rewards:.2f}"
+            significant_improvement = has_episode_stats and (
+                self.best_reward_epoch == 0
+                or mean_rewards > (self.best_rewards + self.early_stop_min_improvement)
+            )
 
             if self.save_freq > 0:
-                if (self.epoch_num % self.save_freq == 0) and (
+                if has_episode_stats and (self.epoch_num % self.save_freq == 0) and (
                     mean_rewards <= self.best_rewards
                 ):
                     self.save(os.path.join(self.nn_dir, checkpoint_name))
                     self.save(os.path.join(self.nn_dir, f"last"))
             print("mean_rewards: ", mean_rewards)
             if (
-                mean_rewards > self.best_rewards
+                has_episode_stats
+                and (
+                    self.best_reward_epoch == 0
+                    or mean_rewards > self.best_rewards
+                )
                 and self.agent_steps >= self.save_best_after
             ):
                 print(f"save current best reward: {mean_rewards:.2f}")
@@ -329,12 +355,64 @@ class PPO(object):
                 prev_best_ckpt = os.path.join(
                     self.nn_dir, f"best_reward_{self.best_rewards:.2f}.pth"
                 )
-                if os.path.exists(prev_best_ckpt):
+                if self.best_reward_epoch > 0 and os.path.exists(prev_best_ckpt):
                     os.remove(prev_best_ckpt)
                 self.best_rewards = mean_rewards
+                self.best_reward_epoch = self.epoch_num
+                self.best_reward_step = int(self.agent_steps)
+                self.best_reward_wallclock_sec = elapsed_sec
                 self.save(os.path.join(self.nn_dir, f"best_reward_{mean_rewards:.2f}"))
+            if significant_improvement and self.best_reward_epoch > 0:
+                self.epochs_since_improvement = 0
+            elif has_episode_stats and self.best_reward_epoch > 0:
+                self.epochs_since_improvement += 1
 
-        print("max steps achieved")
+            if has_episode_stats and self.best_reward_epoch > 0:
+                self.writer.add_scalar(
+                    "info/best_reward", self.best_rewards, self.agent_steps
+                )
+                self.writer.add_scalar(
+                    "info/best_reward_epoch", self.best_reward_epoch, self.agent_steps
+                )
+                self.writer.add_scalar(
+                    "info/best_reward_step", self.best_reward_step, self.agent_steps
+                )
+                self.writer.add_scalar(
+                    "info/best_reward_elapsed_min",
+                    self.best_reward_wallclock_sec / 60.0,
+                    self.agent_steps,
+                )
+            self.writer.add_scalar(
+                "info/epochs_since_improvement",
+                self.epochs_since_improvement,
+                self.agent_steps,
+            )
+
+            if (
+                has_episode_stats
+                and self.early_stop_patience > 0
+                and self.best_reward_epoch > 0
+                and self.agent_steps
+                >= max(self.save_best_after, self.early_stop_min_agent_steps)
+                and self.epochs_since_improvement >= self.early_stop_patience
+            ):
+                print(
+                    "EarlyStopSummary "
+                    f"reason=no_improvement patience={self.early_stop_patience} "
+                    f"min_improvement={self.early_stop_min_improvement:.6f} "
+                    f"best_reward={self.best_rewards:.6f} "
+                    f"best_epoch={self.best_reward_epoch} "
+                    f"best_agent_steps={self.best_reward_step} "
+                    f"best_elapsed_min={self.best_reward_wallclock_sec / 60.0:.2f}"
+                )
+                self.save(os.path.join(self.nn_dir, "last"))
+                early_stopped = True
+                break
+
+        if early_stopped:
+            print("training stopped by early stop")
+        else:
+            print("max steps achieved")
 
     def save(self, name):
         weights = {

@@ -216,8 +216,8 @@ Start date: 2026-03-24.
   - padapt: nominal `2.167820±0.182929`, light_v2 `2.079074±0.102648`, hard `1.838225±0.105458`
   - purebc: nominal `1.882908±0.437617`, light_v2 `2.190508±0.123747`, hard `1.849765±0.033950`
   - reward deltas (latent as anchor):
-    - vs padapt: nominal `-0.104952`, light_v2 `-0.290429`, hard `-0.265750`
-    - vs purebc: nominal `+0.179959`, light_v2 `-0.401863`, hard `-0.277290`
+  - vs padapt: nominal `-0.104952`, light_v2 `-0.290429`, hard `-0.265750`
+  - vs purebc: nominal `+0.179959`, light_v2 `-0.401863`, hard `-0.277290`
 
 ### Remaining blocked/risky
 - M3 result is generated from unified existing evidence; no new latent training run was added in this step.
@@ -229,6 +229,34 @@ Start date: 2026-03-24.
   - define residual target explicitly (relative to current student action),
   - report residual magnitude distribution and normalization/scaling scheme,
   - run at least nominal sanity eval to confirm residual branch is trainable and evaluable.
+
+---
+
+## v2-109 (2026-04-22) — Local Codex Model Effort Config Update
+
+### Target milestone/subgoal
+- Local execution environment adjustment requested by user: set project Codex default reasoning effort to `xhigh`.
+
+### What changed (files + behavior impact)
+- `.config/codex/config.toml`
+  - Kept `model = "gpt-5.4"` unchanged.
+  - Changed `model_reasoning_effort` from `medium` to `xhigh`.
+  - Behavior impact: newly started Codex sessions in this project should default to `gpt-5.4` with `xhigh` reasoning effort; the current already-running session does not hot-switch itself.
+
+### What was verified (commands + key outcomes)
+- `sed -n '1,220p' .config/codex/config.toml`
+  - Outcome before edit: `model = "gpt-5.4"`, `model_reasoning_effort = "medium"`.
+- `sed -n '1,40p' .config/codex/config.toml`
+  - Outcome after edit: `model = "gpt-5.4"`, `model_reasoning_effort = "xhigh"`.
+- `rg -n "model|reasoning|effort|xhigh|5\\.4" .config/codex -g '!*.sqlite*' -g '!sessions/**' -g '!history.jsonl'`
+  - Outcome: active project config source confirmed as `.config/codex/config.toml`.
+
+### Remaining blocked/risky
+- Current live session remains on the reasoning level it was started with; a new session/restart is required for the `xhigh` default to take effect.
+- Provider-side limits or fallback behavior, if any, are external to repo config and were not exercised here.
+
+### Single recommended next step
+- Restart or open a new Codex session in this project and confirm the session context reports `model=gpt-5.4` and `reasoning_effort=xhigh`.
 
 ---
 
@@ -4490,3 +4518,2645 @@ Start date: 2026-03-24.
 
 ### Single recommended next step
 - 继续沿当前实验主线推进（full-budget 单变量探针），并在形成新结论后回写同口径解释，保持“实现-文档-证据”一致。
+
+---
+
+## v2-081 (2026-04-14) — Plan v3 草案创建（治理切换提案）
+
+### Target milestone/subgoal
+- 按用户请求起草 `Plan v3`，用于回应 v2 后段“连续 reject、边际收益下降”的执行现实。
+
+### What changed (files + behavior impact)
+- 新增治理草案：
+  - `PLANS_v3.md`
+- 草案内容包含：
+  - v3 生效说明（草案/待确认）
+  - 为什么需要 v3（从局部调参转向假设驱动）
+  - v3 目标、范围边界、hard-first gate 与止损规则
+  - Mainline A/B、里程碑 V3-M0~M4
+  - 首批实验包（方向级）
+  - 退出条件
+- 无代码逻辑改动。
+
+### What was verified (commands + key outcomes)
+- 文件存在检查：
+  - `ls -1 | rg '^PLANS.*\\.md$'`
+  - outcome: `PLANS_v3.md` 已创建。
+- 内容检查：
+  - 草案已明确“确认前仍以 v2 为主计划”的边界，避免与现行执行权威冲突。
+
+### Remaining blocked/risky
+- `PLANS_v3.md` 当前是草案，不应被自动视为已生效主计划。
+- 若要正式切换，需要用户/治理明确确认。
+
+### Single recommended next step
+- 由用户确认是否将 `PLANS_v3.md` 升格为当前执行主计划；确认后再把 v3 的 M0（reference 冻结 + 首批方向实验）落为具体命令清单并开始执行。
+
+---
+
+## v2-082 (2026-04-14) — Plan v3 M1 / Mainline A 三候选完成并触发方向冻结
+
+### Target milestone/subgoal
+- 按 `PLANS_v3.md` 执行 `V3-M1`（Mainline A，最多 3 候选）：
+  - `A1` staged_te（light 对齐）；
+  - `A2` staged_hold_te（hard 对齐）；
+  - `A3` linear（mid target，平滑过渡）。
+- 使用统一 single-seed gate（`seed=42`, `steps=256`, `nominal/light_v2/hard`）判定是否入围 multiseed。
+
+### What changed (files + behavior impact)
+- 治理与冻结文档（已落盘）：
+  - `PLANS_v3.md`（active 状态）
+  - `docs/plansv3_m0_freeze.md`（reference hash + eval protocol freeze）
+- 新增训练产物：
+  - `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v3a1_curriculum_stagedte_seed42_full/`
+  - `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v3a2_curriculum_stagedhold_hardtarget_seed42_full/`
+  - `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v3a3_curriculum_linear_midtarget_seed42_full/`
+- 新增 single-seed eval 日志：
+  - `outputs/robustness_eval/plansv3_m1_a1_curriculum_stagedte_seed42/`
+  - `outputs/robustness_eval/plansv3_m1_a2_curriculum_stagedhold_hardtarget_seed42/`
+  - `outputs/robustness_eval/plansv3_m1_a3_curriculum_linear_midtarget_seed42/`
+- 代码逻辑无修改；本次为执行与证据推进。
+
+### What was verified (commands + key outcomes)
+- 统一 reference（frozen）：
+  - ckpt hash: `31150d26646911325cac2aa408d3d42fdd4640a7`
+  - reference seed42: nominal `1.675112/0.001302`, light_v2 `1.638266/0.001383`, hard `1.504904/0.001872`（reward/done）
+- `A1`（hash `f9f26a54be974c01052c6f75f12feb19111113cb`, Current Best max `1873.51`）：
+  - reward delta vs ref: nominal `+0.190914`, light_v2 `+0.131123`, hard `-0.152663`
+  - hard done delta: `+0.000569`
+  - gate: **FAIL**（hard reward / hard done 超阈）
+- `A2`（hash `137c7fed4bc18085f6b44cc2477a4df615be5270`, Current Best max `1795.56`）：
+  - reward delta vs ref: nominal `-0.181735`, light_v2 `-0.253708`, hard `-0.315135`
+  - hard done delta: `+0.000488`
+  - gate: **FAIL**（hard/light reward 超阈）
+- `A3`（hash `6aae8c6cafb7945f205c575f2c1e159a1a7b847b`, Current Best max `1846.47`）：
+  - reward delta vs ref: nominal `-0.030013`, light_v2 `-0.045582`, hard `-0.051875`
+  - hard done delta: `+0.000244`
+  - gate: **FAIL**（hard reward 仅超阈 `0.001875`）
+- 方向判定（v3 止损）：
+  - Mainline A 连续 3 候选 single-seed gate 失败，按规则触发 **方向 A 冻结**，不进入 multiseed。
+
+### Local decision
+- `V3-M1`（Mainline A）完成，且结果为 **freeze**：
+  - A1/A2/A3 均未通过 single-seed hard-first gate。
+- 当前不存在“可进入 multiseed 的 A 候选”。
+
+### Remaining blocked/risky
+- 现有课程策略方向仍复现“训练信号可高、统一 robust gate 不过”的模式。
+- 若继续在 A 方向重复细调，预期边际收益低且 reject 风险高。
+
+### Single recommended next step
+- 按 `PLANS_v3.md` 切换至 `Mainline B`（Residual-Corrective Re-entry）执行 `B1`：
+  - 单候选、full-budget、同 gate 的最小验证，
+  - 仅启用小规模 residual corrective（不扩展大架构），
+  - 若仍失败则累计 B 方向止损计数。
+
+---
+
+## v2-083 (2026-04-14) — Plan v3 Mainline B 三候选完成并触发方向冻结（v3 退出条件满足）
+
+### Target milestone/subgoal
+- 执行 `PLANS_v3.md` 的 Mainline B（Residual-Corrective Re-entry），完成最多 3 个候选：
+  - `B1`: residual `scale=0.5`（保留 near-reference tail/anchor）
+  - `B2`: residual `scale=1.0`（保留 near-reference tail/anchor）
+  - `B3`: residual `scale=1.0` + 去除 tail/anchor（`tail_coef=0.0`, `anchor=0.0`）
+- 对每个候选执行 full-budget 训练 + `seed42` 三条件 gate（`nominal/light_v2/hard`, `steps=256`）。
+
+### What changed (files + behavior impact)
+- 新增训练产物：
+  - `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v3b1_residual_scale05_seed42_full/`
+  - `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v3b2_residual_scale10_seed42_full/`
+  - `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v3b3_residual_notail_seed42_full/`
+- 新增 single-seed eval 日志：
+  - `outputs/robustness_eval/plansv3_m2_b1_residual_scale05_seed42/`
+  - `outputs/robustness_eval/plansv3_m2_b2_residual_scale10_seed42/`
+  - `outputs/robustness_eval/plansv3_m2_b3_residual_notail_seed42/`
+- 代码逻辑未改动；本条为实验执行与证据推进。
+
+### What was verified (commands + key outcomes)
+- 统一 frozen reference：
+  - hash: `31150d26646911325cac2aa408d3d42fdd4640a7`
+  - seed42: nominal `1.675112/0.001302`, light_v2 `1.638266/0.001383`, hard `1.504904/0.001872`
+- `B1`（hash `924ecaa75b42b70a86c70c68cd3fc34ad12f073f`, Current Best max `1785.28`）：
+  - deltas vs reference:
+    - nominal `-0.284072` / done `+0.000407`
+    - light_v2 `-0.391142` / done `+0.000082`
+    - hard `-0.547112` / done `+0.000569`
+  - gate: **FAIL**（hard/light reward 与 hard done 全不满足）
+- `B2`（hash `f2c724215cb47d76608d8d47e5d647de59d08d25`, Current Best max `1925.01`）：
+  - deltas vs reference:
+    - nominal `-0.342622` / done `+0.000814`
+    - light_v2 `-0.417906` / done `+0.000407`
+    - hard `-0.352470` / done `+0.000732`
+  - gate: **FAIL**（hard/light reward 与 hard done 全不满足）
+- `B3`（hash `807e716754054cbaa31b586132f635ecade44a2b`, Current Best max `1796.88`）：
+  - deltas vs reference:
+    - nominal `-0.035265` / done `+0.000733`
+    - light_v2 `+0.151464` / done `+0.000000`
+    - hard `-0.161701` / done `+0.000244`
+  - gate: **FAIL**（hard reward 不满足）
+- 方向判定（v3 止损）：
+  - Mainline B 连续 3 候选 single-seed gate 失败，触发 **方向 B 冻结**。
+
+### Local decision
+- Mainline A（v2-082）已冻结 + Mainline B（本条）已冻结。
+- `PLANS_v3` 退出条件 2 已满足：
+  - “Mainline A/B 均触发止损冻结且无可接受候选”。
+
+### Remaining blocked/risky
+- 在当前仓库与当前 teacher-student 约束下，diffusion 扩张方向未出现可通过统一 gate 的替代候选。
+- 继续在同类局部空间重复搜索，预期收益低、计算成本高。
+
+### Single recommended next step
+- 进入 `V3-M4` 阶段收敛与治理回切：
+  - 维持 frozen reference（不替换），
+  - 输出面向 GPT 的治理问题单（是否暂停 diffusion 扩张并转论文收敛/对照结论）。
+
+---
+
+## v2-084 (2026-04-14) — Plan v4 M0 完整执行（bug-free baseline）并触发硬止损
+
+### Target milestone/subgoal
+- 按 `PLANS_v4.md` 执行 `V4-M0` 最小闭环：
+  - 语法可用性检查（bug-fix 代码）
+  - 使用 V3-M0 frozen config（seed=42, 15min budget）重训 bug-free baseline
+  - 统一协议评测 `nominal/light_v2/hard`（`steps=256`）
+  - 计算相对 V3-M0 与 PAdapt 的 delta，并做 single-seed gate 判定。
+
+### What changed (files + behavior impact)
+- 新增训练运行产物：
+  - `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v4m0_bugfix_seed42_15min/`
+- 新增训练日志：
+  - `outputs/v4_logs/v4_m0_bugfix_baseline_train_seed42.log`
+- 新增评测日志：
+  - `outputs/v4_logs/v4_m0_bugfix_eval_nominal_seed42.log`
+  - `outputs/v4_logs/v4_m0_bugfix_eval_lightv2_seed42.log`
+  - `outputs/v4_logs/v4_m0_bugfix_eval_hard_seed42.log`
+- 新增评测 cache 运行目录：
+  - `outputs/XHandHoraScrewDriver_eval_robustness/plansv4_m0_bugfix_baseline_nominal_seed42/`
+  - `outputs/XHandHoraScrewDriver_eval_robustness/plansv4_m0_bugfix_baseline_lightv2_seed42/`
+  - `outputs/XHandHoraScrewDriver_eval_robustness/plansv4_m0_bugfix_baseline_hard_seed42/`
+- 代码逻辑未新增改动；本条为执行与证据推进。
+
+### What was verified (commands + key outcomes)
+- 语法检查（避免 `__pycache__` 写权限问题，使用 `compile()` 无落盘方式）：
+  - `python - <<'PY' ... compile(src, file, 'exec') ... PY`
+  - outcome: `syntax_ok 4`
+- 训练命令（容器内，15min budget via `timeout 1000`）：
+  - `./docker-run-isaacgym.sh bash -lc '... timeout 1000 python train.py ...'`
+  - 关键 override：
+    - `train.algo=DiffusionLatentStudent`
+    - `train.ppo.output_name=XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v4m0_bugfix_seed42_15min`
+    - `+train.ppo.diffusion_teacher_delta_tail_coef=0.2`
+    - `+train.ppo.diffusion_teacher_delta_tail_threshold=0.15`
+    - `+train.ppo.diffusion_teacher_delta_tail_selective=True`
+    - `+train.ppo.diffusion_base_action_anchor_coef=0.03`
+  - outcome:
+    - 训练按预算超时结束（`exit_code=124`，非崩溃）
+    - `Current Best` 峰值约 `1891.38`
+    - best ckpt: `.../stage2_diffusion_nn/model_best.ckpt`
+- 关键 artifact 指纹：
+  - commit: `1f8d373fd695c04b52657ba82514ba41873903a0`
+  - config snapshot: `outputs/XHandHoraScrewDriver_student_diffusion_latent/run_a_latent_tailcoef02_thr015_sel_anchor003_v4m0_bugfix_seed42_15min/config_041415_1f8d373.yaml`
+  - ckpt sha1: `83bc317790da32d78273db13d9acb65da8249023`
+- 评测命令（三条件）：
+  - `bash scripts/eval_screwdriver_student_robustness.sh 0 42 DiffusionLatentStudent <ckpt> 256 plansv4_m0_bugfix_baseline_nominal_seed42`
+  - `bash scripts/eval_screwdriver_student_robustness.sh 0 42 DiffusionLatentStudent <ckpt> 256 plansv4_m0_bugfix_baseline_lightv2_seed42 task.env.randomization.obs_noise_e_scale=0.03 task.env.randomization.obs_noise_t_scale=0.015 task.env.forceScale=1.0 task.env.randomForceProbScalar=0.2`
+  - `bash scripts/eval_screwdriver_student_robustness.sh 0 42 DiffusionLatentStudent <ckpt> 256 plansv4_m0_bugfix_baseline_hard_seed42 task.env.randomization.obs_noise_e_scale=0.05 task.env.randomization.obs_noise_t_scale=0.025 task.env.forceScale=1.5 task.env.randomForceProbScalar=0.3`
+- seed42 指标（reward / done）：
+  - nominal: `1.738804 / 0.001465`
+  - light_v2: `1.588133 / 0.001790`
+  - hard: `1.367269 / 0.002279`
+- delta vs V3-M0 reference（primary gate）：
+  - nominal reward: `+0.063692`
+  - light_v2 reward: `-0.050133`
+  - hard reward: `-0.137635`
+  - hard done: `+0.000407`
+- delta vs PAdapt baseline（secondary）：
+  - nominal: `-0.429016`
+  - light_v2: `-0.490941`
+  - hard: `-0.470956`
+- single-seed gate 判定：
+  - `delta_hard >= -0.05` → **FAIL**
+  - `delta_light_v2 >= -0.08` → PASS
+  - `delta_done_hard <= +0.0005` → PASS
+  - overall: **FAIL**
+- V4 硬止损检查：
+  - `hard delta < -0.10` → **TRUE**（`-0.137635`）
+
+### Local decision
+- `V4-M0` 完成并得到 clean evidence。
+- 结果满足 `PLANS_v4` 硬止损规则（bug-fixed baseline hard 严重恶化），应直接从 `M0` 进入 `V4-M3`，不再继续 `M1/M2`。
+
+### Remaining blocked/risky
+- bug-fix 后 baseline 在 hard 条件显著回退，说明当前 diffusion 路径在统一 gate 下竞争力不足。
+- 若继续做同类局部消融，存在较高“额外计算投入但难改结论”的风险。
+
+### Single recommended next step
+- 执行 `V4-M3`：汇总 V3+V4 证据并输出 final verdict（`Accept/Suspend/Inconclusive` 三选一），建议当前证据优先走 `Suspend` 候选结论草案。
+
+---
+
+## v2-085 (2026-04-15) — Plan v4 M3 Final Verdict 完成（结论: Suspend）
+
+### Target milestone/subgoal
+- 在 `V4-M0` 触发硬止损后，按 `PLANS_v4.md` 执行 `V4-M3`：
+  - 汇总 V3 + V4 全部候选证据
+  - 产出 final verdict evidence block
+  - 给出 `Accept/Suspend/Inconclusive` 三选一结论与论文呈现建议。
+
+### What changed (files + behavior impact)
+- 新增 final verdict 文档：
+  - `docs/plansv4_m3_final_verdict.md`
+- 更新治理问题单（与 M3 结果对齐）：
+  - `codeagent_issue.md`
+- 代码与训练/eval 入口无改动；本条为证据收敛与治理收口。
+
+### What was verified (commands + key outcomes)
+- 读取计划约束并确认 M3 完成条件：
+  - `sed -n '200,360p' PLANS_v4.md`
+- 覆盖候选日志存在性检查：
+  - `find outputs/robustness_eval -maxdepth 2 -type d | rg 'plansv3_m1_a[123]|plansv3_m2_b[123]'`
+  - `ls -1 outputs/v4_logs | rg 'v4_m0_bugfix_eval_(nominal|lightv2|hard)_seed42\.log'`
+- 自动抽取 `EvalSummary` 并统一计算 gate/delta：
+  - `python - <<'PY' ... parse v3/v4 logs ... PY`
+  - outcome: V3 6 候选 + V4-M0 共 7 条记录全部 single-seed gate FAIL。
+- 生成并复核 M3 文档：
+  - `python - <<'PY' ... write docs/plansv4_m3_final_verdict.md ... PY`
+  - `sed -n '1,260p' docs/plansv4_m3_final_verdict.md`
+- 关键结论（来自 final verdict）：
+  - `V4-M0 hard delta = -0.137635 < -0.10`（命中硬止损）
+  - 无任一候选通过 single-seed gate
+  - 三选一结论：`Suspend`
+
+### Local decision
+- `V4-M3` 已完成，`PLANS_v4` 达到退出条件 2：
+  - “V4-M3 触发且 final verdict 完成 → 结论：Suspend 或 Inconclusive”。
+- 本地建议结论：`Suspend`（冻结 diffusion 扩张，保留 baseline/reference，不再在当前 scope 内追加训练候选）。
+
+### Remaining blocked/risky
+- 当前剩余为治理确认风险而非技术不确定性：
+  - 若不接受 `Suspend`，必须明确批准超出 V4 scope 的新路线（否则会重复低收益探索）。
+
+### Single recommended next step
+- 由治理层确认采纳 `Suspend`，随后将 `docs/plansv4_m3_final_verdict.md` 作为论文负结果/对照证据的主引用，并切换到报告整理任务。
+
+---
+
+## v2-086 (2026-04-15) — Governance 确认完成（Suspend 正式采纳）
+
+### Target milestone/subgoal
+- 在 `V4-M3` 完成后执行治理确认落盘：
+  - 将 `Suspend` 从“本地建议结论”升级为“已确认结论”
+  - 同步计划状态、verdict 文档与 issue 状态。
+
+### What changed (files + behavior impact)
+- 更新主计划状态：
+  - `PLANS_v4.md`
+  - `status: pending_activation -> completed_suspend`
+  - 新增 `completed_on` 与 `final_decision` 字段
+- 更新 final verdict 文档：
+  - `docs/plansv4_m3_final_verdict.md`
+  - 新增 `Governance Confirmation` 区块（记录确认日期与确认来源）
+- 更新治理问题单：
+  - `codeagent_issue.md`
+  - 新增 `Status=resolved`，并将 blocker 改为已解除、下一步改为写作证据整理
+
+### What was verified (commands + key outcomes)
+- 内容核验：
+  - `sed -n '1,60p' PLANS_v4.md`
+  - `sed -n '1,220p' codeagent_issue.md`
+  - `sed -n '1,260p' docs/plansv4_m3_final_verdict.md`
+- outcome:
+  - `PLANS_v4` 状态与结论一致（completed + suspend）
+  - `codeagent_issue.md` 已转 resolved 归档态
+  - `final_verdict` 已包含治理确认区块
+
+### Local decision
+- `PLANS_v4` 执行生命周期已闭环：技术证据完成 + 治理确认完成。
+- 当前 diffusion 扩张线在既定 scope 内正式冻结（Suspend）。
+
+### Remaining blocked/risky
+- 无当前未决技术 blocker。
+- 唯一风险是后续写作阶段若脱离证据文档口径，可能造成结论不一致。
+
+### Single recommended next step
+- 进入论文产出模式：以 `docs/plansv4_m3_final_verdict.md` 为主证据，整理结果段落与附录表格（V3+V4 汇总）。
+
+---
+
+## v2-087 (2026-04-15) — Thesis 证据整理包落地（V4 收敛后写作交付）
+
+### Target milestone/subgoal
+- 按 `v2-086` 推荐下一步，进入论文产出模式：
+  - 生成可直接引用的 V4 thesis result bundle
+  - 生成 subsection draft 与附录表格（CSV/LaTeX）
+  - 将 V4 闭环结论写入 stage acceptance 快照。
+
+### What changed (files + behavior impact)
+- 新增 V4 thesis bundle 文档：
+  - `docs/plansv4_thesis_result_bundle.md`
+- 新增 V4 thesis 结果小节草稿：
+  - `docs/plansv4_thesis_results_subsection_draft.md`
+- 新增 V4 数据表（可用于图表/附录/LaTeX）：
+  - `docs/data/plansv4_thesis_candidate_table.csv`
+  - `docs/data/plansv4_thesis_delta_table.csv`
+  - `docs/data/plansv4_thesis_tables.tex`
+- 更新 stage 接受摘要：
+  - `docs/stage_acceptance_summary.md`（追加 `PLANS_v4 Closure Snapshot (2026-04-15)`）
+- 代码逻辑无改动；本条为论文证据资产化。
+
+### What was verified (commands + key outcomes)
+- 对齐既有 thesis 文档格式：
+  - `sed -n '1,260p' docs/plansv2_thesis_results_subsection_draft.md`
+  - `sed -n '1,260p' docs/plansv2_thesis_result_bundle.md`
+- 自动解析日志并生成数据包：
+  - `python - <<'PY' ... parse v3/v4 EvalSummary logs; write csv/tex/md ... PY`
+  - outcome: 5 个目标文件全部生成
+- 内容抽样核验：
+  - `sed -n '1,260p' docs/plansv4_thesis_result_bundle.md`
+  - `sed -n '1,240p' docs/plansv4_thesis_results_subsection_draft.md`
+  - `sed -n '1,60p' docs/data/plansv4_thesis_candidate_table.csv`
+  - `sed -n '1,60p' docs/data/plansv4_thesis_delta_table.csv`
+- 结论一致性核验：
+  - 生成文件中的候选数量、gate 失败数、`v4m0 delta_hard=-0.137635` 与 `docs/plansv4_m3_final_verdict.md` 一致。
+
+### Local decision
+- V4 已从“实验收敛”推进到“写作可用资产”阶段：
+  - 结论、表格、附录素材与 narrative 草稿已齐备。
+
+### Remaining blocked/risky
+- 当前主要风险为写作一致性：
+  - 若后续手工改写数值，可能与自动生成表格不一致。
+
+### Single recommended next step
+- 在论文主文中引用 `docs/plansv4_thesis_results_subsection_draft.md` 作为结果段落初稿，并直接复用 `docs/data/plansv4_thesis_tables.tex` 作为附录表格起点。
+
+---
+
+## v2-088 (2026-04-15) — V4 thesis bundle 生成脚本化（可重复构建）
+
+### Target milestone/subgoal
+- 将 V4 论文数据包从“一次性命令”升级为“可重复执行脚本”，降低后续写作阶段的人为转录风险。
+
+### What changed (files + behavior impact)
+- 新增脚本：
+  - `scripts/build_plansv4_thesis_bundle.py`
+- 脚本功能：
+  - 解析 V3/V4 既有 `EvalSummary` 日志
+  - 生成 `docs/data/plansv4_thesis_candidate_table.csv`
+  - 生成 `docs/data/plansv4_thesis_delta_table.csv`
+  - 生成 `docs/data/plansv4_thesis_tables.tex`
+  - 生成/刷新 `docs/plansv4_thesis_result_bundle.md`
+  - 生成/刷新 `docs/plansv4_thesis_results_subsection_draft.md`
+
+### What was verified (commands + key outcomes)
+- 脚本执行：
+  - `python scripts/build_plansv4_thesis_bundle.py`
+  - outcome: 5 个目标产物全部成功写出
+- 语法检查：
+  - `python -m py_compile scripts/build_plansv4_thesis_bundle.py`
+  - outcome: pass
+- 脚本内容抽检：
+  - `sed -n '1,120p' scripts/build_plansv4_thesis_bundle.py`
+  - outcome: 输入日志路径、reference 常量、输出文件列表与 V4 证据口径一致
+
+### Local decision
+- V4 写作资产已具备“可重复重建”能力。
+- 后续若补充或替换日志，只需重跑该脚本即可同步更新论文表格与文本草稿。
+
+### Remaining blocked/risky
+- 若日志路径变更或文件被移动，脚本会在解析阶段报错，需要同步更新路径常量。
+
+### Single recommended next step
+- 在论文仓或主文编辑阶段，固定使用 `python scripts/build_plansv4_thesis_bundle.py` 作为 V4 表格/草稿刷新入口，避免手工维护分叉。
+
+---
+
+## v2-089 (2026-04-15) — 按顺序推进：主文终稿段落 + 附录接入 + 刷新流程
+
+### Target milestone/subgoal
+- 按用户确认的顺序继续推进写作交付：
+  1) 产出可直接贴入主文的 V4 结果段（非 draft）
+  2) 产出附录接入模板（可复制 LaTeX）
+  3) 固化一键刷新流程并在 README 暴露入口。
+
+### What changed (files + behavior impact)
+- 新增主文可用结果段（final 版）：
+  - `docs/plansv4_thesis_results_subsection_final.md`
+- 新增附录接入模板：
+  - `docs/plansv4_thesis_appendix_integration.md`
+- 新增刷新流程文档：
+  - `docs/plansv4_thesis_refresh_workflow.md`
+- 更新 README 入口：
+  - `README.md` 新增 `PLANS_v4 Thesis Assets` 区块
+
+### What was verified (commands + key outcomes)
+- 内容抽检：
+  - `sed -n '1,240p' docs/plansv4_thesis_results_subsection_final.md`
+  - `sed -n '1,260p' docs/plansv4_thesis_appendix_integration.md`
+  - `sed -n '1,220p' docs/plansv4_thesis_refresh_workflow.md`
+- README 入口检查：
+  - `rg -n 'PLANS_v4 Thesis Assets|plansv4_thesis_results_subsection_final|plansv4_thesis_appendix_integration|plansv4_thesis_refresh_workflow' README.md`
+  - outcome: 入口项均可检索到。
+- 生成脚本可用性保持：
+  - `python scripts/build_plansv4_thesis_bundle.py`
+  - `python -m py_compile scripts/build_plansv4_thesis_bundle.py`
+  - outcome: 产物可重建、脚本语法通过。
+
+### Local decision
+- 这三步已全部完成，当前论文交付链路从“结果结论”到“附录接入”到“可重复刷新”已闭环。
+
+### Remaining blocked/risky
+- 无当前技术阻塞。
+- 风险仅在写作执行层：若后续手工改数字且不重跑生成脚本，可能与证据表脱节。
+
+### Single recommended next step
+- 直接把 `docs/plansv4_thesis_results_subsection_final.md` 合入论文主文，并按 `docs/plansv4_thesis_appendix_integration.md` 插入附录表格。
+
+---
+
+## v2-090 (2026-04-15) — PLANS_v5 收敛执行：M1/M2 gate 完成 + M4 final verdict
+
+### Target milestone/subgoal
+- 以 `PLANS_v5.md` 为执行主线完成当前闭环：
+  - 收尾 `V5-M1`（Consistency 候选 3 的最终验证）
+  - 确认 `V5-M2`（Flow 方向是否继续扩展）
+  - 在无初筛通过候选时落地 `V5-M4` final verdict。
+
+### What changed (files + behavior impact)
+- 新增 V5 final verdict 文档：
+  - `docs/plansv5_m4_final_verdict.md`
+- 更新 V5 主计划状态：
+  - `PLANS_v5.md`（`status -> completed_conclude`，补 `activated_on/completed_on/final_decision`）
+- 更新 stage acceptance 快照：
+  - `docs/stage_acceptance_summary.md`（追加 `PLANS_v5 Closure Snapshot (2026-04-15)`）
+- 代码逻辑与 train/eval/export 入口未改动；本次为实验执行与证据收敛。
+
+### What was verified (commands + key outcomes)
+- 训练完成性与错误检查：
+  - `ps -p 1016219 -o pid=,etime=,cmd=`
+  - `python - <<'PY' ... parse train_900s.log Current Best/error keywords ... PY`
+  - outcome: `v5_m1_consistency_tuned_step2_seed42_15min` 训练完成，`Current Best max=1685.56`，无 Traceback。
+- ckpt 指纹核验：
+  - `sha1sum .../v5_m1_consistency_baseline.../model_best.ckpt .../v5_m1_consistency_tuned_step2.../model_best.ckpt .../v5_m1_consistency_no_bc.../model_best.ckpt .../v5_m2_flow_baseline.../model_best.ckpt`
+  - outcome:
+    - consistency_baseline = `2209a84dc29d356c77275281085a30dfe8d36c91`
+    - consistency_tuned_step2 = `2209a84dc29d356c77275281085a30dfe8d36c91`（与 baseline 相同）
+    - consistency_no_bc = `4686896b23e6f7e8f5df152abaab967ded2f8960`
+    - flow_baseline = `f790820138c7a9483d572aeebf18c626dc149f0f`
+- 三条件评测（tuned_step2）：
+  - `docker run ... bash scripts/eval_screwdriver_student_robustness.sh ... v5_m1_consistency_tuned_step2_seed42_{nominal,light_v2,hard}`
+  - logs:
+    - `outputs/robustness_eval/v5_m1_consistency_tuned_step2_seed42/consistency_nominal.log`
+    - `outputs/robustness_eval/v5_m1_consistency_tuned_step2_seed42/consistency_light_v2.log`
+    - `outputs/robustness_eval/v5_m1_consistency_tuned_step2_seed42/consistency_hard.log`
+  - outcome: 与 `consistency_baseline` 指标一致（同 hash 导致同结果）。
+- 2-step 推理本体验证（eval-only）：
+  - `docker run ... bash scripts/eval_screwdriver_student_robustness.sh ... +train.ppo.consistency_infer_steps=2 ...`
+  - logs:
+    - `outputs/robustness_eval/v5_m1_consistency_infer2_evalonly_seed42/consistency_nominal.log`
+    - `outputs/robustness_eval/v5_m1_consistency_infer2_evalonly_seed42/consistency_light_v2.log`
+    - `outputs/robustness_eval/v5_m1_consistency_infer2_evalonly_seed42/consistency_hard.log`
+  - outcome:
+    - nominal/light_v2/hard = `1.896259 / 1.980752 / 1.520207`
+    - hard_done = `0.003337`
+    - delta_hard vs V3-M0 = `+0.015303`，但 `delta_done_hard=+0.001465`（gate fail）。
+- 全候选 gate 汇总解析：
+  - `python - <<'PY' ... parse candidate logs and compute gate ... PY`
+  - outcome:
+    - `consistency_baseline`: reward gate pass, done gate fail
+    - `consistency_no_bc`: reward gate fail
+    - `consistency_infer2_evalonly`: done gate fail
+    - `flow_baseline`: hard reward + done gate fail
+    - 初筛通过数 `0`，`V5-M3` 不触发。
+
+### Local decision
+- `PLANS_v5` 在当前 scope 内已完成到 `M4`：
+  - diffusion 新形式（Consistency/Flow）均未通过 single-seed gate。
+  - 结论落地为 `Conclude`（见 `docs/plansv5_m4_final_verdict.md`）。
+- 记录到位的附加事实：
+  - Consistency 相对 DDPM 历史 evidence 有 reward 改善信号，但未满足 done-rate 约束，故不可接受为新基线。
+
+### Remaining blocked/risky
+- 无当前技术 blocker。
+- 若要继续扩展 diffusion，需要新的治理计划（例如单独针对 done-rate 的可证伪改进路线）；否则会重复低收益试探。
+
+### Single recommended next step
+- 冻结 `PLANS_v5` 扩张线并进入写作/汇总：以 `docs/plansv5_m4_final_verdict.md` 作为 V5 主证据，将“reward 改善但 gate 未过”的结论纳入论文负结果讨论。
+
+---
+
+## v2-091 (2026-04-15) — V5.5 优化计划草案落地（待激活）
+
+### Target milestone/subgoal
+- 在 `PLANS_v5` 已收敛后，按用户意图准备 `Plan 5.5` 草案文件，供后续优化执行参考。
+
+### What changed (files + behavior impact)
+- 新增计划文件：
+  - `PLANS_v5_5.md`
+- 影响：
+  - 无代码执行行为变化；
+  - 提供一份可直接激活的 `Consistency hard_done` 定向优化执行蓝图。
+
+### What was verified (commands + key outcomes)
+- 现有 V5 收敛文档存在性检查：
+  - `rg --files | rg -i 'PLANS_v5|plansv5_m4_final_verdict|session_handoff_v2|stage_acceptance_summary'`
+- 读取 V5 主计划与 final verdict 对齐基线：
+  - `sed -n '1,260p' PLANS_v5.md`
+  - `sed -n '1,260p' docs/plansv5_m4_final_verdict.md`
+- 参数可执行性抽检（Consistency 可用 override）：
+  - `rg -n 'consistency_|bc_loss_coef|base_action_anchor_coef|consistency_action_l2_coef|consistency_num_scales|consistency_boundary_coef|consistency_stochastic_infer|consistency_infer_steps' dexscrew/algo/ppo/consistency_latent_student.py`
+- outcome:
+  - `PLANS_v5_5.md` 中候选参数均来自当前代码可识别项；
+  - 计划结构包含里程碑、止损、有效性约束与证据记录规范。
+
+### Local decision
+- `PLANS_v5_5.md` 已完成“可执行草案”状态，等待治理确认后可切换为 active plan 执行。
+
+### Remaining blocked/risky
+- 当前 blocker 为治理层激活决策（非技术阻塞）。
+- 未激活前不应直接消耗训练预算执行 V5.5 候选。
+
+### Single recommended next step
+- 由用户确认激活 `PLANS_v5_5.md`，随后从 `V5.5-M0` 开始按候选矩阵连续推进。
+
+---
+
+## v2-092 (2026-04-15) — PLANS_v5_5 验收口径升级：多指标防退化 + hard_done 突破并重
+
+### Target milestone/subgoal
+- 响应用户要求：V5.5 不仅关注 `hard_done`，还必须防止其它关键指标退化。
+
+### What changed (files + behavior impact)
+- 更新计划文件：
+  - `PLANS_v5_5.md`
+- 主要新增：
+  - `4.4 Anti-regression Guardrails`
+  - 明确基线锚点（consistency_baseline 的 reward/done）
+  - 新增 reward 与 done 的防退化阈值
+  - 明确 hard_done 突破的绝对目标（`<=0.002372`）与相对改善幅度（`>=0.000314`）
+  - 将 guardrails 纳入 M1/M2/M4 判定逻辑（不再“只要 hard_done 好就算通过”）。
+
+### What was verified (commands + key outcomes)
+- 计划文件修改后复核：
+  - `sed -n '1,260p' PLANS_v5_5.md`
+- outcome:
+  - V5.5 已升级为“primary gate + anti-regression 双重验收”；
+  - hard_done 仍是核心突破点，但 reward/done 各条件退化会触发 FAIL。
+
+### Local decision
+- V5.5 现在是更稳健的执行框架：避免“单指标优化导致整体变差”的风险。
+
+### Remaining blocked/risky
+- 当前仍待治理激活（`draft_pending_activation`）。
+- 阈值为工程化约束，后续若发现过严/过松，需要在激活后首轮结果上再微调一次。
+
+### Single recommended next step
+- 激活 `PLANS_v5_5.md`，从 `V5.5-M0` 开始执行，并在首个候选评测后检查阈值是否需要轻微校准。
+
+---
+
+## v2-093 (2026-04-15) — PLANS_v5_5 全流程执行完成：Consistency 优化达成 Accept
+
+### Target milestone/subgoal
+- 按用户指令执行 `PLANS_v5_5`，完成 Consistency 优化与阶段验收：
+  - M0 baseline 对齐
+  - M1 三候选训练+三条件评测
+  - M2 top-1 multiseed 验证
+  - M3 final verdict 落盘。
+
+### What changed (files + behavior impact)
+- 更新计划状态：
+  - `PLANS_v5_5.md` -> `status=completed_accept`
+- 新增最终结论文档：
+  - `docs/plansv5_5_final_verdict.md`
+- 更新 stage 快照：
+  - `docs/stage_acceptance_summary.md`（新增 `PLANS_v5_5 Closure Snapshot`）
+- 无 train/eval 入口代码改动；本次为实验执行与证据更新。
+
+### What was verified (commands + key outcomes)
+- M0 baseline 锁定：
+  - `sha1sum outputs/XHandHoraScrewDriver_student_consistency/v5_m1_consistency_baseline_seed42_15min/stage2_consistency_nn/model_best.ckpt`
+  - baseline hash: `2209a84dc29d356c77275281085a30dfe8d36c91`
+  - baseline eval: nominal `2.201198/0.000651`, light_v2 `1.936892/0.001628`, hard `1.714672/0.002686`.
+
+- M1 candidate A (`action_l2_stable`)：
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v5_5_m1_action_l2_stable_seed42_15min/`
+    - best ckpt sha1: `3cefcea0b4b12a1a6dfa062fc36456332a0523e0`
+    - `Current Best max=1715.43`
+  - eval logs:
+    - `outputs/robustness_eval/v5_5_m1_action_l2_stable_seed42/consistency_{nominal,light_v2,hard}.log`
+  - result:
+    - primary gate: PASS
+    - anti-regression: FAIL（`hard_reward_vs_base=-0.183468 < -0.15`）
+
+- M1 candidate B (`anchor_l2_combo`)：
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v5_5_m1_anchor_l2_combo_seed42_15min/`
+    - best ckpt sha1: `ad73e00539772aa3dac8088c07691eba12c1da48`
+    - `Current Best max=1687.33`
+  - eval logs:
+    - `outputs/robustness_eval/v5_5_m1_anchor_l2_combo_seed42/consistency_{nominal,light_v2,hard}.log`
+  - result:
+    - primary gate: FAIL（`light_v2` 不达标）
+    - anti-regression: FAIL（多项）
+
+- M1 candidate C (`boundary_bc_tuned`)：
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v5_5_m1_boundary_bc_tuned_seed42_15min/`
+    - best ckpt sha1: `45d785763f385bfb0a5326866eb31c9cbcbb3215`
+    - `Current Best max=1655.81`
+  - eval logs:
+    - `outputs/robustness_eval/v5_5_m1_boundary_bc_tuned_seed42/consistency_{nominal,light_v2,hard}.log`
+  - result:
+    - nominal/light_v2/hard = `2.221939 / 1.902549 / 1.639399`
+    - done = `0.000732 / 0.001546 / 0.002035`
+    - primary gate: PASS
+    - anti-regression: PASS
+    - selected as M2 top-1。
+
+- M2 multiseed (candidate C, seeds=42/43/44):
+  - logs root:
+    - `outputs/robustness_eval/v5_5_m2_boundary_bc_tuned_multiseed/`
+  - aggregates:
+    - nominal mean `2.336284` (delta vs V3-M0 `+0.661172`)
+    - light_v2 mean `2.044725` (delta `+0.406459`)
+    - hard mean `1.714471` (delta `+0.209567`)
+    - hard done mean `0.001601` (`<=0.002372`)
+  - acceptance gate:
+    - `hard_mean_delta>=0`: PASS
+    - `light_v2_mean_delta>=0`: PASS
+    - `nominal_mean_delta>=-0.10`: PASS
+    - `hard_done_mean<=0.002372`: PASS
+
+### Local decision
+- `PLANS_v5_5` 结论：`Accept`。
+- 通过候选：`consistency_boundary_bc_tuned`（`boundary=0.8, num_scales=16, bc=1.2`）。
+- 本轮已完成从优化到验证到落盘的闭环。
+
+### Remaining blocked/risky
+- 无当前技术 blocker。
+- 风险点：accepted candidate 目前以单次训练 run 为主证据，后续若需论文级稳健性可加一次同配置重跑确认方差。
+
+### Single recommended next step
+- 将 `consistency_boundary_bc_tuned` 升级为新的 consistency reference（固定 ckpt 与配置），并执行一次同配置复现实验（fresh run id）用于最终报告定稿。
+
+---
+
+## v2-094 (2026-04-16) — PLANS_v5_5d 总结文档落地（对齐 consistency vs latent vs padapt）
+
+### Target milestone/subgoal
+- 按用户要求先产出 `planv5.5d` 总结文档，明确当前方法相对 `latent` 与 `padapt` 的真实位置，为后续优化执行提供单点入口。
+
+### What changed (files + behavior impact)
+- 新增：
+  - `docs/plansv5_5d_summary.md`
+- 影响：
+  - 无代码与训练/评测行为改动；
+  - 增加一份可直接引用的阶段总结，统一口径说明“已领先部分”和“未追回部分”。
+
+### What was verified (commands + key outcomes)
+- 文件与上下文检索：
+  - `ls -1`
+  - `rg --files | rg -n "PLANS_v5|plansv5|v5_5|v5\\.5|v5_5d|v5\\.5d|handoff|stage_acceptance"`
+- bootstrap 必读文件检查：
+  - `sed -n '1,220p' AGENTS.md`
+  - `tail -n 220 docs/session_handoff_v2.md`
+  - `sed -n '360,460p' docs/stage_acceptance_summary.md`
+  - `sed -n '1,240p' docs/plansv5_5_final_verdict.md`
+- outcome:
+  - `v5.5d` 命名文件此前不存在，已新增 summary 文档；
+  - 文档内已使用统一 multiseed 协议数据给出 `consistency / latent_diffusion / padapt` 并排对比及 delta 结论；
+  - 结论明确：`consistency` 已全面领先旧 latent 参考，但尚未全面超过 `padapt`（差距主要在 `hard`）。
+
+### Local decision
+- 本次会话完成文档侧里程碑：`PLANS_v5_5d` 执行前的事实对齐与总结落地已就绪。
+
+### Remaining blocked/risky
+- 无技术 blocker。
+- 若进入下一轮训练，主要风险是为追 `hard` reward 导致 done 或 light_v2 退化，需继续沿用 anti-regression 约束。
+
+### Single recommended next step
+- 以 `consistency_boundary_bc_tuned` 为唯一起点，启动 `V5.5d` 的首个“小步 hard-targeted”候选（保持统一三条件评测与多指标防退化门槛）。
+
+---
+
+## v2-095 (2026-04-16) — PLANS_v6 全流程执行完成：M1+M3 全候选未达 hard 门槛，结论 Conclude
+
+### Target milestone/subgoal
+- 按用户指令完整执行 `PLANS_v6`，目标是让 Consistency 尽可能逼近并超越 `padapt`。
+- 执行路径：`M0 -> M1 -> (触发止损) -> M3 -> M5`。
+
+### What changed (files + behavior impact)
+- 计划状态更新：
+  - `PLANS_v6.md`（`status=completed_conclude`，补 `completed_on/final_decision`）
+- 新增最终结论文档：
+  - `docs/plansv6_final_verdict.md`
+- 更新 stage 快照：
+  - `docs/stage_acceptance_summary.md`（新增 `PLANS_v6 Closure Snapshot (2026-04-16)`）
+- 代码级改动（M3 方向探索，均在 consistency 路线内）：
+  - `dexscrew/algo/ppo/consistency_latent_student.py`
+    - 新增 `consistency_obs_noise_curriculum*`
+    - 新增 `consistency_train_align_infer`
+    - 新增 `consistency_use_ema_target` / `consistency_ema_decay` 与 EMA target 路径
+- 治理升级记录：
+  - `codeagent_issue.md`（按 AGENTS 边界，登记“diffusion 未超越当前 baseline”阻塞）
+
+### What was verified (commands + key outcomes)
+- M0 baseline 锁定：
+  - `sha1sum outputs/XHandHoraScrewDriver_student_consistency/v5_5_m1_boundary_bc_tuned_seed42_15min/stage2_consistency_nn/model_best.ckpt`
+  - baseline hash: `45d785763f385bfb0a5326866eb31c9cbcbb3215`
+  - PAdapt reference（来自 `docs/stage_acceptance_summary.md`）:
+    - nominal `2.167820`, light_v2 `2.079074`, hard `1.838225`
+
+- M1 probe 1 (`capacity_boost`, hidden_dim=512, 15min)：
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v6_m1_capacity_boost_seed42_15min/`
+    - ckpt sha1: `b07d4bbfa11b04ccaeca366ec0c1df40ab98fdb2`
+    - `Current Best max=1713.12`
+  - eval root:
+    - `outputs/robustness_eval/v6_m1_capacity_boost_seed42/`
+  - result:
+    - nominal `1.451814/0.001383`
+    - light_v2 `1.668441/0.000977`
+    - hard `1.255473/0.001628`
+
+- M1 probe 2 (`longer_train`, 30min)：
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v6_m1_longer_train_seed42_30min/`
+    - ckpt sha1: `da3fbf8d4c0ff940b8500c801c374bcdcb78b65c`
+    - `Current Best max=1765.68`
+  - eval root:
+    - `outputs/robustness_eval/v6_m1_longer_train_seed42/`
+  - result:
+    - nominal `2.064455/0.000977`
+    - light_v2 `1.858506/0.001546`
+    - hard `1.415326/0.001953`
+
+- M1 probe 3 (`lr_schedule`, consistency_lr=1e-4, 15min)：
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v6_m1_lr_schedule_seed42_15min/`
+    - ckpt sha1: `572ff6d91d8482f6543b5dc35f9b9da67e4fa50d`
+    - `Current Best max=1641.83`
+  - eval root:
+    - `outputs/robustness_eval/v6_m1_lr_schedule_seed42/`
+  - result:
+    - nominal `2.291926/0.000814`
+    - light_v2 `2.055887/0.001058`
+    - hard `1.335743/0.001628`
+
+- M1 gate decision:
+  - 三个探针 `hard` 均低于 `1.780`；且相对 V5.5 seed42 baseline 的 hard 增益均 `< +0.02`。
+  - 触发 `PLANS_v6` 规则：跳过 `M2`，进入 `M3`。
+
+- M3 direction A (`obs_noise_curriculum`)：
+  - 代码开关：
+    - `+train.ppo.consistency_obs_noise_curriculum=True`
+    - `+train.ppo.consistency_obs_noise_e_target=0.05`
+    - `+train.ppo.consistency_obs_noise_t_target=0.025`
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v6_m3_obs_noise_curriculum_seed42_15min/`
+    - ckpt sha1: `2fd9f89b94f9814fbe039315afdcf911dadc71c0`
+    - `Current Best max=1614.48`
+  - eval root:
+    - `outputs/robustness_eval/v6_m3_obs_noise_curriculum_seed42/`
+  - result:
+    - nominal `2.022649/0.001221`
+    - light_v2 `1.830568/0.001953`
+    - hard `1.387970/0.002441`
+
+- M3 direction B (`infer2_align`)：
+  - 代码开关：
+    - `+train.ppo.consistency_infer_steps=2`
+    - `+train.ppo.consistency_train_align_infer=True`
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v6_m3_infer2_align_seed42_15min/`
+    - ckpt sha1: `19d2c9afc45eeb28c69f7531736c73565b216da6`
+    - `Current Best max=1728.99`
+  - eval root:
+    - `outputs/robustness_eval/v6_m3_infer2_align_seed42/`
+  - result:
+    - nominal `1.980866/0.001058`
+    - light_v2 `1.786391/0.001546`
+    - hard `1.622737/0.001302`
+
+- M3 direction C (`ema_target`)：
+  - 代码开关：
+    - `+train.ppo.consistency_use_ema_target=True`
+    - `+train.ppo.consistency_ema_decay=0.995`
+  - train run:
+    - `outputs/XHandHoraScrewDriver_student_consistency/v6_m3_ema_target_seed42_15min/`
+    - ckpt sha1: `b9b8d2c1b3ccf522ce937f852ebe97280f230ffe`
+    - `Current Best max=1698.92`
+  - eval root:
+    - `outputs/robustness_eval/v6_m3_ema_target_seed42/`
+  - result:
+    - nominal `1.736832/0.001383`
+    - light_v2 `2.077133/0.001058`
+    - hard `1.723353/0.002116`
+
+- M3 gate decision:
+  - 三方向 hard 分别为 `1.387970 / 1.622737 / 1.723353`，均 `< 1.780`。
+  - 未满足进入 `M4` multiseed 前置条件。
+
+### Local decision
+- `PLANS_v6` 结论：`Conclude`。
+- 主因：在 `M1+M3` 预算内无候选达到 V6 hard 门槛，无法触发 multiseed 验收。
+- baseline 位置保持：`padapt` 主线不变。
+
+### Remaining blocked/risky
+- 治理级阻塞：在当前 V6 边界（局部超参 + 轻量 consistency 代码改动）下，未能证明 diffusion 路线可超越当前主线 baseline。
+- 已按 AGENTS 规则更新 `codeagent_issue.md`。
+
+### Single recommended next step
+- 治理确认 `V6 Conclude` 并冻结当前扩张线；若继续，应新开计划并授权超出 V6 范围的改动（例如训练分布/数据策略层面），否则将重复低收益试探。
+
+---
+
+## v2-096 (2026-04-16) — V6 执行审阅：代码审阅与证据化结论复核
+
+### Target milestone/subgoal
+- 按用户要求对当前 `diffusion / consistency / plan` 执行状态做一次审阅：
+  - 审阅 `dexscrew/algo/ppo/consistency_latent_student.py` 中 V6 新增逻辑（obs noise curriculum / train-infer alignment / EMA target）
+  - 复核 `PLANS_v6.md`、`docs/plansv6_final_verdict.md`、`docs/session_handoff_v2.md`（`v2-093`~`v2-095`）、`docs/stage_acceptance_summary.md`、`codeagent_issue.md`
+  - 判断当前 `V6 Conclude` 结论是否证据充分、记录是否自洽、是否仍有明显遗漏/风险
+
+### What changed (files + behavior impact)
+- 更新：
+  - `docs/session_handoff_v2.md`
+- 行为影响：
+  - 无训练/评测入口代码改动；
+  - 增加一条执行审阅记录，明确当前结论的支持度、已确认风险、以及唯一建议复核点。
+
+### What was verified (commands + key outcomes)
+- bootstrap 必读文件：
+  - `sed -n '1,240p' AGENTS.md`
+  - `sed -n '1,260p' PLANS_v6.md`
+  - `sed -n '1,260p' docs/plansv6_final_verdict.md`
+  - `sed -n '5092,5365p' docs/session_handoff_v2.md`
+  - `sed -n '340,470p' docs/stage_acceptance_summary.md`
+  - `sed -n '1,240p' codeagent_issue.md`
+  - `nl -ba dexscrew/algo/ppo/consistency_latent_student.py | sed -n '1,680p'`
+
+- 代码与接线复核：
+  - `nl -ba dexscrew/algo/ppo/diffusion_latent_student.py | sed -n '1,360p'`
+  - `nl -ba train.py | sed -n '1,240p'`
+  - `nl -ba student_eval.py | sed -n '1,240p'`
+  - `rg -n "consistency_(obs_noise|train_align_infer|use_ema_target|ema_decay|infer_steps)|stage2_consistency_nn|consistency_latent_student|student_mode.*consistency|consistency" train.py student_eval.py dexscrew/algo/ppo -g '!**/__pycache__/**'`
+
+- 产物与记录一致性复核：
+  - `find outputs/robustness_eval -maxdepth 2 -type f | rg 'v6_(m1|m3).*consistency_(nominal|light_v2|hard)\\.log$' | sort`
+  - `rg -n "EvalSummary|EvalReconSummary|load_path|consistency_|seed|test_num_steps|randomForceProbScalar|obs_noise" outputs/robustness_eval/v6_m3_{obs_noise_curriculum,infer2_align,ema_target}_seed42/*.log`
+  - outcome:
+    - `v2-095` / `plansv6_final_verdict` / stage summary 中记录的 V6 M3 指标与现有 eval logs 一致；
+    - 统一评测口径仍为 `seed=42`, `steps=256`, `nominal + light_v2 + hard`。
+
+- 关键实现级发现：
+  - EMA 权重确实被保存，但当前 eval/infer 路径未使用：
+    - `python - <<'PY' ... torch.load(v6_m3_ema_target ...); print(sorted(obj.keys()))`
+    - outcome: `v6_m3_ema_target` ckpt 含 `consistency_ema_model`
+  - EMA 与在线权重并不相同：
+    - `python - <<'PY' ... print(avg_mean_abs_diff, max_abs_diff) ...`
+    - outcome: `avg_mean_abs_diff=0.001333...`, `max_abs_diff=0.023499...`
+  - 当前环境无法直接做 Isaac Gym 最小复核：
+    - `python -V` -> `Python 3.12.7`
+    - `source scripts/_ensure_isaacgym_env.sh && ensure_isaacgym_env`
+    - outcome: 本地 shell 不满足 `Python 3.8 + isaacgym importable`，因此本会话未追加 live re-eval。
+
+- 计划门槛与配置复核：
+  - `nl -ba PLANS_v6.md | sed -n '90,320p'`
+  - `nl -ba docs/plansv6_final_verdict.md | sed -n '1,140p'`
+  - `nl -ba docs/stage_acceptance_summary.md | sed -n '108,130p;420,440p'`
+  - `rg -n "load_path:|checkpoint:" outputs/XHandHoraScrewDriver_student_consistency/v6_*/*yaml`
+  - outcome:
+    - 文档多处将 `1.780` 写成 `PAdapt hard mean - 1σ`，但 `stage_acceptance_summary` 中 `padapt hard = 1.838225 ± 0.105458`，按数值应约为 `1.732767`；
+    - 尽管该算术口径写错，现有最佳 `ema_target hard = 1.723353` 仍低于修正后的 `~1.733`，所以该问题单独不足以推翻 `Conclude`；
+    - V6 实际训练配置 `train.load_path` 指向 teacher ckpt，而不是 V5.5 accepted consistency ckpt，说明执行上采用的是“accepted config 复跑/变体”而非“accepted ckpt 续训”。
+
+### Local decision
+- 本次审阅未发现足以直接推翻当前 `V6 Conclude` 的实现级问题。
+- 当前更准确的本地判断为：`support_but_with_risks`
+  - 支持点：
+    - 现有 V6 结果日志、handoff、final verdict、stage summary 主体数字一致；
+    - 即便修正 `PAdapt - 1σ` 算术，当前最佳 `ema_target` 仍未达到 corrected hard 门槛。
+  - 风险点：
+    - `ema_target` 方向的现有评估没有实际测试保存下来的 EMA 权重本身，只测试了在线权重；
+    - `obs_noise_curriculum` 候选在动态训练难度下仍用原始训练 reward 选 `model_best`，存在 checkpoint 选择偏差；
+    - `PLANS_v6` 方向 B 文案写的是“训练时也用 2-step consistency loss”，但当前实现只把 rollout 对齐接入 BC 分支，不是完整的 2-step consistency loss 版本；
+    - `PLANS_v6` 中 “V5.5 accepted config + checkpoint 作为 baseline” 与实际 V6 run 从 teacher ckpt 起训存在表述/执行偏差。
+
+### Remaining blocked/risky
+- 方法学风险：
+  - `ema_target` 是最接近门槛的 M3 候选，但由于 eval 未覆盖 EMA 权重本身，其负结论仍留有一个最小复核缺口。
+- 文档自洽风险：
+  - `1.780 = PAdapt hard mean - 1σ` 的表述与 acceptance summary 数值不自洽，后续若直接引用到论文或答辩材料，容易被追问。
+- 环境风险：
+  - 当前 shell 不具备本地 Isaac Gym 运行条件，若要补做最小复核，需要进入仓库既有 `docker-run-isaacgym.sh` / Python 3.8 环境。
+
+### Single recommended next step
+- 若要在最终冻结前补一个且只补一个复核点，优先在 Isaac Gym 3.8 环境中对 `v6_m3_ema_target` 做一次 **hard-only EMA-weight eval**（将保存的 `consistency_ema_model` 临时作为 `consistency_model` 评测）；若仍低于 corrected hard 1σ 门槛（约 `1.733`），则可放心接受当前 `V6 Conclude`。
+
+---
+
+## v2-097 (2026-04-16) — V7 M2 Candidate A Closed, Candidate B Started
+
+### Target milestone/subgoal
+- 继续执行 `PLANS_v7`：
+  - 先确认 `V7-M2` 候选 A (`ema_obs_combo_seed42_15min`) 的训练产物状态；
+  - 按统一协议完成其 `nominal + light_v2 + hard` 三条件评测；
+  - 若失败，则按计划顺序启动候选 B (`ema_target_seed42_30min`)。
+
+### What changed (files + behavior impact)
+- 更新：
+  - `PLANS_v7.md`
+  - `docs/plansv7_final_verdict.md`
+  - `docs/session_handoff_v2.md`
+- 行为影响：
+  - 无训练/评测代码改动；
+  - 候选 A 已完成判定并淘汰；
+  - 候选 B 已起训，后续会在相同协议下继续评测。
+
+### What was verified (commands + key outcomes)
+- 候选 A 训练状态与产物确认：
+  - `ls -la outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_obs_combo_seed42_15min`
+  - `find outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_obs_combo_seed42_15min -maxdepth 2 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' | sort | tail -n 20`
+  - `sha1sum outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_obs_combo_seed42_15min/stage2_consistency_nn/model_best.ckpt`
+  - outcome:
+    - 旧训练会话已结束于外层 `timeout`
+    - `model_best.ckpt` 有效存在，sha1=`1c7c75577496a00234b1007e89fb2715ea391d7c`
+
+- 候选 A 三条件 eval：
+  - nominal:
+    - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh 0 42 ConsistencyLatentStudent outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_obs_combo_seed42_15min/stage2_consistency_nn/model_best.ckpt 256 v7_m2_ema_obs_combo_seed42_nominal +train.ppo.consistency_use_ema_target=True +train.ppo.consistency_ema_decay=0.995 +train.ppo.consistency_infer_use_ema=True +train.ppo.consistency_boundary_coef=0.8 +train.ppo.consistency_num_scales=16 +train.ppo.bc_loss_coef=1.2`
+    - result: `EvalSummary steps=256 avg_reward=0.211057 avg_done_rate=0.001953`
+    - recon: `latent_mse=0.228280 latent_l1=0.379646 action_mse_to_teacher=0.229339`
+  - light_v2:
+    - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh 0 42 ConsistencyLatentStudent outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_obs_combo_seed42_15min/stage2_consistency_nn/model_best.ckpt 256 v7_m2_ema_obs_combo_seed42_light_v2 +train.ppo.consistency_use_ema_target=True +train.ppo.consistency_ema_decay=0.995 +train.ppo.consistency_infer_use_ema=True +train.ppo.consistency_boundary_coef=0.8 +train.ppo.consistency_num_scales=16 +train.ppo.bc_loss_coef=1.2 task.env.randomization.obs_noise_e_scale=0.03 task.env.randomization.obs_noise_t_scale=0.015 task.env.forceScale=1.0 task.env.randomForceProbScalar=0.2`
+    - result: `EvalSummary steps=256 avg_reward=0.296649 avg_done_rate=0.001709`
+    - recon: `latent_mse=0.226521 latent_l1=0.378764 action_mse_to_teacher=0.216359`
+  - hard:
+    - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh 0 42 ConsistencyLatentStudent outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_obs_combo_seed42_15min/stage2_consistency_nn/model_best.ckpt 256 v7_m2_ema_obs_combo_seed42_hard +train.ppo.consistency_use_ema_target=True +train.ppo.consistency_ema_decay=0.995 +train.ppo.consistency_infer_use_ema=True +train.ppo.consistency_boundary_coef=0.8 +train.ppo.consistency_num_scales=16 +train.ppo.bc_loss_coef=1.2 task.env.randomization.obs_noise_e_scale=0.05 task.env.randomization.obs_noise_t_scale=0.025 task.env.forceScale=1.5 task.env.randomForceProbScalar=0.3`
+    - result: `EvalSummary steps=256 avg_reward=0.355474 avg_done_rate=0.002279`
+    - recon: `latent_mse=0.228203 latent_l1=0.380401 action_mse_to_teacher=0.226538`
+
+- 候选 A gate decision：
+  - outcome:
+    - `nominal/light_v2/hard` 全部远低于 `V7` single-seed entry gate
+    - 不满足候选 D 触发条件（最佳结果未达到 `hard>=1.700` 且 `nominal>=2.100`）
+    - 候选 A 淘汰
+
+- 候选 B 启动：
+  - train command:
+    - `./docker-run-isaacgym.sh timeout 1800 python train.py task=XHandHoraScrewDriver headless=True seed=42 sim_device=cuda:0 rl_device=cuda:0 graphics_device_id=7 train.algo=ConsistencyLatentStudent train.ppo.proprio_adapt=True train.ppo.output_name=XHandHoraScrewDriver_student_consistency/v7_m2_ema_target_seed42_30min checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_1550.49.pth wandb_activate=False +train.ppo.consistency_boundary_coef=0.8 +train.ppo.consistency_num_scales=16 +train.ppo.bc_loss_coef=1.2 +train.ppo.consistency_use_ema_target=True +train.ppo.consistency_ema_decay=0.995 +train.ppo.consistency_infer_use_ema=True`
+  - early outcome:
+    - 训练已正常启动，run dir 存在：
+      - `outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_target_seed42_30min/`
+    - 早期 restore warning:
+      - `Checkpoint missing sa_mean_std during train restore; using current defaults.`
+      - `Checkpoint missing agent_steps during train restore; resume will start from current counter.`
+    - 该 warning 与从 teacher ckpt fresh 起训一致，不构成异常。
+
+### Remaining blocked/risky
+- 候选 B 仍在训练中，尚未产生可用于结论的最终 eval 结果。
+- 若候选 B 仍明显低于门槛，则 `V7-M2` 基本只剩候选 C 可复核；候选 D 已大概率失去触发可能。
+- 候选 A 的异常低 deploy 表现提示：`EMA + obs_noise_curriculum` 组合在当前实现下可能存在显著训练/部署失配，不建议在没有新证据前继续加预算。
+
+### Single recommended next step
+- 等候选 B (`ema_target_seed42_30min`) 训练结束后，立即按 `nominal + light_v2 + hard` 协议完成评测；若仍未接近 `hard >= 1.733`，则进入候选 C (`ema_alignfix_seed42_15min`)，否则再决定是否需要 multiseed。
+
+---
+
+## v2-098 (2026-04-16) — PLANS_v7 完整收口：B/C 完成评测，D/M3 未触发，结论 completed_conclude
+
+### Target milestone/subgoal
+- 完成 `PLANS_v7` 的剩余执行与验收：
+  - 确认候选 B (`ema_target_seed42_30min`) 的最终产物与 gate 结果；
+  - 完成候选 C (`ema_alignfix_seed42_15min`) 的 `hard` 评测并据此判断是否触发候选 D；
+  - 收口 `PLANS_v7.md`、`docs/plansv7_final_verdict.md`、`docs/stage_acceptance_summary.md`。
+
+### What changed (files + behavior impact)
+- 更新：
+  - `PLANS_v7.md`
+  - `docs/plansv7_final_verdict.md`
+  - `docs/stage_acceptance_summary.md`
+  - `docs/session_handoff_v2.md`
+- 行为影响：
+  - 无新的训练/评测入口代码改动；
+  - `PLANS_v7` 已从执行态切换为 `completed_conclude`；
+  - `ConsistencyLatentStudent` 在当前 V7 bounded scope 下未获得可进入 multiseed 的 single-seed 候选。
+
+### What was verified (commands + key outcomes)
+- bootstrap 对齐：
+  - `tail -n 220 docs/session_handoff_v2.md`
+  - `sed -n '1,220p' docs/stage_acceptance_summary.md`
+
+- 候选 C hard eval 完成：
+  - `write_stdin(session_id=69143, chars=\"\")`
+  - result:
+    - `EvalSummary steps=256 avg_reward=1.135807 avg_done_rate=0.001953`
+    - `EvalReconSummary steps=256 mode=consistency latent_mse=0.119058 latent_l1=0.227084 action_mse_to_teacher=0.226580`
+
+- V7 候选 artifact hash 对齐：
+  - `sha1sum outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_obs_combo_seed42_15min/stage2_consistency_nn/model_best.ckpt outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_target_seed42_30min/stage2_consistency_nn/model_best.ckpt outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_alignfix_seed42_15min/stage2_consistency_nn/model_best.ckpt`
+  - outcome:
+    - candidate A sha1 = `1c7c75577496a00234b1007e89fb2715ea391d7c`
+    - candidate B sha1 = `1c7c75577496a00234b1007e89fb2715ea391d7c`
+    - candidate C sha1 = `024409e9f765232775f33f139493e04c09ae29d2`
+  - implication:
+    - B 的 `model_best.ckpt` 与 A 完全相同，30min EMA-only 训练没有产生新的最优 artifact
+
+- 候选 B 产物时间戳确认：
+  - `find outputs/XHandHoraScrewDriver_student_consistency/v7_m2_ema_target_seed42_30min -maxdepth 2 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' | sort | tail -n 20`
+  - outcome:
+    - `model_best.ckpt` 停留在 `2026-04-16 16:31:14`
+    - 后续只有 tb event 继续更新，符合“训练继续但 best 未刷新”的状态
+
+- 文档收口更新前查看：
+  - `sed -n '1,260p' PLANS_v7.md`
+  - `sed -n '1,260p' docs/plansv7_final_verdict.md`
+  - `tail -n 120 docs/stage_acceptance_summary.md`
+
+### Local decision
+- `PLANS_v7 = completed_conclude`
+- 关键原因：
+  - `V7-M1` EMA recheck 失败：`hard=1.608308 < 1.733`
+  - `V7-M2-A/B` 均停留在同一 best ckpt，且三条件 reward 全部极低
+  - `V7-M2-C` 虽训练信号改善，但最终 deploy 指标仅：
+    - nominal `1.124038/0.002035`
+    - light_v2 `1.177704/0.002279`
+    - hard `1.135807/0.001953`
+  - 因而 A/B/C 全部未达到：
+    - `hard >= 1.733`
+    - `nominal >= 2.100`
+    - `light_v2 >= 1.900`
+- 由此：
+  - 候选 D 不触发
+  - `V7-M3` multiseed 不触发
+  - `padapt` 继续保持主线 baseline 地位
+
+### Remaining blocked/risky
+- 当前阻塞已不是实现级风险，而是方法边界：
+  - V7 已关闭 EMA 推理/restore 相关残余风险，但在不扩 scope 的前提下，Consistency 仍无法跨过 corrected hard single-seed gate。
+- 若继续尝试，需要新的计划边界和新的优化假设；在当前 scope 内继续加时长/重复 sweep 的收益很低。
+
+### Single recommended next step
+- 接受 `PLANS_v7 completed_conclude`，冻结当前 consistency 扩张线；若后续要继续，只在新计划中引入**超出 V7 范围**的明确新假设，否则不建议重复当前 bounded sweep。
+
+---
+
+## v2-099 (2026-04-16) — V7 文档收尾：补计划结束元信息并将 escalation issue 升级到 V7
+
+### Target milestone/subgoal
+- 完成 `PLANS_v7` 相关收尾：
+  - 给计划文档补齐标准结束元信息；
+  - 将 `codeagent_issue.md` 从 `V6` 语境更新到当前 `V7 completed_conclude` 状态。
+
+### What changed (files + behavior impact)
+- 更新：
+  - `PLANS_v7.md`
+  - `codeagent_issue.md`
+  - `docs/session_handoff_v2.md`
+- 行为影响：
+  - 无训练/评测/代码路径改动；
+  - 文档层面的计划状态与 escalation 语境已与 `V7` 最终结论对齐。
+
+### What was verified (commands + key outcomes)
+- closure 对齐检查：
+  - `sed -n '1,240p' codeagent_issue.md`
+  - `sed -n '1,120p' PLANS_v7.md`
+  - `sed -n '1,40p' PLANS_v6.md`
+  - `sed -n '1,40p' PLANS_v5_5.md`
+  - `git status --short`
+- outcome:
+  - `PLANS_v6` / `PLANS_v5_5` 均包含 `completed_on` 与 `final_decision`，因此对 `PLANS_v7` 做了同口径补齐；
+  - 原 `codeagent_issue.md` 仍停留在 `V6` 的 `1.780` gate 叙述，已更新为 `V7` corrected gate 与 bounded-sweep 结论；
+  - 仓库本身存在较多既有未提交改动，本次只追加最小文档补丁，未触碰其他工作树内容。
+
+### Local decision
+- `PLANS_v7` 的收尾文档现在已完整：
+  - `status=completed_conclude`
+  - `completed_on=2026-04-16`
+  - `final_decision=conclude_no_single_seed_breakthrough_under_v7_scope`
+- `codeagent_issue.md` 继续保持 `open`，但其阻塞语境已升级为：
+  - `diffusion_cannot_show_value_beyond_current_student_baseline_under_v7_scope`
+
+### Remaining blocked/risky
+- 当前剩余事项不再是执行层问题，而是治理层选择：
+  - 接受 `V7` 收口并冻结 consistency 扩张线；
+  - 或者显式新开一个超出 `V7` 边界的新计划。
+
+### Single recommended next step
+- 若本轮只做收尾，到此即可；下一次若继续推进，应直接基于 `codeagent_issue.md` 的建议决定“冻结”还是“新开超范围计划”，而不是回到 `V7` 内重复 sweep。
+
+---
+
+## v2-100 (2026-04-17) — V8 flow sprint: M0/M1 completed, M2 candidate 1/2/5 rejected, candidate 4 training in progress
+
+### Target milestone/subgoal
+- 执行 `PLANS_v8`：
+  - 完成 flow matching 的 M0 工程闭环补丁；
+  - 做旧 flow artifact 的 M1 eval-only probe；
+  - 推进 M2 fresh seed42 sweep，优先清理 `infer2` family。
+
+### What changed (files + behavior impact)
+- 代码更新：
+  - `dexscrew/algo/ppo/flow_matching_latent_student.py`
+- 文档更新：
+  - `PLANS_v8.md`
+  - `docs/plansv8_final_verdict.md`
+  - `docs/session_handoff_v2.md`
+- 行为影响：
+  - 新增 flow 训练/推理对齐与恢复闭环能力：
+    - `_init_latent(...)`
+    - `_sample_latent_rollout(...)`
+    - `flow_train_init_mode`
+    - `flow_train_align_infer`
+    - `flow_rollout_bc_coef`
+    - `save()/restore_*()` 的 `agent_steps` / `sa_mean_std` handling
+  - 旧 `v5_m2_flow_baseline` 在默认 1-step eval 下数值保持不变，说明 M0 默认行为兼容。
+
+### What was verified (commands + key outcomes)
+- static / compatibility:
+  - `PYTHONPYCACHEPREFIX=/tmp/codex_pycache python -m py_compile dexscrew/algo/ppo/flow_matching_latent_student.py train.py student_eval.py`
+  - `python - <<'PY' ... torch.load('outputs/XHandHoraScrewDriver_student_flow_matching/v5_m2_flow_baseline_seed42_15min/stage2_flow_nn/model_best.ckpt') ... PY`
+  - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh 0 42 FlowMatchingLatentStudent outputs/XHandHoraScrewDriver_student_flow_matching/v5_m2_flow_baseline_seed42_15min/stage2_flow_nn/model_best.ckpt 256 v8_m0_flow_baseline_compat_seed42 +train.ppo.flow_stochastic_infer=False`
+- M1 eval-only probes:
+  - `infer2`:
+    - nominal `1.805502 / 0.001546`
+    - light_v2 `1.681982 / 0.001953`
+    - hard `1.428555 / 0.002604`
+  - `infer4`:
+    - nominal `1.885794 / 0.001302`
+    - light_v2 `1.640372 / 0.002523`
+    - hard `1.189338 / 0.002930`
+  - conclusion:
+    - `infer2` 是整体更强的 multistep 方向；
+    - `infer4` 只提升 nominal，但 robust 更差。
+- M2 candidate 1 `v8_m2_flow_zeroinit_bc12_seed42_15min`:
+  - train:
+    - `Current Best` 持续卡在 `-1.62`，~`4M` agent steps 提前停止
+  - eval:
+    - nominal `0.992769 / 0.001872`
+    - light_v2 `0.921589 / 0.002523`
+    - hard `1.020256 / 0.002604`
+  - decision:
+    - 明确低于当前 flow baseline，淘汰
+- M2 candidate 2 `v8_m2_flow_align2_rollout_seed42_15min`:
+  - train:
+    - `Current Best` 在 ~`2M` agent steps 内始终未刷新，`model_best.ckpt` 时间戳不变
+  - eval:
+    - nominal `1.082436 / 0.002035`
+    - light_v2 `1.108353 / 0.002116`
+    - hard `0.750190 / 0.003174`
+  - decision:
+    - `infer2 + rollout BC` 失败，淘汰
+- M2 candidate 5 `v8_m2_flow_align2_bcheavy_seed42_15min`:
+  - train:
+    - `Current Best` 在 ~`1M` agent steps 内始终未刷新，提前停止
+  - eval:
+    - nominal `1.124580 / 0.001872`
+    - light_v2 `1.055061 / 0.002441`
+    - hard `1.053348 / 0.002279`
+  - decision:
+    - 更重 BC 仅小幅拉回 nominal，仍显著低于 baseline，淘汰
+- M2 candidate 4 `v8_m2_flow_align2_anchor_seed42_15min`:
+  - train:
+    - 已启动并观察到 ~`1M` agent steps
+    - `Current Best` 依旧始终停在 `-1.62`
+    - 已按与 candidate 2/5 相同标准提前停止，避免无效占用 GPU
+  - eval:
+    - 尚未执行；仅差补三条件评测作为证据收口
+
+### Local decision
+- `V8-M0` 完成且兼容旧 flow baseline。
+- `V8-M1` 已补齐并锁定：`infer2 > infer4`（robust 维度）。
+- `V8-M2` 目前已明确拒绝：
+  - candidate 1 `zeroinit_bc12`
+  - candidate 2 `align2_rollout`
+  - candidate 5 `align2_bcheavy`
+- 当前最强观察不是“哪个候选接近 continue gate”，而是：
+  - 整个 `infer2` family 在 fresh-train 下都表现出非常相似的失败训练模式；
+  - 即使部署端略有差异，也远低于 single-seed continue gate。
+
+### Remaining blocked/risky
+- `V8` 仍未正式收口，因为：
+  - candidate 4 `align2_anchor` 训练已确认复现相同失败模式，但还缺 eval 结果；
+  - candidate 3 `align4_rollout` 尚未执行。
+- 当前主要风险不是实现错误，而是方法边界：
+  - 若 candidate 4 继续复现 `Current Best = -1.62` 的模式，则 `infer2` family 基本可判定已被扫清；
+  - `infer4` 在 M1 已显示 robust 更差，后续更像形式化收口验证，而非高期望救火线。
+
+### Single recommended next step
+- 下一步先补完 candidate 4 `align2_anchor` 的 `nominal + light_v2 + hard` 三条件 eval；
+  - 若其结果继续低于当前 flow baseline，则 `infer2` family 可视为正式扫清；
+  - 之后只需决定是否对 candidate 3 `align4_rollout` 做最小收口验证，再判断 `V8 conclude`。
+
+---
+
+## v2-101 (2026-04-17) — V8 completed_conclude: candidate 4/3 closed out, no flow continue signal
+
+### Target milestone/subgoal
+- 完成 `PLANS_v8` 收口：
+  - 补完 candidate 4 `align2_anchor` 的三条件 eval；
+  - 完成最后一个 M2 fresh candidate `align4_rollout`；
+  - 判断 `M2.5 / M3` 是否触发并写出最终 verdict。
+
+### What changed (files + behavior impact)
+- 更新：
+  - `PLANS_v8.md`
+  - `docs/plansv8_final_verdict.md`
+  - `docs/stage_acceptance_summary.md`
+  - `docs/session_handoff_v2.md`
+  - `codeagent_issue.md`
+- 行为影响：
+  - 无代码路径新增改动；
+  - `PLANS_v8` 已正式切换到 `completed_conclude`；
+  - 仓库的 flow matching 方向在当前 scope 下被标记为“不值得继续投入”。
+
+### What was verified (commands + key outcomes)
+- candidate 4 eval:
+  - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh ... v8_m2_flow_align2_anchor_seed42_nominal ...`
+  - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh ... v8_m2_flow_align2_anchor_seed42_light_v2 ...`
+  - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh ... v8_m2_flow_align2_anchor_seed42_hard ...`
+  - outcome:
+    - nominal `1.000670 / 0.002035`
+    - light_v2 `0.923009 / 0.002360`
+    - hard `0.953265 / 0.002686`
+    - `infer2` family 至此证据化扫清
+- candidate 3 train/eval:
+  - train:
+    - `./docker-run-isaacgym.sh timeout 1000 python train.py ... output_name=XHandHoraScrewDriver_student_flow_matching/v8_m2_flow_align4_rollout_seed42_15min ... +train.ppo.flow_infer_steps=4 ...`
+    - 观测到 ~`1M` agent steps 内 `Current Best` 始终卡在 `-1.62`，提前停止
+  - eval:
+    - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh ... v8_m2_flow_align4_rollout_seed42_nominal ...`
+    - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh ... v8_m2_flow_align4_rollout_seed42_light_v2 ...`
+    - `./docker-run-isaacgym.sh timeout 480 bash scripts/eval_screwdriver_student_robustness.sh ... v8_m2_flow_align4_rollout_seed42_hard ...`
+  - outcome:
+    - nominal `1.114895 / 0.001790`
+    - light_v2 `1.152107 / 0.001872`
+    - hard `1.079496 / 0.002848`
+    - best fresh candidate, but still clearly below current flow baseline
+- closeout checks:
+  - `sha1sum` / `stat` on candidate 3 and 4 `model_best.ckpt`
+  - 文档对齐更新到：
+    - `PLANS_v8.md`
+    - `docs/plansv8_final_verdict.md`
+    - `docs/stage_acceptance_summary.md`
+    - `codeagent_issue.md`
+
+### Local decision
+- `PLANS_v8` 最终结论：`completed_conclude`
+- 理由：
+  - `M2` 的 5 个 fresh seed42 candidates 全部失败
+  - best fresh candidate `align4_rollout` 仍远低于 V8 continue gate：
+    - nominal `1.114895 < 1.95`
+    - light_v2 `1.152107 < 1.70`
+    - hard `1.079496 < 1.55`
+    - hard_done `0.002848 > 0.002372`
+  - `M2.5` 不触发
+  - `M3` 不触发
+
+### Remaining blocked/risky
+- 当前剩余的不再是实现风险，而是 scope 边界：
+  - 在 V8 所覆盖的 flow-native 小改动范围内，Flow Matching 没有显示出继续投入的价值。
+- 若还要继续推进 flow，需要新的计划边界和新的方法假设；在当前 family 内重复换小系数或继续加时长，收益预期很低。
+
+### Single recommended next step
+- 接受 `PLANS_v8 completed_conclude`，冻结当前 flow matching 扩张线；若后续仍要推进 diffusion，请新开一个**超出 V8 边界**的新计划，而不是继续重复当前 bounded sweep。
+
+---
+
+## v2-102 (2026-04-17) — Algorithm doc expanded into repo-wide student algorithm reference
+
+### Target milestone/subgoal
+- 把现有 `docs/diffusion_algorithm.md` 从单一 diffusion 路线说明，扩写成一份覆盖当前仓库主算法族的统一说明文档，便于：
+  - 查实现入口
+  - 对齐实验结论
+  - 直接支持论文/汇报写作
+
+### What changed (files + behavior impact)
+- 更新：
+  - `docs/diffusion_algorithm.md`
+- 行为影响：
+  - 无训练/评测/导出逻辑变更；
+  - 仅新增一份更完整的算法说明文档，覆盖：
+    - `teacher_ppo`
+    - `padapt`
+    - `purebc`
+    - `diffusion_latent`
+    - `consistency_latent`
+    - `flow_matching_latent`
+    - `diffusion_action_chunk`
+  - 文档中补充了：
+    - 各算法定位
+    - 输入/输出
+    - 公共 backbone 结构与层数
+    - 每层作用
+    - 项目内表现与优劣势
+    - 当前为何仍以 `padapt` 为主线的总结
+
+### What was verified (commands + key outcomes)
+- bootstrap/read:
+  - `sed -n '1,220p' docs/session_handoff_v2.md`
+  - `sed -n '1,220p' docs/stage_acceptance_summary.md`
+  - outcome:
+    - 确认当前仓库结论仍是：
+      - `padapt` 为主线 baseline
+      - `V5.5 consistency_boundary_bc_tuned` 为最强 accepted diffusion reference
+      - `V8` flow 已 conclude
+- code/doc cross-check:
+  - `sed -n '1,260p' dexscrew/algo/ppo/padapt.py`
+  - `sed -n '1,240p' dexscrew/algo/ppo/pure_bc.py`
+  - `sed -n '1,620p' dexscrew/algo/ppo/diffusion_latent_student.py`
+  - `sed -n '1,760p' dexscrew/algo/ppo/consistency_latent_student.py`
+  - `sed -n '1,760p' dexscrew/algo/ppo/flow_matching_latent_student.py`
+  - `sed -n '1,320p' dexscrew/algo/ppo/diffusion_action_chunk_student.py`
+  - `sed -n '1,260p' dexscrew/algo/models/models.py`
+  - `sed -n '1,260p' dexscrew/algo/models/block.py`
+  - outcome:
+    - 文档中关于输入/输出、层数、共享骨架、loss 逻辑、trainable 范围的描述已与实现对齐
+- config/result spot checks:
+  - `sed -n '170,235p' outputs/XHandHoraScrewDriver_student_padapt/run_a/config_032010_8bf90ec.yaml`
+  - `sed -n '170,250p' outputs/XHandHoraScrewDriver_student_consistency/v5_5_m1_boundary_bc_tuned_seed42_15min/config_041515_1f8d373.yaml`
+  - `sed -n '170,250p' outputs/XHandHoraScrewDriver_student_flow_matching/v5_m2_flow_baseline_seed42_15min/config_041508_1f8d373.yaml`
+  - `sed -n '360,520p' docs/stage_acceptance_summary.md`
+  - `sed -n '1,220p' docs/plansv5_5_final_verdict.md`
+  - `sed -n '1,220p' docs/plansv8_final_verdict.md`
+  - outcome:
+    - 文档中引用的 backbone 层宽、consistency accepted 指标、flow conclude 结论与现有 artifact 一致
+- final review:
+  - `git diff -- docs/diffusion_algorithm.md`
+  - outcome:
+    - 确认本次只改动算法说明文档，没有误触训练代码
+
+### Local decision
+- 当前仓库已经有一份可以直接作为“算法说明 / 结果定位 / 实现索引”入口使用的统一文档。
+- 若后续用户要写 thesis results、related work 对照、方法章节实现解析，可以优先复用这份文档，而不必再从多个 `plan/final verdict` 文档里手工拼接。
+
+### Remaining blocked/risky
+- 当前风险主要不是实现，而是文档边界：
+  - `docs/diffusion_algorithm.md` 现在已经覆盖了主要 student family，但它不是逐行代码注释式文档；
+  - 若后续需要论文级方法图、公式版 appendix、或英文版 methods subsection，仍需要基于该文档再裁剪一次。
+
+### Single recommended next step
+- 若接下来进入写作阶段，优先从 `docs/diffusion_algorithm.md` 拆一版“论文方法小节 + 结果分析小节”，而不是重新从实验 handoff 里拼材料。
+
+---
+
+## v2-103 (2026-04-17) — Asset compatibility check: `dexh13_hand` vs current Pasini hand, `lightbulb` vs current `bulb`
+
+### Target milestone/subgoal
+- 在不启动新实验的前提下，先确认新加入的 hand/object asset 与当前 `XHandPasini` 路线的兼容性和差异量级：
+  - `assets/dexh13_hand/*`
+  - `assets/lightbulb/*`
+
+### What changed (files + behavior impact)
+- 更新：
+  - `docs/session_handoff_v2.md`
+- 行为影响：
+  - 无代码/配置/训练逻辑改动；
+  - 仅新增一次 asset 勘查结论，方便后续决定是否新开“换 hand / 换 object”的验证计划。
+
+### What was verified (commands + key outcomes)
+- 当前 `XHandPasini` hand asset 定位：
+  - `sed -n '150,210p' configs/task/XHandPasiniScrewDriver.yaml`
+  - `sed -n '120,170p' configs/task/XHandPasiniBulb.yaml`
+  - outcome:
+    - 当前 Pasini 路线实际使用的是
+      - `assets/dexh13_right_description/urdf/dexh13_right_fix_path.urdf`
+    - 不是 `xhand_left`
+- current Pasini hand body assumptions:
+  - `sed -n '2270,2335p' dexscrew/tasks/xhand_pasini.py`
+  - outcome:
+    - fingertip body 名字硬编码为：
+      - `right_index_link_3`
+      - `right_middle_link_3`
+      - `right_ring_link_3`
+      - `right_thumb_link_3`
+- hand URDF topology comparison:
+  - `diff -q assets/dexh13_right_description/urdf/dexh13_right_fix_path.urdf assets/dexh13_hand/urdf/dexh13_hand_right.urdf`
+  - Python/XML grep summary on:
+    - `assets/dexh13_right_description/urdf/dexh13_right_fix_path.urdf`
+    - `assets/dexh13_hand/urdf/dexh13_hand_right.urdf`
+    - `assets/dexh13_hand/urdf/dexh13_hand_right_sim.urdf`
+    - `assets/dexh13_hand/urdf/dexh13_hand_right_with_tips.urdf`
+  - outcome:
+    - current Pasini hand vs `dexh13_hand_right.urdf`:
+      - link name set: equal
+      - joint name set: equal
+      - `28 links / 27 joints / 16 revolute / 11 fixed`
+      - therefore kinematic skeleton 基本同源，DOF 级兼容性很高
+    - but files are not byte-identical:
+      - mesh path style differs (`../meshes/...` vs `meshes/...`)
+      - collision organization differs
+      - current file contains some parent-link tactile collision composition / palm collision scale handling not identical to new file
+    - `dexh13_hand_right_sim.urdf` and `..._with_tips.urdf`:
+      - `33 links / 32 joints / 16 revolute / 16 fixed`
+      - extra `base` and 4 explicit tip links
+      - not a strict 1:1 replacement for the current Pasini hand asset
+- current Pasini bulb mapping:
+  - `sed -n '2140,2195p' dexscrew/tasks/xhand_pasini.py`
+  - outcome:
+    - current `bulb` object maps to:
+      - `assets/bulb/0000bulb.urdf`
+- object URDF comparison:
+  - `diff -u assets/bulb/0000bulb.urdf assets/lightbulb/0000_lightbulb.urdf | sed -n '1,260p'`
+  - structured parse on both files
+  - outcome:
+    - both are screw-like 1DOF objects:
+      - `3 links / 2 joints`
+      - `1 revolute + 1 fixed`
+      - same limit range `0 .. 628.3185`
+    - but geometry representation differs a lot:
+      - current `bulb`:
+        - primitive geometry
+        - links `base / shaft / handle`
+        - sphere + cylinders
+      - new `lightbulb`:
+        - mesh-based geometry
+        - links `base / bolt / nut`
+        - STL visual + contact meshes
+        - smaller base cylinder
+        - different inertial simplification
+        - mesh orientation compensated by `rpy`
+
+### Local decision
+- `dexh13_hand_right.urdf` 与当前 Pasini hand **不是逐字一样**，但 **骨架和关节拓扑几乎等价**；
+  - 如果目标是“保持同一只手的大体控制维度，只换另一份更规范/更新的 dexh13 资产”，这是可行方向。
+- `dexh13_hand_right_sim.urdf` / `with_tips` 则不应视为当前 Pasini hand 的 1:1 替身；
+  - 它们引入了额外 fixed tip bodies，更适合作为“显式 tip/contact 建模”的新 hand 变体。
+- `lightbulb` 和当前 `bulb` 在任务语义上同类，都是单自由度旋拧物体；
+  - 但在几何、碰撞、质量和 link naming 上差别明显，足以算一个有意义的新 object robustness 验证项，而不是简单换皮。
+
+### Remaining blocked/risky
+- 若后续真的切到 `lightbulb`：
+  - 当前 `XHandPasini` 还没有 `lightbulb` 的 object type 映射；
+  - 需要新加 asset path mapping 和对应 task yaml；
+  - 初始位姿、接触阈值、终止条件可能都要重新校一下。
+- 若后续切到 `dexh13_hand_right_sim` / `with_tips`：
+  - 需要重新审查 rigid body handles、接触体数量、point cloud / termination 是否受额外 tip body 影响。
+
+### Single recommended next step
+- 若目标是低风险验证，优先顺序建议：
+  - 先试 `dexh13_hand_right.urdf` 对 current Pasini hand 的替换可行性；
+  - 再单独开 `lightbulb` object 分支，因为它对任务几何与接触分布的改变更大。
+
+---
+
+## v2-104 (2026-04-17) — `PLANS_v9` wiring implementation: `Dexh13HoraLightbulb` + `XHandHoraLightbulb` + core student packaging
+
+### Target milestone/subgoal
+- 落地 `PLANS_v9` 的工程接入部分：
+  - 新 hand family：`Dexh13Hora`
+  - 新 lightbulb object 路线：`screw_lightbulb`
+  - core student algo 统一导出入口
+- 在不启动长训练的前提下完成最小 smoke：
+  - env instantiation + reset
+  - core student ctor smoke
+  - old baseline regression ctor smoke
+
+### What changed (files + behavior impact)
+- 代码：
+  - `dexscrew/tasks/xhand_hora.py`
+    - 增加 hand/object 可配置兼容层：
+      - `env.apply_action_mask`
+      - `env.action_mask_indices`
+      - `env.asset.fingertipBodies`
+      - `env.asset.handInitPose`
+      - `env.asset.handRootPos`
+      - `env.asset.handRootQuat`
+      - `env.asset.handRootRPY`
+      - `env.asset.handRootPosNoise`
+      - `env.asset.handRootPosZScaleComp`
+      - `env.asset.dofLowerLimits`
+      - `env.asset.dofUpperLimits`
+      - `env.asset.dofEffortLimits`
+      - `env.asset.dofVelocityLimits`
+      - `env.object.init_pos`
+      - `env.object.init_pos_noise`
+    - 默认行为保持兼容旧 `XHandHoraScrewDriver`
+  - `dexscrew/tasks/dexh13_hora.py`
+    - 新增 `Dexh13Hora(XHandHora)`，提供 DexH13 默认 fingertip / DOF / init pose 约定
+  - `dexscrew/tasks/__init__.py`
+    - 注册：
+      - `XHandHoraLightbulb`
+      - `Dexh13HoraLightbulb`
+  - `train.py`
+  - `student_eval.py`
+    - student 导入切换到 `dexscrew.algo.student`
+    - `student_eval.py` 不再写死 `student_dim=24`
+- 资产：
+  - `assets/screw/lightbulb/0000_lightbulb.urdf`
+    - 新增 runtime 使用的 `screw_lightbulb` 资产
+    - 使用 primitive geometry，避免原始 draft `lightbulb` 缺少 STL mesh 时直接卡死
+- 配置：
+  - `configs/task/XHandHoraLightbulb.yaml`
+  - `configs/task/Dexh13HoraLightbulb.yaml`
+  - `configs/train/XHandHoraLightbulb.yaml`
+  - `configs/train/Dexh13HoraLightbulb.yaml`
+- student packaging：
+  - `dexscrew/algo/student/__init__.py`
+  - `dexscrew/algo/student/padapt.py`
+  - `dexscrew/algo/student/purebc.py`
+  - `dexscrew/algo/student/diffusion_latent.py`
+  - `dexscrew/algo/student/consistency_latent.py`
+  - `dexscrew/algo/student/flow_matching_latent.py`
+- 脚本：
+  - `scripts/xhand_lightbulb_teacher.sh`
+  - `scripts/dexh13_lightbulb_teacher.sh`
+  - `scripts/vis_xhand_lightbulb_teacher.sh`
+  - `scripts/vis_dexh13_lightbulb_teacher.sh`
+  - `scripts/xhand_lightbulb_student_padapt.sh`
+  - `scripts/xhand_lightbulb_student_purebc.sh`
+  - `scripts/xhand_lightbulb_student_diffusion_latent.sh`
+  - `scripts/xhand_lightbulb_student_consistency.sh`
+  - `scripts/xhand_lightbulb_student_flow_matching.sh`
+  - `scripts/dexh13_lightbulb_student_padapt.sh`
+  - `scripts/dexh13_lightbulb_student_purebc.sh`
+  - `scripts/dexh13_lightbulb_student_diffusion_latent.sh`
+  - `scripts/dexh13_lightbulb_student_consistency.sh`
+  - `scripts/dexh13_lightbulb_student_flow_matching.sh`
+- 文档：
+  - `PLANS_v9.md`
+
+### What was verified (commands + key outcomes)
+- 静态源码 compile：
+  - `python - <<'PY' ... compile(src, path, 'exec') ... PY`
+  - outcome:
+    - `train.py`
+    - `student_eval.py`
+    - `dexscrew/tasks/xhand_hora.py`
+    - `dexscrew/tasks/dexh13_hora.py`
+    - `dexscrew/tasks/__init__.py`
+    - `dexscrew/algo/student/*`
+    - 全部语法通过
+- 脚本 shell 语法：
+  - `bash -n scripts/xhand_lightbulb_teacher.sh ... scripts/dexh13_lightbulb_student_flow_matching.sh`
+  - outcome:
+    - 所有新增 `lightbulb` 脚本通过 `bash -n`
+- 资产路径存在性：
+  - `python - <<'PY' ... os.path.exists(...) ... PY`
+  - outcome:
+    - `assets/screw/lightbulb/0000_lightbulb.urdf = True`
+    - `assets/dexh13_hand/urdf/dexh13_hand_right.urdf = True`
+    - `assets/xhand_left/urdf/xhand_left.urdf = True`
+- Docker Isaac Gym env reset smoke：
+  - `./docker-run-isaacgym.sh timeout 240 bash -lc 'python - <<\"PY\" ... task_name=\"XHandHoraLightbulb\" ... env.reset() ... PY'`
+  - outcome:
+    - `XHandHoraLightbulb obs (1, 96) acts (12,)`
+  - `./docker-run-isaacgym.sh timeout 240 bash -lc 'python - <<\"PY\" ... task_name=\"Dexh13HoraLightbulb\" ... env.reset() ... PY'`
+  - outcome:
+    - `Dexh13HoraLightbulb obs (1, 96) acts (16,)`
+- Core student ctor smoke, XHand route：
+  - `./docker-run-isaacgym.sh timeout 240 bash -lc 'python - <<\"PY\" ... TASK=\"XHandHoraLightbulb\" ... ProprioAdapt/PureBC/DiffusionLatentStudent/ConsistencyLatentStudent/FlowMatchingLatentStudent ... PY'`
+  - outcome:
+    - 5 个 core student ctor 全通过
+    - `XHandHoraLightbulb ProprioAdapt ctor_ok 12`
+    - `XHandHoraLightbulb PureBC ctor_ok 12`
+    - `XHandHoraLightbulb DiffusionLatentStudent ctor_ok 12`
+    - `XHandHoraLightbulb ConsistencyLatentStudent ctor_ok 12`
+    - `XHandHoraLightbulb FlowMatchingLatentStudent ctor_ok 12`
+- Core student ctor smoke, DexH13 route：
+  - `./docker-run-isaacgym.sh timeout 240 bash -lc 'python - <<\"PY\" ... TASK=\"Dexh13HoraLightbulb\" ... ProprioAdapt/PureBC/DiffusionLatentStudent/ConsistencyLatentStudent/FlowMatchingLatentStudent ... PY'`
+  - outcome:
+    - 5 个 core student ctor 全通过
+    - `Dexh13HoraLightbulb ProprioAdapt ctor_ok 16 pdim 32`
+    - `Dexh13HoraLightbulb PureBC ctor_ok 16 pdim 32`
+    - `Dexh13HoraLightbulb DiffusionLatentStudent ctor_ok 16 pdim 32`
+    - `Dexh13HoraLightbulb ConsistencyLatentStudent ctor_ok 16 pdim 32`
+    - `Dexh13HoraLightbulb FlowMatchingLatentStudent ctor_ok 16 pdim 32`
+- Old-path regression：
+  - `./docker-run-isaacgym.sh timeout 240 bash -lc 'python - <<\"PY\" ... TASK=\"XHandHoraScrewDriver\" ... ProprioAdapt ... env.reset() ... PY'`
+  - outcome:
+    - `XHandHoraScrewDriver obs (1, 96) acts (12,) pdim 24`
+    - 说明 `train.py/student_eval.py` 的 student 入口重组没有破坏当前 Hora 主线 baseline
+
+### Local decision
+- `PLANS_v9` 的工程接入部分已经达到“可继续 smoke”的状态：
+  - 新 task 名、asset path、task registry、core student import surface、脚本入口都已接通
+  - 两条新 task 都能在 Isaac Gym Docker 中实例化并 reset
+  - 两条新 task 上 5 个 core student 类都能成功构造
+  - 旧 `XHandHoraScrewDriver + ProprioAdapt` spot-check 仍正常
+- 当前还不能说实验矩阵已完成；
+  - 现在只是完成了 “engineering wiring accept / runtime env reset accept / core student ctor accept”
+  - 还没进入 `teacher 2~5min smoke -> 1min teacher ckpt -> student smoke -> ranking compare`
+
+### Remaining blocked/risky
+- `teacher smoke` 还没跑：
+  - 尚未确认当前 `lightbulb` init pose 是否足够稳定进入可训区间
+  - 尤其 `Dexh13HoraLightbulb` 的 `handRootPos / handRootRPY / handInitPose` 仍可能需要 viewer 下微调
+- `assets/lightbulb/0000_lightbulb.urdf` 原 draft 仍引用缺失 STL：
+  - 本次 runtime 已切到 `assets/screw/lightbulb/0000_lightbulb.urdf`
+  - 如果后续要追求更高保真视觉/接触 mesh，需要补完整 mesh 资产再替换
+- `student smoke` 还没跑：
+  - 当前只验证到 ctor，不代表 `restore_train/train/save/restore_test/test` 全链已过
+
+### Single recommended next step
+- 严格按 `PLANS_v9` 的 smoke 顺序往下走，不要直接开全算法矩阵：
+  1. `scripts/vis_xhand_lightbulb_teacher.sh` 和 `scripts/vis_dexh13_lightbulb_teacher.sh` 做 1-env viewer sanity
+  2. 对两条 task 各跑一次 `2~5 min PPO teacher smoke`
+  3. 若有大面积 reset / 无接触 / reward 死平，只调：
+     - `env.object.init_pos`
+     - `env.object.init_pos_noise`
+     - `env.asset.handRootPos`
+     - `env.asset.handRootQuat` / `handRootRPY`
+     - `env.asset.handInitPose`
+     - `reset_dist_threshold`
+     - 少量 reward scale
+  4. 拿到可训 init pose 后，再跑 `1 min teacher ckpt` 进入 5 个 core student 的完整 smoke
+
+## v2-105 (2026-04-17) — `PLANS_v9` smoke execution: XHand pass, DexH13 blocked on pose stability
+
+### Targeted milestone/subgoal
+- 推进 `PLANS_v9` 从“engineering wiring accept”进入真实 smoke 阶段：
+  - `1-env viewer sanity`
+  - `2~5 min teacher smoke`
+  - `1 route student smoke`
+
+### What changed
+- runtime bug fix:
+  - `dexscrew/tasks/xhand_hora.py`
+  - 在 `compute_observations()` 里为
+    - `self.nut_dof_vel_cf[at_reset_env_ids] = self.nut_dof_vel[at_reset_env_ids]`
+    - 增加空 `at_reset_env_ids` guard
+  - 影响：
+    - 修复 `XHandHoraLightbulb` / `Dexh13HoraLightbulb` 在 `1-env` PPO rollout 中的 shape mismatch
+    - 该错误此前会在 viewer sanity / small-env teacher smoke 的第一轮 rollout 内直接中断
+- student script fix:
+  - `scripts/xhand_lightbulb_student_*.sh`
+  - `scripts/dexh13_lightbulb_student_*.sh`
+  - 为所有 `task.env.numEnvs=48` 的新 lightbulb student 脚本补充：
+    - `train.ppo.minibatch_size=576`
+  - 影响：
+    - 修复新 student 脚本的 PPO batch divisibility 问题
+    - 避免进入 student smoke 时因 `48 * 12 = 576` 与默认 `16384` 不整除而直接报错
+- docs / plan state:
+  - `PLANS_v9.md`
+  - 更新为 `active_partial_smoke`
+
+### What was verified
+- viewer sanity rerun after bug fix:
+  - `./docker-run-isaacgym.sh timeout 45 scripts/vis_xhand_lightbulb_teacher.sh 0 42 v9_xhand_viewer_sanity_rerun`
+  - `./docker-run-isaacgym.sh timeout 45 scripts/vis_dexh13_lightbulb_teacher.sh 0 42 v9_dexh13_viewer_sanity_rerun`
+  - outcome:
+    - 两条新 task 都不再触发 `nut_dof_vel_cf` shape mismatch
+    - 两条线都能进入 PPO rollout
+- `XHandHoraLightbulb` teacher smoke:
+  - `./docker-run-isaacgym.sh timeout 180 scripts/xhand_lightbulb_teacher.sh 0 42 v9_xhand_teacher_smoke_seed42_3min True task.env.numEnvs=32 train.ppo.minibatch_size=384`
+  - outputs:
+    - `outputs/XHandHoraLightbulb_teacher/v9_xhand_teacher_smoke_seed42_3min/`
+    - ckpt: `stage1_nn/best_reward_0.00.pth`
+  - outcome:
+    - reward 从约 `-655` 稳定改善到约 `-46.5`
+    - 无大面积 crash / 早停 / reset-storm 证据
+    - 当前可视为 `XHandHoraLightbulb` 的可训 teacher 起点
+- `Dexh13HoraLightbulb` teacher smoke, default config:
+  - `./docker-run-isaacgym.sh timeout 180 scripts/dexh13_lightbulb_teacher.sh 0 42 v9_dexh13_teacher_smoke_seed42_3min True task.env.numEnvs=32 train.ppo.minibatch_size=384`
+  - outputs:
+    - `outputs/Dexh13HoraLightbulb_teacher/v9_dexh13_teacher_smoke_seed42_3min/`
+    - ckpt: `stage1_nn/best_reward_0.00.pth`
+  - outcome:
+    - reward 从约 `-5604` 劣化到约 `-8531`
+    - 默认 pose 不满足 smoke accept
+- reset geometry probes:
+  - `XHandHoraLightbulb` default:
+    - fingertip->nut `min=0.0635`, `mean=0.0859`
+  - `Dexh13HoraLightbulb` default:
+    - fingertip->nut `min=0.1040`, `mean=0.1151`
+  - `Dexh13HoraLightbulb` rootpos A:
+    - override `task.env.asset.handRootPos=[0.14,0.102,0.137]`
+    - fingertip->nut `min=0.0786`, `mean=0.0874`
+  - `Dexh13HoraLightbulb` rootpos B:
+    - override `task.env.asset.handRootPos=[0.14,0.092,0.127]`
+    - fingertip->nut `min=0.0717`, `mean=0.0795`
+  - interpretation:
+    - `Dexh13` 默认 pose 初始接触区明显比 `XHand` 更远、更散
+    - 但“仅把距离压近”不能保证 teacher 稳定
+- `Dexh13HoraLightbulb` short root-pos probes:
+  - candidate A:
+    - `./docker-run-isaacgym.sh timeout 90 scripts/dexh13_lightbulb_teacher.sh 0 42 v9_dexh13_teacher_probe_rootpos_a_90s True task.env.numEnvs=32 train.ppo.minibatch_size=384 task.env.asset.handRootPos=[0.14,0.102,0.137]`
+  - candidate B:
+    - `./docker-run-isaacgym.sh timeout 90 scripts/dexh13_lightbulb_teacher.sh 0 42 v9_dexh13_teacher_probe_rootpos_b_90s True task.env.numEnvs=32 train.ppo.minibatch_size=384 task.env.asset.handRootPos=[0.14,0.092,0.127]`
+  - outcome:
+    - A 早期 reward 仍持续劣化到 `-12k` 量级
+    - B 虽改善初始几何距离，但 90s probe 也劣化到 `-12k` 量级
+    - 说明 `Dexh13` 当前问题不只是“整体离得远”，还涉及更细的姿态/接触稳定性
+- `XHandHoraLightbulb + ProprioAdapt` student smoke:
+  - train:
+    - `./docker-run-isaacgym.sh timeout 60 scripts/xhand_lightbulb_student_padapt.sh 0 42 v9_xhand_padapt_smoke checkpoint=outputs/XHandHoraLightbulb_teacher/v9_xhand_teacher_smoke_seed42_3min/stage1_nn/best_reward_*.pth`
+    - output:
+      - `outputs/XHandHoraLightbulb_student_padapt/v9_xhand_padapt_smoke/stage2_nn/model_best.ckpt`
+    - outcome:
+      - teacher ckpt restore + student train loop + save 全部通过
+  - eval:
+    - `./docker-run-isaacgym.sh timeout 120 bash -lc 'python train.py task=XHandHoraLightbulb headless=True test=True seed=42 train.algo=ProprioAdapt train.ppo.proprio_adapt=True train.ppo.output_name=XHandHoraLightbulb_student_padapt_eval/v9_xhand_padapt_smoke task.env.numEnvs=1 ... checkpoint=outputs/XHandHoraLightbulb_student_padapt/v9_xhand_padapt_smoke/stage2_nn/model_best.ckpt +test_num_steps=64'`
+    - output:
+      - `outputs/XHandHoraLightbulb_student_padapt_eval/v9_xhand_padapt_smoke/eval_64.log`
+    - outcome:
+      - `EvalSummary steps=64 avg_reward=-5.448445 avg_done_rate=0.015625`
+      - 说明 `restore_test -> test` 也已通过
+
+### Local decision
+- `PLANS_v9` 现已从纯 wiring 阶段推进到“partial smoke pass”：
+  - `XHandHoraLightbulb`:
+    - teacher smoke = pass
+    - `ProprioAdapt` student smoke train/test = pass
+  - `Dexh13HoraLightbulb`:
+    - default teacher smoke = fail
+    - 仅靠 root translation 的两个 probe 也 fail
+- 因此当前最合理的执行策略是分流：
+  - 继续把 `XHandHoraLightbulb` 路线扩到剩余 4 个 core student smoke
+  - 暂停 `Dexh13HoraLightbulb` student 矩阵，先解决 teacher 可训起点
+
+### Remaining blocked/risky
+- `Dexh13HoraLightbulb` 仍未达到 teacher smoke accept：
+  - 当前证据显示不是简单的“距离太远”单因子问题
+  - 下一步需要更明确的：
+    - `handRootRPY / handRootQuat`
+    - `handInitPose`
+    - `object.init_pos`
+    - `reset_dist_threshold`
+    - 少量 reward / termination
+    - 的联动微调
+- `XHandHoraLightbulb` 目前只完成了 `ProprioAdapt` 的完整 smoke：
+  - `PureBC`
+  - `DiffusionLatentStudent`
+  - `ConsistencyLatentStudent`
+  - `FlowMatchingLatentStudent`
+  - 仍待补齐
+
+### Single recommended next step
+- 先不再盲扫 `Dexh13` 的平移 root pose。
+- 优先继续 `XHandHoraLightbulb` 上剩余 4 个 core student smoke，保持当前 teacher ckpt 不变。
+- `Dexh13HoraLightbulb` 单独开下一轮局部调试时，优先顺序改为：
+  1. `env.asset.handRootRPY` / `handRootQuat`
+  2. `env.asset.handInitPose`
+  3. `env.object.init_pos`
+  4. `reset_dist_threshold`
+  5. 少量 reward / termination
+
+## v2-106 (2026-04-17) — `PLANS_v9` smoke acceptance closure: both lightbulb task families pass teacher/student smoke
+
+### Target milestone/subgoal
+- 将 `PLANS_v9` 从 `active_partial_smoke` 推进到完整 smoke 验收：
+  - `XHandHoraLightbulb`
+  - `Dexh13HoraLightbulb`
+  - 两条线上 5 个 core student 都要完成 `train + official eval`
+
+### What changed
+- `configs/task/Dexh13HoraLightbulb.yaml`
+  - 为 `Dexh13 + lightbulb` 固化 smoke 级 reward 微调：
+    - `pose_diff_penalty_scale: -0.01`
+    - `torque_penalty_scale: -0.5`
+    - `work_penalty_scale: -0.001`
+    - `rotate_penalty_scale: -0.2`
+  - 影响：
+    - 将 `Dexh13HoraLightbulb` teacher smoke 从默认的 `-5.6k -> -8.5k` 崩盘区拉回到可训 smoke 区间
+- `dexscrew/algo/models/models.py`
+  - stage2 `TemporalConv` 输入维度不再写死为 `24`
+  - 改为使用 `proprio_dim`
+- `dexscrew/algo/ppo/padapt.py`
+  - 向 `ActorCritic` 显式传递 `proprio_dim`
+  - 影响：
+    - 修复 `Dexh13` student smoke 的 `mat1 and mat2 shapes cannot be multiplied (...32 and 24...)`
+    - 保持 `XHand` 路线语义不变（仍为 `24-dim`)
+- docs:
+  - `PLANS_v9.md`
+  - `docs/plansv9_final_verdict.md`
+  - `docs/stage_acceptance_summary.md`
+
+### What was verified
+- `Dexh13HoraLightbulb` 零动作诊断：
+  - default `lightbulb_inclined`：
+    - `thumb_dist mean=0.1235`
+    - `index_dist mean=0.1037`
+    - `step_all_reward mean16=-74.674170`
+    - 主导负项来自 `work_done` 与 `torques`
+  - `screwdriver_inclined` 更差，不采用
+- `Dexh13HoraLightbulb` recovered teacher smoke:
+  - `./docker-run-isaacgym.sh timeout 180 scripts/dexh13_lightbulb_teacher.sh 0 42 v9_dexh13_teacher_smoke_rewardrelax_seed42_3min True task.env.numEnvs=32 train.ppo.minibatch_size=384`
+  - output:
+    - `outputs/Dexh13HoraLightbulb_teacher/v9_dexh13_teacher_smoke_rewardrelax_seed42_3min/stage1_nn/best_reward_0.00.pth`
+  - outcome:
+    - around `2.2 min` 时 reward 稳定在 `-705 ~ -769`
+    - 作为 smoke teacher 起点 accepted
+- `Dexh13HoraLightbulb` student smoke matrix:
+  - `ProprioAdapt`
+    - train output:
+      - `outputs/Dexh13HoraLightbulb_student_padapt/v9_dexh13_padapt_smoke/stage2_nn/model_best.ckpt`
+    - eval:
+      - `EvalSummary steps=64 avg_reward=-9.051320 avg_done_rate=0.015625`
+  - `PureBC`
+    - train output:
+      - `outputs/Dexh13HoraLightbulb_student_purebc/v9_dexh13_purebc_smoke/stage2_bc_nn/model_best.ckpt`
+    - eval:
+      - `EvalSummary steps=64 avg_reward=-9.049654 avg_done_rate=0.015625`
+  - `DiffusionLatentStudent`
+    - train output:
+      - `outputs/Dexh13HoraLightbulb_student_diffusion_latent/v9_dexh13_diffusion_smoke/stage2_diffusion_nn/model_best.ckpt`
+    - eval:
+      - `EvalSummary steps=64 avg_reward=-9.163227 avg_done_rate=0.015625`
+      - `EvalReconSummary steps=64 mode=diffusion latent_mse=0.111387 latent_l1=0.279704 action_mse_to_teacher=0.001462`
+  - `ConsistencyLatentStudent`
+    - train output:
+      - `outputs/Dexh13HoraLightbulb_student_consistency/v9_dexh13_consistency_smoke/stage2_consistency_nn/model_best.ckpt`
+    - eval:
+      - `EvalSummary steps=64 avg_reward=-9.187637 avg_done_rate=0.015625`
+      - `EvalReconSummary steps=64 mode=consistency latent_mse=0.102859 latent_l1=0.261397 action_mse_to_teacher=0.001217`
+  - `FlowMatchingLatentStudent`
+    - train output:
+      - `outputs/Dexh13HoraLightbulb_student_flow_matching/v9_dexh13_flow_smoke/stage2_flow_nn/model_best.ckpt`
+    - eval:
+      - `EvalSummary steps=64 avg_reward=-9.202663 avg_done_rate=0.015625`
+      - `EvalReconSummary steps=64 mode=flow_matching latent_mse=0.113891 latent_l1=0.277006 action_mse_to_teacher=0.001581`
+- `XHandHoraLightbulb` remaining 4 student smokes also补齐:
+  - `PureBC`: `EvalSummary steps=64 avg_reward=-5.379851 avg_done_rate=0.015625`
+  - `DiffusionLatentStudent`: `EvalSummary steps=64 avg_reward=-5.226565 avg_done_rate=0.015625`
+  - `ConsistencyLatentStudent`: `EvalSummary steps=64 avg_reward=-5.652328 avg_done_rate=0.015625`
+  - `FlowMatchingLatentStudent`: `EvalSummary steps=64 avg_reward=-5.256454 avg_done_rate=0.015625`
+- common-model regression spot-check after the `proprio_dim` fix:
+  - `./docker-run-isaacgym.sh timeout 90 bash -lc 'python train.py task=XHandHoraLightbulb ... checkpoint=outputs/XHandHoraLightbulb_student_padapt/v9_xhand_padapt_smoke/stage2_nn/model_best.ckpt +test_num_steps=16'`
+  - outcome:
+    - `EvalSummary steps=16 avg_reward=-7.725555 avg_done_rate=0.000000`
+    - confirms old `XHand` 24-dim path still runs
+
+### Local decision
+- `PLANS_v9` 的 smoke acceptance 已完成：
+  - `teacher_smoke_accept = yes`
+  - `student_train_test_smoke_accept = yes`
+  - `ranking_comparison_accept = smoke_protocol_yes`
+- 本轮结论应写成：
+  - `completed_smoke_accept`
+  - 而不是 longer-run ranking accept
+
+### Remaining blocked/risky
+- 当前比较仍是 smoke 协议，不是 `nominal / light / hard` 长训练结论
+- `Dexh13HoraLightbulb` 的 reward 微调是 smoke 级修复，后续 longer-run 若继续要单独评估是否仍合适
+- 旧任务没有做完整 retrain regression；目前只做了最小运行回归
+
+### Single recommended next step
+- 不要再在 `PLANS_v9` 内继续追加 smoke。
+- 如果要继续，应新开一个 longer-run comparison 计划，目标固定为：
+  1. `XHandHoraLightbulb` 与 `Dexh13HoraLightbulb` teacher longer-run
+  2. 5 个 core student 的 longer-run / official evaluation matrix
+  3. 与 screw 任务上的算法排序变化做正式对照
+
+---
+
+## v2-107 (2026-04-20) — Original XHand Padapt Wandb Smoke Probe
+
+### Target milestone/subgoal
+- 非计划内诊断：验证“原版 `XHandHoraScrewDriver + ProprioAdapt` student 训练是否能正常把 TensorBoard 指标同步到 wandb”。
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - 追加本次 wandb 诊断记录。
+- 代码与配置未改动。
+
+### What was verified (commands + key outcomes)
+- 在 Isaac Gym Docker 内直接运行一个带 wandb 凭据挂载的 180s smoke：
+  - `docker run --rm ... -v "$HOME/.netrc:/tmp/.netrc:ro" -v "$HOME/.config/wandb:/tmp/.config/wandb:ro" ... timeout 180 python train.py task=XHandHoraScrewDriver ... train.algo=ProprioAdapt ... train.ppo.output_name=XHandHoraScrewDriver_student_padapt/wandb_probe_xhand_seed42_180s experiment=padapt_cmp_v1 wandb_activate=True ... checkpoint=outputs/XHandHoraScrewDriver_teacher/run_a/stage1_nn/best_reward_1550.49.pth`
+- Wandb init / sync 关键日志：
+  - `wandb.login()] Loaded credentials for https://api.wandb.ai from /tmp/.netrc`
+  - `wandb: Syncing run wandb_probe_xhand_seed42_180s_2026-04-20_12-03-41`
+  - project URL:
+    - `https://wandb.ai/3319963854-south-china-university-of-technology/dexscrew`
+  - run URL:
+    - `https://wandb.ai/3319963854-south-china-university-of-technology/dexscrew/runs/fud6pz25`
+- Local wandb metadata / TB callback:
+  - local run dir:
+    - `wandb/run-20260420_120342-fud6pz25/`
+  - metadata confirms args include:
+    - `train.algo=ProprioAdapt`
+    - `experiment=padapt_cmp_v1`
+    - `wandb_activate=True`
+  - `wandb/run-20260420_120342-fud6pz25/logs/debug.log` contains:
+    - `tensorboard callback: outputs/XHandHoraScrewDriver_student_padapt/wandb_probe_xhand_seed42_180s/stage2_tb, True`
+- Smoke artifacts created:
+  - `outputs/XHandHoraScrewDriver_student_padapt/wandb_probe_xhand_seed42_180s/stage2_tb/events.out.tfevents.1776686625.wbz-ubuntu22-pc`
+  - `outputs/XHandHoraScrewDriver_student_padapt/wandb_probe_xhand_seed42_180s/stage2_nn/model_best.ckpt`
+- Training signal during the 180s probe:
+  - stdout `Current Best` improved from `0.00` to about `1385.81` before timeout.
+
+### Local decision
+- 原版 `XHandHoraScrewDriver + ProprioAdapt` student 训练本身可以正常连接 wandb。
+- 这次 probe 也明确证明：
+  - wandb 端收到了 student run；
+  - wandb backend 已接上对应 `stage2_tb` 事件目录；
+  - 因此“wandb 完全收不到 student 指标”这一假设不成立。
+- 当前更可能的问题是：
+  - wandb `Charts` 页只自动展开了少量面板；
+  - 或远端查看的不是这次 run / 不是同一代码版本。
+
+### Remaining blocked/risky
+- 本次只验证了“wandb 连通 + TensorBoard callback 接通”，没有在本地完整枚举远端 UI 上所有 tag。
+- 仓库当前本地 Python 环境缺少 `tensorboard` 包，因此没有进一步直接解析 event 文件做 tag 清单。
+- 如果后续仍只在 wandb `Charts` 里看到少量 loss，优先检查：
+  - 是否看的就是 run `fud6pz25`
+  - 是否切到了 wandb 顶部 `Tensorboard` 标签
+  - 是否存在自定义 workspace / panel 过滤
+
+### Single recommended next step
+- 直接在 wandb 打开 run `fud6pz25`，优先检查顶部 `Tensorboard` 页而不是 `Charts` 默认页；若仍缺 `env/...` 面板，再做一次远端 tag 枚举而不是继续怀疑 student 没上报。
+
+---
+
+## v2-108 (2026-04-21) — Mesh lightbulb cutover + Hora/Pasini teacher initPose tuning
+
+### Target milestone/subgoal
+- 将 `lightbulb` 主资产从 primitive runtime 近似版切到 STL mesh 主线。
+- 新建 `XHandPasiniLightbulb`，并完成：
+  - `XHandHoraLightbulb` baseline + 5 次 5min teacher initPose tuning + final confirm
+  - `XHandPasiniLightbulb` baseline + 5 次 5min teacher initPose tuning + final confirm
+- 对 `Dexh13HoraLightbulb` 做 mesh cutover 回归，但不进入 5 轮 pose 主调参。
+
+### What changed (files + behavior impact)
+- `assets/screw/lightbulb/0000_lightbulb.urdf`
+  - 从 primitive runtime 近似版切到 mesh-STL runtime canonical 版。
+  - 现在直接引用：
+    - `../../lightbulb/lightbulb_head.stl`
+    - `../../lightbulb/lightbulb_socket.stl`
+    - `../../lightbulb/contact0.stl`
+    - `../../lightbulb/contact1.stl`
+- `assets/lightbulb/0000_lightbulb.urdf`
+  - 原始 draft URDF 同步改为本地可用相对路径：
+    - `lightbulb_head.stl`
+    - `lightbulb_socket.stl`
+    - `contact0.stl`
+    - `contact1.stl`
+  - 解决了此前 `object_sim/lightbulb/*.stl` 缺失导致的 Viewer/runtime 不一致。
+- `dexscrew/tasks/__init__.py`
+  - 新增 `XHandPasiniLightbulb -> XHandPasini` 映射。
+- `dexscrew/tasks/xhand_pasini.py`
+  - 接受 `env.initPose=lightbulb_inclined`，初始 joint seed alias `bulb_inclined`。
+  - 支持从 YAML 读取 `env.object.init_pos / init_pos_noise`。
+  - `dump_current_pose()` 提示改为当前 task YAML 通用文案。
+- 新增：
+  - `configs/task/XHandPasiniLightbulb.yaml`
+  - `configs/train/XHandPasiniLightbulb.yaml`
+  - `scripts/pasini_lightbulb_teacher.sh`
+  - `scripts/vis_pasini_lightbulb_teacher.sh`
+- 最终固化的 tuned defaults：
+  - `configs/task/XHandHoraLightbulb.yaml`
+    - `env.asset.handRootPos: [0.0, 0.004, 0.206]`
+  - `configs/task/XHandPasiniLightbulb.yaml`
+    - `env.object.init_pos: [0.009, 0.058, 0.0]`
+    - `env.object.init_pos_noise: [0.002, 0.002, 0.0]`
+
+### What was verified (commands + key outcomes)
+- Static / wiring:
+  - `rg -n "object_sim/lightbulb" assets/lightbulb/0000_lightbulb.urdf assets/screw/lightbulb/0000_lightbulb.urdf`
+    - outcome: no remaining stale mesh path references.
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_pasini.py', ...) ... compile('train.py', ...) ... PY`
+    - outcome: `syntax_ok`.
+  - `bash -n scripts/pasini_lightbulb_teacher.sh scripts/vis_pasini_lightbulb_teacher.sh ...`
+    - outcome: pass.
+- Runtime mesh sanity:
+  - `XHandHoraLightbulb` runtime sanity:
+    - `./docker-run-isaacgym.sh timeout 90 bash -lc 'python train.py task=XHandHoraLightbulb ... task.env.numEnvs=16 train.ppo.minibatch_size=192'`
+    - outcome: 1.2 min 内 `mean_rewards` 约 `-251.85 -> -53.54`，mesh runtime train path 正常。
+  - `Dexh13HoraLightbulb` mesh regression:
+    - `./docker-run-isaacgym.sh timeout 60 bash -lc 'python train.py task=Dexh13HoraLightbulb ... task.env.numEnvs=16 train.ppo.minibatch_size=192'`
+    - outcome: mesh 切换后链路未炸；但 0.7 min 区间约 `-776.63 -> -998.12`，仍不适合本轮直接推进 teacher 5 轮 pose 调参。
+  - `XHandPasiniLightbulb` runtime sanity:
+    - `./docker-run-isaacgym.sh timeout 60 bash scripts/pasini_lightbulb_teacher.sh ... task.env.numEnvs=16 train.ppo.minibatch_size=192`
+    - outcome: 新 task 成功实例化并训练，0.7 min 区间约 `-224.20 -> -597.83`，确认链路通。
+  - 1-env viewer launch sanity:
+    - `scripts/vis_xhand_lightbulb_teacher.sh`
+    - `scripts/vis_dexh13_lightbulb_teacher.sh`
+    - `scripts/vis_pasini_lightbulb_teacher.sh`
+    - outcome: headless=False 路径均能进入环境创建/rollout；本次为非交互会话，只验证无 missing mesh / bad asset 硬错误。
+- `XHandHoraLightbulb` 5min tuning:
+  - `r0_baseline`:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_r0_baseline_5min/`
+    - last `mean_rewards = -24.163656`
+  - `r1_object_align`:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_r1_object_align_5min/`
+    - last `mean_rewards = -36.816711`
+  - `r2_root_translation`:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_r2_root_translation_5min/`
+    - override: `handRootPos=[0.0,0.004,0.206]`
+    - last `mean_rewards = -12.503010`
+    - current best
+  - `r3_root_orientation`:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_r3_root_orientation_5min/`
+    - last `mean_rewards = -285.108433`
+  - `r4_finger_pose`:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_r4_finger_pose_5min/`
+    - last `mean_rewards = -234.202718`
+  - `r5_threshold_reward`:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_r5_threshold_reward_5min/`
+    - last `mean_rewards = -14.965856`
+  - final confirm:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_hora_final_confirm_5min/`
+    - last `mean_rewards = -12.503010`
+    - outcome: `r2` 可复现。
+  - 60s smoke teacher ckpt:
+    - `outputs/XHandHoraLightbulb_teacher/mesh_hora_teacher_smoke_ckpt_60s/`
+    - 1.2 min tail `mean_rewards ≈ -61.53`
+- `XHandPasiniLightbulb` tuning:
+  - `r0_baseline`:
+    - `outputs/XHandPasiniLightbulb_teacher/mesh_r0_baseline_5min/`
+    - last `mean_rewards = -192.035345`
+  - `r1_object_align`:
+    - `outputs/XHandPasiniLightbulb_teacher/mesh_r1_object_align_5min/`
+    - override: `init_pos=[0.009,0.058,0.0]`, `init_pos_noise=[0.002,0.002,0.0]`
+    - last `mean_rewards = -69.932446`
+    - current best
+  - `r2_viewer_dump_pose` fact capture:
+    - `./docker-run-isaacgym.sh timeout 180 bash -lc 'python - <<\"PY\" ... env.reset(); env.dump_current_pose(...) ... PY'`
+    - artifact:
+      - `outputs/pose_dumps/pasini_pose_env0_1776763821720.json`
+    - dump gives nonzero `hand_dof_pos` and a reusable `env.customInitDofPos` template.
+  - `r3_joint_refine`:
+    - `outputs/XHandPasiniLightbulb_teacher/mesh_r3_joint_refine_5min/`
+    - last `mean_rewards = -127.851759`
+  - `r4_object_threshold`:
+    - `outputs/XHandPasiniLightbulb_teacher/mesh_r4_object_threshold_5min/`
+    - last `mean_rewards = -108.341273`
+  - `r5_reward_touchup`:
+    - `outputs/XHandPasiniLightbulb_teacher/mesh_r5_reward_touchup_5min/`
+    - last `mean_rewards = -93.696232`
+  - final confirm:
+    - `outputs/XHandPasiniLightbulb_teacher/mesh_pasini_final_confirm_5min/`
+    - last `mean_rewards = -73.043506`
+    - outcome: `r1` best 区间可复现，但比首轮 best 略差，说明稳定性一般。
+  - 60s smoke teacher ckpt:
+    - `outputs/XHandPasiniLightbulb_teacher/mesh_pasini_teacher_smoke_ckpt_60s/`
+    - 1.2 min tail `mean_rewards ≈ -271.08`
+
+### Local decision
+- mesh lightbulb cutover 已完成，runtime 主线已不再依赖 primitive `assets/screw/lightbulb` 近似几何。
+- `2026-04-21` 之前的 `PLANS_v9` lightbulb smoke 结果应视为：
+  - `primitive_lightbulb_runtime`
+- 本次之后的新结果应视为：
+  - `mesh_stl_lightbulb_runtime`
+- 二者不应直接混为同一套 teacher/student 结论。
+- 当前 teacher-side mesh tuned defaults:
+  - `XHandHoraLightbulb`: keep `handRootPos=[0.0,0.004,0.206]`
+  - `XHandPasiniLightbulb`: keep `init_pos=[0.009,0.058,0.0]`, `init_pos_noise=[0.002,0.002,0.0]`
+- `Dexh13HoraLightbulb`:
+  - mesh cutover regression pass
+  - but still not chosen for this round’s 5-run pose tuning mainline
+
+### Remaining blocked/risky
+- 本次 viewer sanity 是非交互式启动检查；真正的窗口下接触姿态仍建议在你本机再看一遍。
+- `XHandPasiniLightbulb` 的 best config 可复现到同一量级，但相较首轮 best 仍有一定 run-to-run 波动。
+- `mesh_pasini_teacher_smoke_ckpt_60s` 的短预算表现较弱，只适合作为链路 smoke 输入，不代表 longer-run teacher 质量。
+- 尚未在 mesh lightbulb teacher best 上展开新的 student smoke / ranking matrix。
+
+### Single recommended next step
+- 用本次固化后的 mesh tuned config，在本机 viewer 下各检查一次：
+  - `scripts/vis_xhand_lightbulb_teacher.sh`
+  - `scripts/vis_pasini_lightbulb_teacher.sh`
+- 若视觉接触正常，则直接进入下一轮计划：
+  - `XHandHoraLightbulb` 与 `XHandPasiniLightbulb` 的 mesh teacher-student smoke / longer-run ranking matrix。
+
+---
+
+## v2-Local (2026-04-22) — Project-Scoped Codex API Config Isolation
+
+### Target milestone/subgoal
+- Local tooling setup only: isolate Codex authentication/config for this repo without changing the training/eval/export pipeline.
+
+### What changed (files + behavior impact)
+- `.config/codex/config.toml`
+  - Added project-local Codex config using `model_provider = "gac"`, `model = "gpt-5.1-codex-max"`, `wire_api = "responses"`, and file-based local credential storage.
+  - Added `shell_environment_policy` with `inherit = "core"` and a project-local provider token environment variable.
+  - Added `env_key = "ANTHROPIC_AUTH_TOKEN"` under `[model_providers.gac]` so Codex CLI knows which process environment variable to use for provider auth.
+  - Behavior impact: launching Codex with `CODEX_HOME="$PWD/.config/codex"` uses the isolated project config instead of global `~/.codex`.
+- `start_codex_local.sh`
+  - Added a project-root launcher that:
+    - sets `CODEX_HOME="$PWD/.config/codex"`,
+    - reads the provider env var name and token from `.config/codex/config.toml`,
+    - exports that env var for the current process,
+    - starts `codex` with any forwarded CLI args.
+  - Behavior impact: avoids accidental fallback to global `~/.codex` for normal project launches.
+- `.gitignore`
+  - Added `.envrc` to keep optional direnv-based local auto-export files untracked.
+- `.gitignore`
+  - Added `.config/codex/` so the local config/auth cache is not committed.
+
+### What was verified (commands + key outcomes)
+- TOML structure check:
+  - `python3 -c 'import pathlib,tomllib; ... tomllib.loads(...) ...'`
+  - Outcome: `TOML OK: isolated Codex config parsed successfully`.
+- Ignore and permission check:
+  - `git check-ignore -v .config/codex/config.toml`
+  - Outcome: ignored by `.gitignore`.
+  - `stat -c '%a %n' .config .config/codex .config/codex/config.toml`
+  - Outcome: directories `700`, config file `600`.
+- API connectivity checks:
+  - Direct `curl` to `https://gaccode.com/codex/v1/responses` with project token and `model=gpt-5.4`
+  - Outcome: streaming response completed with `OK`.
+  - Direct `curl` with `model=gpt-5.4-mini`
+  - Outcome: streaming response completed with `OK`.
+  - `CODEX_HOME="$PWD/.config/codex"` plus exported `ANTHROPIC_AUTH_TOKEN`, `codex exec -m gpt-5.4 'Reply exactly: OK'`
+  - Outcome: Codex CLI completed and returned `OK`.
+  - `./start_codex_local.sh exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 'Reply exactly: OK'`
+  - Outcome: launcher path completed and returned `OK`.
+  - `codex exec` using config default `model=gpt-5.1-codex-max`
+  - Outcome: did not complete; direct HTTP returned provider error that this model is not supported for the current account route.
+
+### Remaining blocked/risky
+- The config contains local credentials by design; keep `.config/codex/` ignored and do not paste or commit the file contents.
+- `shell_environment_policy.set` does not provide environment variables to Codex CLI itself; launch Codex with `ANTHROPIC_AUTH_TOKEN` already exported, or use a local wrapper that exports it before invoking `codex`.
+- Current default `model = "gpt-5.1-codex-max"` is not usable on this provider/account route based on the API check; `gpt-5.4` and `gpt-5.4-mini` are reachable.
+
+### Single recommended next step
+- Use `./start_codex_local.sh` as the default way to launch Codex in this repo; if fully automatic per-directory activation is desired, add a local `.envrc` and load it with `direnv`.
+
+---
+
+## v2-110 (2026-04-22) — Bootstrap Context Map For Upcoming Environment Test Experiments
+
+### Target milestone/subgoal
+- Recover the current executable state before environment-side test adjustments.
+- Build a minimal project map for upcoming environment experiments without changing the existing teacher-student pipeline.
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - Added this bootstrap/context entry.
+  - Behavior impact: no runtime/code change; clarifies the current experiment surface for the next environment-adjustment session.
+
+### What was verified (commands + key outcomes)
+- Required bootstrap docs:
+  - `sed -n '1,220p' docs/session_handoff_v2.md`
+  - `sed -n '1,220p' docs/stage_acceptance_summary.md`
+  - `sed -n '1,240p' PLANS_v2.md`
+  - Outcome:
+    - historical `PLANS_v2` diffusion route is already locally closed as baseline-first;
+    - current executable environment work has moved to `PLANS_v9` / mesh-lightbulb transfer validation.
+- Current active task/config surface:
+  - `sed -n '1,260p' train.py`
+  - `sed -n '1,260p' configs/config.yaml`
+  - `find configs -maxdepth 2 -type f | sort`
+  - Outcome:
+    - single Hydra entrypoint remains `train.py`;
+    - env selection is `task=<...>` + `configs/task/*.yaml`;
+    - algo selection is `train.algo=<...>` + `configs/train/*.yaml`.
+- Environment wiring spot checks:
+  - `sed -n '1,220p' dexscrew/tasks/__init__.py`
+  - `rg -n "initPose|forceScale|randomForceProbScalar|obs_noise|lightbulb|sampleProb|object_tilt|dump_current_pose|evalObjectType|reward|privInfo|randomization" dexscrew/tasks/xhand_hora.py dexscrew/tasks/xhand_pasini.py dexscrew/tasks/dexh13_hora.py`
+  - Outcome:
+    - primary edit points for env experiments are task YAMLs first;
+    - shared runtime semantics live mainly in `dexscrew/tasks/xhand_hora.py`, with hand-family overrides in `xhand_pasini.py` and `dexh13_hora.py`.
+- Lightbulb plan/state recovery:
+  - `sed -n '6440,6695p' docs/session_handoff_v2.md`
+  - `sed -n '518,610p' docs/stage_acceptance_summary.md`
+  - `sed -n '1,260p' PLANS_v9.md`
+  - Outcome:
+    - mesh runtime is now the active boundary for lightbulb experiments;
+    - tuned teacher defaults currently frozen as:
+      - `XHandHoraLightbulb`: `handRootPos=[0.0,0.004,0.206]`
+      - `XHandPasiniLightbulb`: `init_pos=[0.009,0.058,0.0]`, `init_pos_noise=[0.002,0.002,0.0]`
+    - `Dexh13HoraLightbulb` is smoke-stable but not the current main tuning path.
+- Algo pipeline spot checks:
+  - `sed -n '1,220p' dexscrew/algo/ppo/padapt.py`
+  - `sed -n '1,240p' dexscrew/algo/ppo/diffusion_latent_student.py`
+  - `sed -n '1,200p' dexscrew/algo/models/models.py`
+  - `rg -n "class |def test|def train|EvalSummary|EvalReconSummary|restore_test|restore_train|sample_latent|sample_action_chunk|bc_loss|latent_loss|diffusion_loss|consistency|flow" dexscrew/algo/ppo/*.py`
+  - Outcome:
+    - teacher/student still share the same actor backbone;
+    - `padapt` remains the stable baseline;
+    - diffusion/consistency/flow remain packaged and runnable, but are not the current execution mainline.
+
+### Remaining blocked/risky
+- Documentation layers span `PLANS_v2` through `PLANS_v9`; without checking dates, it is easy to confuse the closed screwdriver diffusion stage with the current lightbulb environment-validation stage.
+- Some narrative docs (for example algorithm summary text) still reflect earlier diffusion-facing conclusions and should not override the newer handoff/acceptance records.
+- The next environment experiments should preserve the current mesh-lightbulb tuned defaults unless there is a clear hypothesis; repeating old primitive-runtime or already-rejected settings would create avoidable drift.
+
+### Single recommended next step
+- Open the next execution step as a bounded lightbulb environment experiment, starting from the frozen mesh defaults:
+  - prefer `XHandHoraLightbulb` first,
+  - use `configs/task/*.yaml` overrides for init pose / object init / reward / randomization changes,
+  - only touch task Python files if the experiment needs new semantics rather than new values.
+
+---
+
+## v2-111 (2026-04-22) — XHand Lightbulb PPO Peak-Time Probe With Wandb + Early Stop
+
+### Target milestone/subgoal
+- Run a real headless `XHandHoraLightbulb` PPO teacher training with:
+  - wandb enabled for live metric observation,
+  - reward-based early stop,
+  - explicit measurement of when the current config reaches a practical peak.
+
+### What changed (files + behavior impact)
+- `train.py`
+  - Added a robust `import_wandb_package()` helper so a local repo `wandb/` run directory does not shadow the real wandb package.
+  - `wandb_group` / `wandb_entity` are now actually forwarded into `wandb.init(...)` when set.
+  - Behavior impact: wandb logging can be used reliably from the repo root.
+- `dexscrew/algo/ppo/ppo.py`
+  - Added optional PPO early-stop controls:
+    - `train.ppo.early_stop_patience`
+    - `train.ppo.early_stop_min_improvement`
+    - `train.ppo.early_stop_min_agent_steps`
+  - Added best-reward tracking fields:
+    - best epoch
+    - best agent steps
+    - best wallclock minutes
+    - epochs since improvement
+  - Added `EarlyStopSummary ...` terminal summary on stop.
+  - Fixed a measurement bug: best-reward / early-stop logic now ignores the invalid pre-episode `mean_rewards=0` bootstrap phase and only starts after real completed-episode stats exist.
+  - Behavior impact: PPO teacher runs can now stop on a plateau and report a meaningful peak time.
+- `docker-run-isaacgym.sh`
+  - Auto-mounts host wandb auth files into the container when present:
+    - `~/.netrc -> /tmp/.netrc`
+    - `~/.config/wandb -> /tmp/.config/wandb`
+  - Behavior impact: containerized Isaac Gym training can reuse the user’s existing wandb login without manual re-auth.
+
+### What was verified (commands + key outcomes)
+- Syntax / wiring:
+  - `python - <<'PY' ... compile('train.py', ...) ... compile('dexscrew/algo/ppo/ppo.py', ...) ... PY`
+  - `bash -n docker-run-isaacgym.sh`
+  - Outcome: pass.
+- Container wandb auth reuse:
+  - `./docker-run-isaacgym.sh bash -lc 'python - <<\"PY\" ... print((Path.home()/\".netrc\").exists()) ... import wandb ... PY'`
+  - `./docker-run-isaacgym.sh bash -lc 'python - <<\"PY\" ... wandb.login(relogin=False) ... PY'`
+  - Outcome:
+    - container sees `/tmp/.netrc`;
+    - wandb login succeeds from mounted host credentials.
+- First probe exposed and confirmed the invalid-bootstrap-best bug:
+  - run: `XHandHoraLightbulb_teacher/peakscan_wandb_earlystop`
+  - Outcome:
+    - trainer initially treated bootstrap `mean_rewards=0` as best before any completed episode;
+    - early stop was therefore anchored to an invalid `0.00` reference;
+    - code patched immediately after confirmation.
+- Corrected peak-time probe:
+  - Command:
+    - `./docker-run-isaacgym.sh bash scripts/xhand_lightbulb_teacher.sh 0 42 peakscan_wandb_earlystop_v2 task.env.numEnvs=32 train.ppo.minibatch_size=384 wandb_activate=True wandb_group=lightbulb_teacher +train.ppo.early_stop_patience=150 +train.ppo.early_stop_min_improvement=0.10 +train.ppo.early_stop_min_agent_steps=150000 train.ppo.max_agent_steps=1000000`
+  - Outcome:
+    - run completed by trainer-side early stop;
+    - `EarlyStopSummary reason=no_improvement patience=150 min_improvement=0.100000 best_reward=-10.806959 best_epoch=389 best_agent_steps=149760 best_elapsed_min=4.10`
+    - wandb run:
+      - `https://wandb.ai/3319963854-south-china-university-of-technology/dexscrew/runs/9grs5meo`
+    - local run root:
+      - `outputs/XHandHoraLightbulb_teacher/peakscan_wandb_earlystop_v2/`
+
+### Remaining blocked/risky
+- The current probe is single-seed (`seed=42`) and uses a bounded plateau heuristic, so it is suitable for “peak arrival time” diagnosis, not for final ranking claims.
+- The early-stop conclusion is tied to this exact setup:
+  - `XHandHoraLightbulb`
+  - mesh runtime
+  - `32 env`
+  - `minibatch_size=384`
+  - current reward/randomization defaults
+- If the user changes randomization, reward scales, or teacher init geometry, the measured peak time can shift materially.
+
+### Single recommended next step
+- Keep this run as the reference headless PPO teacher peak probe for the current `XHandHoraLightbulb(mesh)` config, then choose one follow-up axis:
+  - rerun multiseed with the same early-stop settings to test timing stability,
+  - or open a new bounded env-yaml probe (for example object init / reward / randomization) and compare how the peak time and best reward move relative to `peakscan_wandb_earlystop_v2`.
+
+---
+
+## v2-Local (2026-04-22) - Current Codex Auth Mode Verification
+
+### Target milestone/subgoal
+- Local tooling check only: verify whether the current repo-scoped Codex session is using API-key auth or account login.
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - Added this auth-mode verification entry.
+  - Behavior impact: no runtime/code change; records the currently active repo-scoped Codex auth path for future sessions.
+
+### What was verified (commands + key outcomes)
+- Required bootstrap docs:
+  - `sed -n '1,220p' docs/session_handoff_v2.md`
+  - `sed -n '1,220p' docs/stage_acceptance_summary.md`
+  - Outcome: bootstrap requirements satisfied before local inspection.
+- Current process environment:
+  - `env`
+  - Outcome: current Codex process environment contains `CODEX_HOME=/home/wbz-ubuntu22-pc/Codefield/py/dexscrew-repro/.config/codex` and an exported provider token environment variable `ANTHROPIC_AUTH_TOKEN`.
+- Repo-scoped Codex config:
+  - `rg -n -S "^model_provider|^model |=^wire_api|env_key|shell_environment_policy|oauth|login|token|auth" .config/codex/config.toml`
+  - Outcome:
+    - `model_provider = "gac"`
+    - `preferred_auth_method = "apikey"`
+    - `cli_auth_credentials_store = "file"`
+    - provider `env_key = "ANTHROPIC_AUTH_TOKEN"`
+    - repo-local config also currently contains the token value under `shell_environment_policy.set`.
+- Repo launcher behavior:
+  - `rg -n -S "CODEX_HOME|config.toml|env_key|ANTHROPIC_AUTH_TOKEN|export|codex" start_codex_local.sh`
+  - Outcome: launcher reads the repo-local config, exports the provider token env var, then executes `codex`.
+- Active session metadata:
+  - `rg -n -S "model_provider|source|cli_version|gac|openai|oauth|login" .config/codex/sessions/2026/04/22/rollout-2026-04-22T13-44-15-019db3b7-b7b5-7d02-a0df-fc5eb47e3a43.jsonl`
+  - Outcome: current session metadata reports `source="cli"` and `model_provider="gac"`, consistent with repo-scoped token/provider auth rather than interactive account login.
+
+### Remaining blocked/risky
+- The current repo-scoped setup is not account-login based; it is explicitly configured for API-key/token auth.
+- A live provider token is stored in the repo-local ignored config and exported into the process environment; if this secret scope is broader than intended, it should be rotated and moved to a safer injection path.
+- Because the auth path is provider `gac` plus `ANTHROPIC_AUTH_TOKEN`, users should not assume this session is using first-party OpenAI account login semantics.
+
+### Single recommended next step
+- Keep using `./start_codex_local.sh` if repo-scoped token auth is intended; otherwise switch the repo back to account login or move the token out of `.config/codex/config.toml` and rotate the current secret.
+
+---
+
+## v2-Local (2026-04-22) - Repo-Local Codex Secret Removal
+
+### Target milestone/subgoal
+- Local tooling hardening only: remove the repo-local plain-text provider token and require external environment-variable injection.
+
+### What changed (files + behavior impact)
+- `.config/codex/config.toml`
+  - Removed `[shell_environment_policy.set]` token injection.
+  - Behavior impact: repo-local Codex config no longer stores the provider secret in plain text.
+- `start_codex_local.sh`
+  - Simplified launcher behavior so it reads only the provider env var name from config.
+  - Added an explicit guard that exits if the required env var is not already exported.
+  - Behavior impact: launcher no longer loads the secret from disk; users must inject `ANTHROPIC_AUTH_TOKEN` from the outside environment before launch.
+- `docs/session_handoff_v2.md`
+  - Added this hardening entry.
+  - Behavior impact: no runtime change beyond documenting the safer launch contract.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `bash -n start_codex_local.sh`
+  - Outcome: pass.
+- Config inspection:
+  - `sed -n '1,80p' .config/codex/config.toml`
+  - Outcome: config still declares `env_key = "ANTHROPIC_AUTH_TOKEN"` but no longer contains a plain-text token value.
+- Launcher inspection:
+  - `sed -n '1,80p' start_codex_local.sh`
+  - Outcome: launcher reads env var name only and checks `${!TOKEN_ENV_NAME:-}` instead of loading a token from config.
+- Runtime behavior:
+  - `./start_codex_local.sh --help`
+  - Outcome: pass when `ANTHROPIC_AUTH_TOKEN` is present in the current shell environment.
+  - `env -u ANTHROPIC_AUTH_TOKEN ./start_codex_local.sh --help`
+  - Outcome: fast failure with `Missing required environment variable: ANTHROPIC_AUTH_TOKEN`.
+
+### Remaining blocked/risky
+- `.config/codex/` being ignored prevents normal Git tracking, but ignore alone is not a secret-management control; any local process with workspace read access can still read files under that path.
+- The provider token had already existed in plain text during earlier local sessions, so rotation is still recommended if the credential scope matters.
+- The current shell environment still carries `ANTHROPIC_AUTH_TOKEN` for active sessions; this is safer than disk-storing it in repo config, but it is still a live credential in process environment space.
+
+### Single recommended next step
+- Rotate the current provider token if you want a clean post-hardening state, then inject the new token only via shell environment (for example a local untracked `.envrc` or manual `export ANTHROPIC_AUTH_TOKEN=...`) before using `./start_codex_local.sh`.
+
+---
+
+## v2-Local (2026-04-22) - Project-Local Token Persistence Via .envrc
+
+### Target milestone/subgoal
+- Local tooling convenience only: make repo-scoped Codex token injection persistent without putting the secret back into tracked config.
+
+### What changed (files + behavior impact)
+- `.envrc`
+  - Created a repo-root local env file exporting `ANTHROPIC_AUTH_TOKEN`.
+  - Behavior impact: the project now has a persistent local secret file that is already ignored by Git.
+- `start_codex_local.sh`
+  - Added loading of repo-root `.envrc` before validating the provider env var.
+  - Behavior impact: `./start_codex_local.sh` works in new shells even when `ANTHROPIC_AUTH_TOKEN` is not manually exported, as long as `.envrc` exists.
+- `docs/session_handoff_v2.md`
+  - Added this persistence entry.
+  - Behavior impact: no runtime change beyond documenting the launch contract.
+
+### What was verified (commands + key outcomes)
+- Preconditions:
+  - `printf '%s\n' "${ANTHROPIC_AUTH_TOKEN:+set}"`
+  - Outcome: current shell still had a live token available for one-time persistence.
+  - `command -v direnv`
+  - Outcome: not installed, so persistence was implemented via launcher-loaded `.envrc` rather than shell hook automation.
+- File creation and permissions:
+  - `.envrc` created from the current shell token with restrictive permissions.
+  - `stat -c '%a %n' .envrc`
+  - Outcome: `600 .envrc`.
+- Ignore and content-shape checks:
+  - `git check-ignore -v .envrc`
+  - Outcome: ignored by `.gitignore`.
+  - `sed -n '1p' .envrc | sed 's/=.*/=<redacted>/'`
+  - Outcome: file shape is `export ANTHROPIC_AUTH_TOKEN=<redacted>`.
+- Launcher behavior:
+  - `bash -n start_codex_local.sh`
+  - Outcome: pass.
+  - `env -u ANTHROPIC_AUTH_TOKEN ./start_codex_local.sh --help`
+  - Outcome: pass; launcher successfully sourced `.envrc` and started Codex without a manual shell export.
+
+### Remaining blocked/risky
+- `.envrc` is still a plain-text local secret file; Git ignore prevents normal commits but does not protect against local file disclosure, backups, or manual sharing.
+- This persistence is repo-scoped, not system-wide; other projects or shells outside this repo will not automatically inherit the token.
+- Because the token previously lived in repo-local config and now also exists in `.envrc`, rotation is still the cleanest follow-up if you want to fully retire the earlier exposure path.
+
+### Single recommended next step
+- Keep using `./start_codex_local.sh` as the standard entrypoint for this repo; if you later want shell-wide persistence instead of repo-scoped persistence, move the export to `~/.bashrc` or `~/.profile` and delete `.envrc`.
+
+---
+
+## v2-112 (2026-04-22) — `dotpg_env.md` vs live `Dexh13HoraLightbulb` wiring audit
+
+### Target milestone/subgoal
+- Clarify whether `docs/dotpg_env.md` still matches the runnable `Dexh13HoraLightbulb` environment before creating a DOTPG-specific task variant.
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - Added this audit entry.
+  - Behavior impact: no runtime change; records which `dotpg_env.md` claims are live versus stale.
+
+### What was verified (commands + key outcomes)
+- Doc/config/code inspection:
+  - `sed -n '1,260p' docs/dotpg_env.md`
+  - `sed -n '1,260p' configs/task/Dexh13HoraLightbulb.yaml`
+  - `sed -n '1,260p' dexscrew/tasks/dexh13_hora.py`
+  - `sed -n '1,360p' dexscrew/tasks/xhand_hora.py`
+  - `sed -n '1,220p' configs/train/Dexh13HoraLightbulb.yaml`
+  - `sed -n '1,220p' scripts/dexh13_lightbulb_teacher.sh`
+  - `sed -n '1,220p' configs/config.yaml`
+  - Outcome: live runnable path is still `task=Dexh13HoraLightbulb` -> `task.name=Dexh13HoraLightbulb` -> `isaacgym_task_map["Dexh13HoraLightbulb"] = Dexh13Hora`.
+- Key reconciliation outcome:
+  - Implemented/live in YAML + code: `apply_action_mask=False`, DexH13 16-DOF hand asset/fingertips/init pose, `reset_dist_threshold`, `proximity_reward`, `object_tilt=False`, object/lightbulb asset switch, current reward scales, current randomization flags, Hydra-resolved GPU sim flags.
+  - Stale in doc: `termination` block and script overrides, `normalize_penalties_by_num_actions`, `two_finger_gate`, old fingertip/body names, old hand root pose/URDF path, old reward scales, old `reset_dist_threshold=0.20`, old scale-randomization range, claims that mass/COM/friction randomization remain enabled, and claim that GPU flags are hard-coded.
+
+### Remaining blocked/risky
+- `docs/dotpg_env.md` currently reads like a historical design note, not executable config; using it directly to author a new env would reintroduce stale termination/reward assumptions.
+- A new task YAML with a new Hydra name will not auto-run unless either:
+  - a matching train config is added under `configs/train/`, or
+  - the launch command explicitly overrides `train=Dexh13HoraLightbulb`.
+- Existing DexH13 scripts hard-code `task=Dexh13HoraLightbulb`, so they will not pick up a new task YAML unless the script or CLI invocation is changed.
+
+### Single recommended next step
+- For the fastest runnable probe, clone `configs/task/Dexh13HoraLightbulb.yaml`, keep `name: Dexh13HoraLightbulb`, and launch it directly with `python train.py task=<new_task_yaml> train=Dexh13HoraLightbulb ...`; only add a new `configs/train/*.yaml` or dedicated script if the variant will become a repeated experiment path.
+
+---
+
+## v2-113 (2026-04-22) — Runnable `DotpgEnv` DexH13 lightbulb variant + smoke probe
+
+### Target milestone/subgoal
+- Turn `docs/dotpg_env.md` into a directly runnable DexH13 lightbulb experiment path and measure whether the documented env/reward settings materially change PPO teacher behavior.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbDotpgEnv.yaml`
+  - Added a runnable DOTPG-env-inspired task variant.
+  - Mapped only the `dotpg_env.md` fields that current task code actually supports:
+    - `reset_dist_threshold=0.20`
+    - harsher reward scales (`2.5 / -1.5 / -30 / -0.15 / -0.3 / -1.0 / 2.0`)
+    - broader object randomization (`mass/COM/friction/scale` enabled with scale list `[1.0, 1.05, 1.10, 1.15]`)
+  - Intentionally kept the current stable DexH13 mesh geometry (`handAsset`, fingertip bodies, root pose, init pose) so this variant isolates env/reward changes instead of mixing in stale geometry from the doc.
+  - Added inline comments that `termination.*`, `normalize_penalties_by_num_actions`, and `two_finger_gate` remain doc-only and are not implemented in current code.
+- `configs/train/Dexh13HoraLightbulbDotpgEnv.yaml`
+  - Added matching train config so `task=Dexh13HoraLightbulbDotpgEnv` works without extra Hydra overrides.
+- `scripts/dexh13_lightbulb_dotpg_teacher.sh`
+  - Added a dedicated headless teacher launcher for the DOTPG-env variant.
+- `scripts/vis_dexh13_lightbulb_dotpg_teacher.sh`
+  - Added a dedicated viewer launcher for init-pose / contact inspection under the DOTPG-env variant.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `bash -n scripts/dexh13_lightbulb_dotpg_teacher.sh`
+  - `bash -n scripts/vis_dexh13_lightbulb_dotpg_teacher.sh`
+  - Outcome: pass.
+- Runnable smoke PPO teacher probe:
+  - `./docker-run-isaacgym.sh timeout 300 bash scripts/dexh13_lightbulb_dotpg_teacher.sh 0 42 dotpg_env_smoke True task.env.numEnvs=16 train.ppo.minibatch_size=192 train.ppo.max_agent_steps=3072 wandb_activate=False`
+  - Outcome:
+    - Hydra resolved `task=Dexh13HoraLightbulbDotpgEnv` correctly.
+    - Isaac Gym env instantiated successfully with 4 object scales (`1.0/1.05/1.10/1.15`).
+    - PPO finished the bounded smoke run and saved:
+      - `outputs/Dexh13HoraLightbulbDotpg_teacher/dotpg_env_smoke/stage1_nn/best_reward_-42803.18.pth`
+      - `outputs/Dexh13HoraLightbulbDotpg_teacher/dotpg_env_smoke/stage1_tb/events.out.tfevents.1776849623.wbz-ubuntu22-pc`
+    - Best observed smoke reward was about `-42803.18`, far below the current reward-relaxed DexH13 lightbulb smoke regime (`~ -705 ~ -769`), indicating this DOTPG-env-inspired setting materially increases training difficulty.
+
+### Remaining blocked/risky
+- This new variant is only a runnable subset of `docs/dotpg_env.md`; the document’s `termination` switches, `normalize_penalties_by_num_actions`, and `two_finger_gate` still do not exist in live task code.
+- The very negative smoke reward suggests the doc-style reward/randomization package is not a drop-in replacement for the current stable DexH13 mesh teacher config.
+- Because the geometry was intentionally kept at current mesh-stable values, this probe isolates env/reward/randomization impact; it is not a full reproduction of every stale geometry value in the doc.
+
+### Single recommended next step
+- Use the new viewer script first to inspect contact quality under the harsher DOTPG-env reward/randomization package, then run one bounded headless comparison with wandb enabled against the current `Dexh13HoraLightbulb` teacher to decide whether this variant is worth longer-run ranking.
+
+---
+
+## v2-114 (2026-04-22) — Full `dotpg_env.md` migration into live `Dexh13HoraLightbulb`
+
+### Target milestone/subgoal
+- Replace the previous partial DOTPG-env subset with a full migration of the documented DexH13 lightbulb env semantics into the active `Dexh13HoraLightbulb` task path, so later teacher/student probes measure the real env impact rather than a reward-only approximation.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Added live support for `env.termination.*`:
+    - `grace_steps`
+    - `enable_finger_dist`
+    - `enable_nut_stagnation`
+    - `enable_no_contact`
+    - `enable_screw_limit`
+    - `log`
+  - Added live support for `env.normalize_penalties_by_num_actions`.
+  - Added live support for `env.two_finger_gate.*`:
+    - target selection (`nut_pos` / `object_pos`)
+    - scale-aware offset / near / far
+    - optional fingertip contact-force weighting
+    - positive-velocity-only gating
+    - extra no-grasp penalty term
+  - Added per-env object scale tracking so `two_finger_gate.scale_with_object=True` works with randomized object scale.
+  - Behavior impact:
+    - the previously doc-only DexH13 reward/termination semantics now actually execute inside the shared Hora task code.
+- `configs/task/Dexh13HoraLightbulb.yaml`
+  - Replaced the earlier reward-relaxed mesh-smoke config with the full DOTPG-env-style config:
+    - `initPose=screwdriver_inclined`
+    - `reset_dist_threshold=0.20`
+    - `normalize_penalties_by_num_actions=True`
+    - `forceScale=2.0`, `randomForceProbScalar=0.25`
+    - debug-friendly default termination block
+    - full `two_finger_gate` block
+    - heavier reward scales (`2.5 / -1.5 / -30 / -0.15 / -0.3 / -1.0 / 2.0`)
+    - randomization restored (`mass/COM/friction/scale=True`, scale list `[1.0, 1.05, 1.10, 1.15]`)
+    - DexH13 geometry switched to the documented `right_sim` asset + `*_tip` fingertip bodies + documented root pose
+  - Behavior impact:
+    - the active `task=Dexh13HoraLightbulb` path now corresponds to the DOTPG-env document instead of the older smoke-recovery config.
+- `scripts/dexh13_lightbulb_teacher.sh`
+  - Added strict teacher termination overrides:
+    - `grace_steps=150`
+    - all four non-max termination checks enabled
+- `scripts/dexh13_lightbulb_student_padapt.sh`
+- `scripts/dexh13_lightbulb_student_purebc.sh`
+- `scripts/dexh13_lightbulb_student_diffusion_latent.sh`
+- `scripts/dexh13_lightbulb_student_consistency.sh`
+- `scripts/dexh13_lightbulb_student_flow_matching.sh`
+  - Added strict student termination overrides:
+    - `grace_steps=0`
+    - all four non-max termination checks enabled
+  - Behavior impact:
+    - the DexH13 teacher/student script family now matches the termination semantics described in `dotpg_env.md`.
+- Removed temporary partial-subset artifacts created during the earlier audit/probe:
+  - `configs/task/Dexh13HoraLightbulbDotpgEnv.yaml`
+  - `configs/train/Dexh13HoraLightbulbDotpgEnv.yaml`
+  - `scripts/dexh13_lightbulb_dotpg_teacher.sh`
+  - `scripts/vis_dexh13_lightbulb_dotpg_teacher.sh`
+  - Behavior impact:
+    - there is no longer a confusing second DexH13 lightbulb DOTPG path; the active task itself now carries the migrated config.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - `bash -n scripts/dexh13_lightbulb_teacher.sh`
+  - `for f in scripts/dexh13_lightbulb_student_*.sh; do bash -n "$f"; done`
+  - Outcome: pass.
+- Bounded headless teacher smoke on the active migrated task:
+  - `./docker-run-isaacgym.sh timeout 300 bash scripts/dexh13_lightbulb_teacher.sh 0 42 dotpg_migrated_smoke True task.env.numEnvs=8 train.ppo.minibatch_size=96 train.ppo.max_agent_steps=768 wandb_activate=False`
+  - Outcome:
+    - Hydra resolved the migrated active task with:
+      - `normalize_penalties_by_num_actions=True`
+      - strict teacher termination overrides (`grace_steps=150`, all checks enabled)
+      - `two_finger_gate.enable=True`
+      - `right_sim` hand asset + `right_*_tip` fingertip bodies
+    - Isaac Gym env instantiated successfully.
+    - PPO entered rollout/training without runtime errors.
+    - This bounded smoke ended before any full episodes completed, so `mean_rewards` stayed `nan`; however the env/reward/reset loop executed and the migrated task path is runtime-valid.
+
+### Remaining blocked/risky
+- The active `Dexh13HoraLightbulb` task is now much harsher than the previous reward-relaxed smoke config, so old DexH13 smoke expectations (`~ -705 ~ -769`) no longer apply.
+- The short smoke only proves runtime validity; it does not yet characterize the new reward scale or peak time.
+- Because the active task YAML changed substantially, any later DexH13 comparison against older runs must be labeled as pre-migration vs post-migration.
+
+### Single recommended next step
+- Run one bounded 5-minute headless PPO teacher comparison on the migrated active task with wandb enabled, then compare its reward/time curve against the old reward-relaxed DexH13 teacher baseline to quantify how much the full DOTPG env changes optimization difficulty.
+
+---
+
+## v2-115 (2026-04-24) — Codebase Orientation With Subagents
+
+### Target milestone/subgoal
+- Bootstrap a new execution session for future algorithm development and training continuation.
+- Target was read-only orientation, not a new experiment or code implementation.
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - Added this orientation entry.
+  - Behavior impact: no runtime behavior changed; records the current codebase map and latest actionable next step for future sessions.
+
+### What was verified (commands + key outcomes)
+- Required bootstrap reads:
+  - `sed -n '1,240p' docs/session_handoff_v2.md`
+  - `sed -n '1,240p' docs/stage_acceptance_summary.md`
+  - `tail -n 220 docs/session_handoff_v2.md`
+  - Outcome: latest real execution next step is v2-114, not older local tooling entries: run one bounded 5-minute headless PPO teacher comparison on migrated `Dexh13HoraLightbulb`.
+- Codebase orientation:
+  - `sed -n '1,260p' train.py`
+  - `sed -n '1,260p' configs/config.yaml`
+  - `sed -n '1,220p' student_eval.py`
+  - `sed -n '1,220p' dexscrew/tasks/__init__.py`
+  - `sed -n '1,280p' configs/train/XHandHoraScrewDriver.yaml`
+  - `sed -n '1,260p' configs/task/XHandHoraScrewDriver.yaml`
+  - `sed -n '1,240p' configs/task/Dexh13HoraLightbulb.yaml`
+  - `sed -n '1,220p' configs/train/Dexh13HoraLightbulb.yaml`
+  - Outcome: confirmed Hydra entrypoint, task map, default Hora screwdriver path, DexH13 lightbulb path, and student export limitation.
+- Algorithm/environment survey with subagents:
+  - Subagent B mapped train/eval/export entrypoints, Docker wrapper constraints, task names, and `train.algo` names.
+  - Subagent C mapped PPO teacher, `padapt`, `purebc`, latent/action diffusion, consistency, flow matching, `XHandHora`, `Dexh13Hora`, `XHandPasini`, and asset/URDF adaptation points.
+  - Subagent A initially failed due model capacity and was respawned on a smaller model; its route summary was useful but identified an older next-step entry, so the local `tail` check above is authoritative.
+- Worktree state:
+  - `git status --short`
+  - Outcome: repository already contains many modified/untracked files across code, configs, docs, scripts, and assets; treat them as existing user/session work and do not revert.
+- Handoff edit check:
+  - `git diff --check -- docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- The worktree is dirty; future code edits should carefully scope diffs and avoid overwriting existing uncommitted changes.
+- `PLANS_v2.md` remains the governance anchor, but later docs such as `docs/diffusion_algorithm.md` and later plan verdict files summarize additional branch conclusions; future agents should reconcile these before changing algorithm direction.
+- Diffusion/consistency/flow variants exist in code, but current accepted path is still baseline-first unless a future task explicitly reopens generative student development.
+
+### Single recommended next step
+- Preserve the v2-114 experimental next step: run one bounded 5-minute headless PPO teacher comparison on the migrated active `Dexh13HoraLightbulb` task with wandb enabled, then compare its reward/time curve against the old reward-relaxed DexH13 teacher baseline.

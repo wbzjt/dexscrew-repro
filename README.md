@@ -1,3 +1,6 @@
+# 复现项目并使用diffusion
+# 进行MuJoCo进行sim2sim和实机部署
+
 # Learning Dexterous Manipulation Skills from Imperfect Simulations
 <a href="https://dexscrew.github.io/"><strong>Project Page</strong></a>
 |
@@ -69,6 +72,13 @@ See the following repository: [skill-teleop](https://github.com/x-robotics-lab/s
 ## Acknowledgement
 
 This repository is built based on [penspin](https://github.com/HaozhiQi/penspin/), [Hora](https://github.com/HaozhiQi/hora) and [IsaacGymEnvs](https://github.com/isaac-sim/IsaacGymEnvs), and supported in part by the program "Design of Robustly Implementable Autonomous and Intelligent Machines (TIAMAT)", Defense Advanced Research Projects Agency award number HR00112490425. We thank Mengda Xu for his valuable feedback.
+
+## PLANS_v4 Thesis Assets
+
+- Final verdict: `docs/plansv4_m3_final_verdict.md`
+- Main-text subsection (final): `docs/plansv4_thesis_results_subsection_final.md`
+- Appendix integration snippet: `docs/plansv4_thesis_appendix_integration.md`
+- One-command refresh workflow: `docs/plansv4_thesis_refresh_workflow.md`
 
 ## Citation
 

@@ -41,10 +41,23 @@ import torch.nn.functional as F
 class XHandHora(VecTask):
     def __init__(self, config, sim_device, graphics_device_id, headless):
         self.config = config
+        env_cfg = self.config.get("env", {})
+        self.hand_asset_cfg = env_cfg.get("asset", {})
+        self.object_cfg = env_cfg.get("object", {})
+        fingertip_cfg = self.hand_asset_cfg.get("fingertipBodies")
+        if fingertip_cfg is None:
+            self.fingertip_body_names = self._default_fingertip_body_names()
+        else:
+            self.fingertip_body_names = [str(x) for x in list(fingertip_cfg)]
         # before calling init in VecTask, need to do
         # 0. setup the dim info
         self.numActions = config["env"]["numActions"]
-        self.fingers_num = 5
+        self.fingers_num = len(self.fingertip_body_names)
+        self.apply_action_mask = self._cfg_bool(
+            env_cfg.get("apply_action_mask", self._default_apply_action_mask()),
+            default=self._default_apply_action_mask(),
+        )
+        self.custom_action_mask_indices = env_cfg.get("action_mask_indices")
         # 1. setup randomization
         self._setup_domain_rand_config(config["env"]["randomization"])
         # 2. setup privileged information
@@ -60,6 +73,11 @@ class XHandHora(VecTask):
         self.rotation_axis = config["env"]["rotation_axis"]
         self.reset_z_threshold = self.config["env"]["reset_z_threshold"]
         self.reset_dist_threshold = self.config["env"]["reset_dist_threshold"]
+        self.normalize_penalties_by_num_actions = self._cfg_bool(
+            env_cfg.get("normalize_penalties_by_num_actions", False), default=False
+        )
+        self._setup_termination_config(env_cfg.get("termination", {}))
+        self._setup_two_finger_gate_config(env_cfg.get("two_finger_gate", {}))
         self.with_camera = config["env"]["enableCameraSensors"]
         self.nut_termination_history_len = config["env"]["object"][
             "nut_termination_history_len"
@@ -148,70 +166,46 @@ class XHandHora(VecTask):
 
         self.saved_grasping_states = {}
         num_random_poses = 5000
-        if self.config["env"]["initPose"] == "nutbolt_inclined":
-            joint_values = {
-                "left_hand_index_bend_joint": -0.17,
-                "left_hand_index_joint1": 1.1,
-                "left_hand_index_joint2": 0.4,
-                "left_hand_mid_joint1": 1.1,
-                "left_hand_mid_joint2": 0.4,
-                "left_hand_pinky_joint1": 0,
-                "left_hand_pinky_joint2": 0,
-                "left_hand_ring_joint1": 0,
-                "left_hand_ring_joint2": 0,
-                "left_hand_thumb_bend_joint": 1.3,
-                "left_hand_thumb_rota_joint1": 0.5,
-                "left_hand_thumb_rota_joint2": 0.45,
-            }
-        elif self.config["env"]["initPose"] == "screwdriver_inclined":
-            joint_values = {
-                "left_hand_index_bend_joint": -0.036,
-                "left_hand_index_joint1": 1.15,
-                "left_hand_index_joint2": 0.5,
-                "left_hand_mid_joint1": 0.925,
-                "left_hand_mid_joint2": 0.58,
-                "left_hand_pinky_joint1": 0,
-                "left_hand_pinky_joint2": 0,
-                "left_hand_ring_joint1": 1.3,
-                "left_hand_ring_joint2": 0.43,
-                "left_hand_thumb_bend_joint": 1.455,
-                "left_hand_thumb_rota_joint1": 0.817,
-                "left_hand_thumb_rota_joint2": 0.154,
-            }
-
-        assert self.gym.get_asset_dof_names(self.hand_asset) == list(
-            joint_values.keys()
-        )
+        dof_names = self.gym.get_asset_dof_names(self.hand_asset)
+        self.hand_dof_names = list(dof_names)
+        joint_values = self._resolve_hand_init_pose(dof_names)
         self.joint_values_lst = list(joint_values.values())
+        hand_dof_dim = self.num_xhand_hand_dofs
+        obj_pose_start = hand_dof_dim
         for s in self.randomize_scale_list:
             scale_key = str(s)
             random_pose_data = torch.zeros(
-                (num_random_poses, 19), device=self.device, dtype=torch.float
+                (num_random_poses, hand_dof_dim + 7),
+                device=self.device,
+                dtype=torch.float,
             )
 
             # Pre-defined pose
-            for i in range(12):
-                lower, upper = (
-                    self.xhand_dof_lower_limits[i],
-                    self.xhand_dof_upper_limits[i],
-                )
+            for i in range(hand_dof_dim):
                 random_pose_data[:, i] = (
                     torch.ones(num_random_poses, device=self.device)
                     * self.joint_values_lst[i]
                 )
-            random_pose_data[:, 12] = torch.zeros(
+            random_pose_data[:, obj_pose_start + 0] = torch.zeros(
                 num_random_poses, device=self.device
             )  # x
-            random_pose_data[:, 13] = torch.zeros(
+            random_pose_data[:, obj_pose_start + 1] = torch.zeros(
                 num_random_poses, device=self.device
             )  # y
-            random_pose_data[:, 14] = (
+            random_pose_data[:, obj_pose_start + 2] = (
                 self.reset_z_threshold + 0.1
             )  # z - slightly above threshold
-            random_pose_data[:, 15:18] = 0.0
-            random_pose_data[:, 18] = 1.0
-            quat_norm = torch.norm(random_pose_data[:, 15:19], dim=1, keepdim=True)
-            random_pose_data[:, 15:19] = random_pose_data[:, 15:19] / quat_norm
+            random_pose_data[:, obj_pose_start + 3 : obj_pose_start + 6] = 0.0
+            random_pose_data[:, obj_pose_start + 6] = 1.0
+            quat_norm = torch.norm(
+                random_pose_data[:, obj_pose_start + 3 : obj_pose_start + 7],
+                dim=1,
+                keepdim=True,
+            )
+            random_pose_data[:, obj_pose_start + 3 : obj_pose_start + 7] = (
+                random_pose_data[:, obj_pose_start + 3 : obj_pose_start + 7]
+                / quat_norm
+            )
 
             self.saved_grasping_states[scale_key] = random_pose_data
             print(
@@ -434,6 +428,8 @@ class XHandHora(VecTask):
                     self.randomize_scale_list[i % num_scales] + 0.025,
                 )
             self.gym.set_actor_scale(env_ptr, object_handle, self.obj_scale)
+            if hasattr(self, "object_scale_buf"):
+                self.object_scale_buf[i] = float(self.obj_scale)
             self._update_priv_buf(env_id=i, name="obj_scale", value=self.obj_scale)
 
             obj_com = [0, 0, 0]
@@ -661,34 +657,9 @@ class XHandHora(VecTask):
             sampled_pose = self.saved_grasping_states[scale_key][
                 sampled_pose_idx
             ].clone()
-            if self.config["env"]["initPose"] == "nutbolt_inclined":
-                random_noise_x, random_noise_y = np.random.uniform(
-                    0, 0.0075
-                ), np.random.uniform(0, 0.0075)
-                self.object_x, self.object_y, self.object_z = (
-                    0.0175 + random_noise_x,
-                    0.06 + random_noise_y,
-                    0,
-                )
-            elif self.config["env"]["initPose"] == "screwdriver_inclined":
-                random_noise_x, random_noise_y = np.random.uniform(
-                    0, 0.0075
-                ), np.random.uniform(0, 0.0075)
-                self.object_x, self.object_y, self.object_z = (
-                    0.009 + random_noise_x,
-                    0.06 + random_noise_y,
-                    0,
-                )
-
-            sampled_pose[:, self.numActions + 0] = (
-                self.object_x
-            )  # X (left-right: postive-nagative)
-            sampled_pose[:, self.numActions + 1] = (
-                self.object_y
-            )  # Y (forward-backward: nagative-positive)
-            sampled_pose[:, self.numActions + 2] = (
-                self.object_z
-            )  # Z (above palm, so it can fall downward)
+            sampled_object_pos = self._sample_object_init_positions(len(s_ids))
+            sampled_pose[:, self.numActions : self.numActions + 3] = sampled_object_pos
+            self.object_z = float(sampled_object_pos[0, 2].item())
 
             object_pose_noise = torch.normal(
                 0,
@@ -786,13 +757,16 @@ class XHandHora(VecTask):
         )
 
         hand_env_indices = self.hand_indices[env_ids]
-        self.root_state_tensor[hand_env_indices, 3:7] = quats
-        self._update_priv_buf(env_id=env_ids, name="hand_orientation", value=quats)
+        hand_root_quats = self._sample_hand_root_quats(len(env_ids))
+        if hand_root_quats is None:
+            hand_root_quats = quats
+        self.root_state_tensor[hand_env_indices, 3:7] = hand_root_quats
+        self._update_priv_buf(
+            env_id=env_ids, name="hand_orientation", value=hand_root_quats
+        )
 
         # position randomization
-        original_pos = torch.zeros_like(self.root_state_tensor[hand_env_indices, :3])
-        original_pos[:, 2] = 0.21
-        pos = original_pos + torch.rand_like(original_pos) * 0.001
+        pos = self._sample_hand_root_positions(env_ids)
         self.root_state_tensor[hand_env_indices, :3] = pos
         self._update_priv_buf(env_id=env_ids, name="hand_position", value=pos)
 
@@ -965,7 +939,8 @@ class XHandHora(VecTask):
         self.obj_angvel_at_cf[at_reset_env_ids] = self.object_angvel[at_reset_env_ids]
         self.ft_linvel_at_cf[at_reset_env_ids] = self.fingertip_linvel[at_reset_env_ids]
         self.ft_angvel_at_cf[at_reset_env_ids] = self.fingertip_angvel[at_reset_env_ids]
-        self.nut_dof_vel_cf[at_reset_env_ids] = self.nut_dof_vel[at_reset_env_ids]
+        if len(at_reset_env_ids) > 0:
+            self.nut_dof_vel_cf[at_reset_env_ids] = self.nut_dof_vel[at_reset_env_ids]
 
         self.at_reset_buf[at_reset_env_ids] = 0
         rand_rpy = torch.normal(
@@ -1135,6 +1110,11 @@ class XHandHora(VecTask):
                 * torch.abs(self.dof_vel_finite_diff[:, -1])
             ).sum(-1)
         ) ** 2
+        if self.normalize_penalties_by_num_actions:
+            denom = float(max(int(self.num_actions), 1))
+            pose_diff_penalty = pose_diff_penalty / denom
+            torque_penalty = torque_penalty / denom
+            work_penalty = work_penalty / (denom * denom)
 
         angdiff = self.quat_to_axis_angle(
             quat_mul(self.object_rot, quat_conjugate(self.object_rot_prev))
@@ -1164,6 +1144,14 @@ class XHandHora(VecTask):
             nut_dof_linvel, max=self.angvel_clip_max, min=self.angvel_clip_min
         )
         rotate_reward = rotate_reward_raw
+        two_finger_extra = torch.zeros_like(rotate_reward)
+        gate_stats = None
+        if self.two_finger_gate_enable:
+            rotate_reward, two_finger_extra, gate_stats = self._apply_two_finger_gate(
+                rotate_reward_raw=rotate_reward_raw,
+                nut_dof_linvel=nut_dof_linvel,
+                nut_pos=nut_pos,
+            )
 
         rotate_penalty_raw = torch.where(
             nut_dof_linvel > current_angvel_penalty_threshold,
@@ -1217,6 +1205,7 @@ class XHandHora(VecTask):
             proximity_reward,
             self._get_reward_scale_by_name("proximity_reward"),
         )
+        self.rew_buf[:] = self.rew_buf + two_finger_extra
 
         self.reset_buf[:] = self.check_termination(self.object_pos)
         self.extras["step_all_reward"] = self.rew_buf.mean()
@@ -1239,6 +1228,23 @@ class XHandHora(VecTask):
         self.extras["screw/angular_velocity"] = self.nut_dof_vel.mean()
         self.extras["screw/angular_position"] = self.nut_dof_pos.mean()
         self.extras["screw/positive_vel_ratio"] = (self.nut_dof_vel > 0).float().mean()
+        if gate_stats is not None:
+            self.extras["two_finger/gate"] = gate_stats["gate"].mean()
+            self.extras["two_finger/thumb_contact_w"] = gate_stats[
+                "thumb_weight"
+            ].mean()
+            self.extras["two_finger/other_contact_w"] = gate_stats[
+                "other_weight"
+            ].mean()
+            self.extras["two_finger/thumb_dist"] = gate_stats["thumb_dist"].mean()
+            self.extras["two_finger/other_dist"] = gate_stats["other_dist"].mean()
+            self.extras["two_finger/extra_penalty"] = two_finger_extra.mean()
+        if self.termination_log:
+            reasons = getattr(self, "_last_termination_reasons", None)
+            if isinstance(reasons, dict):
+                for k, v in reasons.items():
+                    self.extras[f"term/{k}_frac"] = v.float().mean()
+            self.extras["term/any_reset_frac"] = self.reset_buf.float().mean()
 
         if self.evaluate:
             vec_dot = (object_angvel * self.rot_axis_buf).sum(-1)
@@ -1312,10 +1318,14 @@ class XHandHora(VecTask):
     def step(self, actions, extrin_record: Optional[torch.Tensor] = None):
         # Save extrinsics if evaluating on just one object.
         action_mask = torch.ones_like(actions)
-        if self.config["env"]["initPose"] == "screwdriver_inclined":
-            action_mask[:, 5:7] = 0.0
-        else:
-            action_mask[:, 5:9] = 0.0  # mask out pinky, and ring finger actions
+        if self.apply_action_mask:
+            if self.custom_action_mask_indices is not None:
+                mask_indices = [int(i) for i in list(self.custom_action_mask_indices)]
+                action_mask[:, mask_indices] = 0.0
+            elif self.config["env"]["initPose"] == "screwdriver_inclined":
+                action_mask[:, 5:7] = 0.0
+            else:
+                action_mask[:, 5:9] = 0.0  # mask out pinky, and ring finger actions
         actions = actions * action_mask
         actions = F.pad(
             actions, (0, 1), value=0.0
@@ -1420,6 +1430,7 @@ class XHandHora(VecTask):
             self.progress_buf, self.max_episode_length
         )
         resets = term_by_max_eps
+        grace_ready = self.progress_buf >= self.termination_grace_steps
 
         # finger nut distance check
         nut_states = self.rigid_body_states[:, self.screw_nut_rb_handle]
@@ -1430,10 +1441,13 @@ class XHandHora(VecTask):
         thumb_dist = torch.norm(thumb_pos - nut_pos, dim=-1)
         index_dist = torch.norm(index_pos - nut_pos, dim=-1)
         # Reset logging
-        finger_dist_reset = torch.logical_or(
+        finger_dist_condition = torch.logical_or(
             thumb_dist > self.reset_dist_threshold,
             index_dist > self.reset_dist_threshold,
         )
+        finger_dist_reset = torch.zeros_like(resets)
+        if self.termination_enable_finger_dist:
+            finger_dist_reset = grace_ready & finger_dist_condition
         resets = torch.logical_or(resets, finger_dist_reset)
 
         # nut constant pos check - terminate if nut position is similar over 10 timesteps
@@ -1441,18 +1455,25 @@ class XHandHora(VecTask):
         nut_pos_variance = torch.var(self.nut_dof_pos_history, dim=1).squeeze(
             -1
         )  # (num_envs,)
-        nut_pos_stagnant = (
+        nut_pos_stagnant_condition = (
             nut_pos_variance < self.nut_stagnation_eps
         ) & nut_pos_history_filled
+        nut_pos_stagnant = torch.zeros_like(resets)
+        if self.termination_enable_nut_stagnation:
+            nut_pos_stagnant = grace_ready & nut_pos_stagnant_condition
         resets = torch.logical_or(resets, nut_pos_stagnant)
 
         # nut contact check - terminate if nut has 0 contact force over 10 timesteps
         contact_history_filled = self.progress_buf >= self.nut_termination_history_len
         no_contact = torch.all(self.nut_contact_history <= 1e-3, dim=1).squeeze(-1)
-        no_contact_reset = no_contact & contact_history_filled
+        no_contact_condition = no_contact & contact_history_filled
+        no_contact_reset = torch.zeros_like(resets)
+        if self.termination_enable_no_contact:
+            no_contact_reset = grace_ready & no_contact_condition
         resets = torch.logical_or(resets, no_contact_reset)
 
         # screw joint limit check for automatic reset
+        screw_at_limit = torch.zeros_like(resets)
         if hasattr(self, "dof_state"):
             current_screw_dof_state = self.dof_state.view(self.num_envs, -1, 2)[
                 :, self.num_xhand_hand_dofs :
@@ -1463,8 +1484,18 @@ class XHandHora(VecTask):
                 screw_upper_limit - 5.0
             )  # Reset when within 5 radians of limit
 
-            screw_at_limit = current_screw_pos > reset_threshold
+            screw_at_limit_condition = current_screw_pos > reset_threshold
+            if self.termination_enable_screw_limit:
+                screw_at_limit = grace_ready & screw_at_limit_condition
             resets = torch.logical_or(resets, screw_at_limit)
+        if self.termination_log:
+            self._last_termination_reasons = {
+                "max_eps": term_by_max_eps,
+                "finger_dist": finger_dist_reset,
+                "nut_stagnant": nut_pos_stagnant,
+                "no_contact": no_contact_reset,
+                "screw_limit": screw_at_limit,
+            }
         return resets
 
     def _refresh_gym(self):
@@ -1499,6 +1530,211 @@ class XHandHora(VecTask):
         ]
         self.nut_dof_vel = self.nut_dof_state[:, 0, 1].unsqueeze(-1)
         self.nut_dof_pos = self.nut_dof_state[:, 0, 0].unsqueeze(-1)
+
+    def _setup_termination_config(self, termination_cfg):
+        if termination_cfg is None:
+            termination_cfg = {}
+        self.termination_grace_steps = int(termination_cfg.get("grace_steps", 0))
+        self.termination_enable_finger_dist = self._cfg_bool(
+            termination_cfg.get("enable_finger_dist", True), default=True
+        )
+        self.termination_enable_nut_stagnation = self._cfg_bool(
+            termination_cfg.get("enable_nut_stagnation", True), default=True
+        )
+        self.termination_enable_no_contact = self._cfg_bool(
+            termination_cfg.get("enable_no_contact", True), default=True
+        )
+        self.termination_enable_screw_limit = self._cfg_bool(
+            termination_cfg.get("enable_screw_limit", True), default=True
+        )
+        self.termination_log = self._cfg_bool(
+            termination_cfg.get("log", False), default=False
+        )
+        self._last_termination_reasons = None
+
+    def _setup_two_finger_gate_config(self, gate_cfg):
+        if gate_cfg is None:
+            gate_cfg = {}
+        self.two_finger_gate_enable = self._cfg_bool(
+            gate_cfg.get("enable", False), default=False
+        )
+        self.two_finger_gate_thumb_index = int(
+            gate_cfg.get("thumb_fingertip_index", max(self.fingers_num - 1, 0))
+        )
+        raw_other_indices = gate_cfg.get("other_fingertip_indices", [0, 1])
+        self.two_finger_gate_other_indices = [int(i) for i in list(raw_other_indices)]
+        self.two_finger_gate_target = str(gate_cfg.get("target", "nut_pos"))
+        self.two_finger_gate_target_offset = self._resolve_numeric_vector(
+            gate_cfg.get("target_offset", [0.0, 0.0, 0.0]),
+            3,
+            "env.two_finger_gate.target_offset",
+        )
+        self.two_finger_gate_near = float(gate_cfg.get("near", 0.08))
+        self.two_finger_gate_far = float(gate_cfg.get("far", 0.13))
+        self.two_finger_gate_min_mult = float(gate_cfg.get("min_mult", 0.2))
+        self.two_finger_gate_power = float(gate_cfg.get("power", 1.0))
+        self.two_finger_gate_scale_with_object = self._cfg_bool(
+            gate_cfg.get("scale_with_object", False), default=False
+        )
+        self.two_finger_gate_apply_positive_vel_only = self._cfg_bool(
+            gate_cfg.get("apply_positive_vel_only", True), default=True
+        )
+        self.two_finger_gate_use_contact_force = self._cfg_bool(
+            gate_cfg.get("use_contact_force", False), default=False
+        )
+        self.two_finger_gate_contact_force_min = float(
+            gate_cfg.get("contact_force_min", 0.5)
+        )
+        self.two_finger_gate_contact_force_max = float(
+            gate_cfg.get("contact_force_max", 2.0)
+        )
+        self.two_finger_gate_no_grasp_penalty_scale = float(
+            gate_cfg.get("no_grasp_penalty_scale", 0.0)
+        )
+        if not self.two_finger_gate_enable:
+            return
+        if not (0 <= self.two_finger_gate_thumb_index < self.fingers_num):
+            raise ValueError(
+                "env.two_finger_gate.thumb_fingertip_index is out of range "
+                f"for {self.fingers_num} fingertips: {self.two_finger_gate_thumb_index}"
+            )
+        if len(self.two_finger_gate_other_indices) == 0:
+            raise ValueError(
+                "env.two_finger_gate.other_fingertip_indices must not be empty"
+            )
+        for idx in self.two_finger_gate_other_indices:
+            if not (0 <= idx < self.fingers_num):
+                raise ValueError(
+                    "env.two_finger_gate.other_fingertip_indices contains an out-of-range "
+                    f"index for {self.fingers_num} fingertips: {idx}"
+                )
+        if self.two_finger_gate_far <= self.two_finger_gate_near:
+            raise ValueError(
+                "env.two_finger_gate.far must be greater than near; "
+                f"got near={self.two_finger_gate_near}, far={self.two_finger_gate_far}"
+            )
+
+    def _get_current_object_scale_tensor(self):
+        if hasattr(self, "object_scale_buf"):
+            return self.object_scale_buf
+        return torch.ones(
+            self.num_envs, device=self.device, dtype=torch.float
+        ) * float(self.base_obj_scale)
+
+    def _apply_two_finger_gate(self, rotate_reward_raw, nut_dof_linvel, nut_pos):
+        fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+        target_offset = torch.tensor(
+            self.two_finger_gate_target_offset,
+            device=self.device,
+            dtype=torch.float,
+        ).unsqueeze(0)
+        scale_ratio = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        if self.two_finger_gate_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            target_offset = target_offset * scale_ratio.unsqueeze(-1)
+
+        if self.two_finger_gate_target == "nut_pos":
+            target_base = nut_pos
+            target_rot = self.nut_states[:, 3:7]
+        elif self.two_finger_gate_target == "object_pos":
+            target_base = self.object_pos
+            target_rot = self.object_rot
+        else:
+            raise ValueError(
+                "Unsupported env.two_finger_gate.target: "
+                f"{self.two_finger_gate_target}"
+            )
+
+        if target_offset.shape[0] == 1:
+            target_offset = target_offset.expand(self.num_envs, -1)
+        target_pos = target_base + quat_apply(
+            target_rot, target_offset
+        )
+        near = torch.ones_like(scale_ratio) * self.two_finger_gate_near
+        far = torch.ones_like(scale_ratio) * self.two_finger_gate_far
+        if self.two_finger_gate_scale_with_object:
+            near = near * scale_ratio
+            far = far * scale_ratio
+        span = torch.clamp(far - near, min=1e-6)
+
+        thumb_pos = fingertip_pos[:, self.two_finger_gate_thumb_index, :]
+        other_pos = fingertip_pos[:, self.two_finger_gate_other_indices, :]
+        thumb_dist = torch.norm(thumb_pos - target_pos, dim=-1)
+        other_dist_all = torch.norm(
+            other_pos - target_pos.unsqueeze(1), dim=-1
+        )
+
+        thumb_dist_w = torch.clamp((far - thumb_dist) / span, min=0.0, max=1.0)
+        other_dist_w_all = torch.clamp(
+            (far.unsqueeze(-1) - other_dist_all) / span.unsqueeze(-1),
+            min=0.0,
+            max=1.0,
+        )
+
+        thumb_weight = thumb_dist_w
+        other_weight_all = other_dist_w_all
+        if self.two_finger_gate_use_contact_force:
+            fingertip_force = torch.norm(
+                self.contact_forces[:, self.fingertip_handles, :], dim=-1
+            )
+            force_span = max(
+                self.two_finger_gate_contact_force_max
+                - self.two_finger_gate_contact_force_min,
+                1e-6,
+            )
+            thumb_force = fingertip_force[:, self.two_finger_gate_thumb_index]
+            other_force_all = fingertip_force[:, self.two_finger_gate_other_indices]
+            thumb_force_w = torch.clamp(
+                (thumb_force - self.two_finger_gate_contact_force_min) / force_span,
+                min=0.0,
+                max=1.0,
+            )
+            other_force_w_all = torch.clamp(
+                (
+                    other_force_all - self.two_finger_gate_contact_force_min
+                )
+                / force_span,
+                min=0.0,
+                max=1.0,
+            )
+            thumb_weight = thumb_weight * thumb_force_w
+            other_weight_all = other_weight_all * other_force_w_all
+
+        other_weight, other_best_idx = other_weight_all.max(dim=-1)
+        other_dist = other_dist_all.gather(
+            1, other_best_idx.unsqueeze(-1)
+        ).squeeze(-1)
+        gate = torch.clamp(thumb_weight * other_weight, min=0.0, max=1.0)
+        gate = torch.pow(gate, self.two_finger_gate_power)
+        gate_mult = self.two_finger_gate_min_mult + (
+            1.0 - self.two_finger_gate_min_mult
+        ) * gate
+
+        if self.two_finger_gate_apply_positive_vel_only:
+            rotate_reward = torch.where(
+                rotate_reward_raw > 0,
+                rotate_reward_raw * gate_mult,
+                rotate_reward_raw,
+            )
+        else:
+            rotate_reward = rotate_reward_raw * gate_mult
+
+        positive_velocity = torch.clamp(nut_dof_linvel, min=0.0)
+        two_finger_extra = self.two_finger_gate_no_grasp_penalty_scale * (
+            positive_velocity * (1.0 - gate)
+        )
+        gate_stats = {
+            "gate": gate,
+            "thumb_weight": thumb_weight,
+            "other_weight": other_weight,
+            "thumb_dist": thumb_dist,
+            "other_dist": other_dist,
+        }
+        return rotate_reward, two_finger_extra, gate_stats
 
     def _setup_domain_rand_config(self, rand_config):
         self.randomize_mass = rand_config["randomizeMass"]
@@ -1706,6 +1942,9 @@ class XHandHora(VecTask):
             "point_cloud_sampled_dim"
         ]
         self.point_cloud_buffer_dim = self.point_cloud_sampled_dim
+        self.object_scale_buf = torch.ones(
+            (num_envs,), device=self.device, dtype=torch.float
+        ) * float(self.base_obj_scale)
         self.priv_info_buf = torch.zeros(
             (num_envs, self.priv_info_dim), device=self.device, dtype=torch.float
         )
@@ -1804,14 +2043,18 @@ class XHandHora(VecTask):
         )
         self.fingertip_handles = [
             self.gym.find_asset_rigid_body_index(self.hand_asset, name)
-            for name in [
-                "left_hand_index_rota_tip",
-                "left_hand_mid_tip",
-                "left_hand_pinky_tip",
-                "left_hand_ring_tip",
-                "left_hand_thumb_rota_tip",
-            ]
+            for name in self.fingertip_body_names
         ]
+        missing_fingertips = [
+            name
+            for name, handle in zip(self.fingertip_body_names, self.fingertip_handles)
+            if handle == -1
+        ]
+        if missing_fingertips:
+            raise ValueError(
+                f"Missing fingertip rigid bodies in asset {hand_asset_file}: "
+                f"{missing_fingertips}"
+            )
 
         # load object asset
         self.object_asset_list = []
@@ -1877,58 +2120,45 @@ class XHandHora(VecTask):
         self.xhand_hand_dof_lower_limits = []
         self.xhand_hand_dof_upper_limits = []
 
-        hand_asset_file = self.config["env"]["asset"]["handAsset"]
-        xhand_dof_lower_limits = [
-            -0.175,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            -1.05,
-            -0.17,
-        ]
+        (
+            xhand_dof_lower_limits,
+            xhand_dof_upper_limits,
+            xhand_effort_limits,
+            xhand_velocity_limits,
+        ) = self._default_hand_dof_props()
+        lower_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofLowerLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofLowerLimits",
+        )
+        upper_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofUpperLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofUpperLimits",
+        )
+        effort_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofEffortLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofEffortLimits",
+        )
+        velocity_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofVelocityLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofVelocityLimits",
+        )
+        if lower_override is not None:
+            xhand_dof_lower_limits = lower_override
+        if upper_override is not None:
+            xhand_dof_upper_limits = upper_override
+        if effort_override is not None:
+            xhand_effort_limits = effort_override
+        if velocity_override is not None:
+            xhand_velocity_limits = velocity_override
         self.xhand_dof_lower_limits = np.array(xhand_dof_lower_limits)
-
-        xhand_dof_upper_limits = [
-            0.175,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.92,
-            1.83,
-            1.57,
-            1.83,
-        ]
         if self.config["env"]["object"]["thumb_range_limit"]:
             xhand_dof_upper_limits[9] = 1.73
             xhand_dof_lower_limits[9] = 0.6
         self.xhand_dof_upper_limits = np.array(xhand_dof_upper_limits)
-
-        # Effort limits from the actuatorfrcrange in the MJCF file
-        xhand_effort_limits = [
-            0.4,
-            1.1,
-            0.4,
-            1.1,
-            0.4,
-            1.1,
-            0.4,
-            1.1,
-            1.1,
-            0.4,
-            1.1,
-            1.1,
-            0.4,
-        ]
 
         for i in range(self.num_xhand_hand_dofs):
             # Set the joint limits based on the URDF
@@ -1939,6 +2169,8 @@ class XHandHora(VecTask):
 
             # Set the effort limit
             xhand_hand_dof_props["effort"][i] = xhand_effort_limits[i]
+            if xhand_velocity_limits is not None:
+                xhand_hand_dof_props["velocity"][i] = xhand_velocity_limits[i]
 
             # Set controller properties
             if self.torque_control:
@@ -1966,24 +2198,319 @@ class XHandHora(VecTask):
         return xhand_hand_dof_props
 
     def _init_object_pose(self):
-        hand_asset_file = self.config["env"]["asset"]["handAsset"]
-
         xhand_hand_start_pose = gymapi.Transform()
-        xhand_hand_start_pose.p = gymapi.Vec3(0, 0, 0.21)
-        xhand_hand_start_pose.r = gymapi.Quat.from_axis_angle(
-            gymapi.Vec3(1, 0, 0), np.pi / 2 - 25 * (np.pi / 180)
+        hand_root_pos = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootPos"), 3, "env.asset.handRootPos"
         )
+        if hand_root_pos is None:
+            hand_root_pos = [0.0, 0.0, 0.21]
+        xhand_hand_start_pose.p = gymapi.Vec3(*hand_root_pos)
 
-        # Object position relative to hand
-        pose_dx, pose_dy, pose_dz = 0.00, 0.00, 0.00
+        hand_root_quat = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootQuat"), 4, "env.asset.handRootQuat"
+        )
+        hand_root_rpy = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootRPY"), 3, "env.asset.handRootRPY"
+        )
+        if hand_root_quat is not None:
+            xhand_hand_start_pose.r = gymapi.Quat(*hand_root_quat)
+        elif hand_root_rpy is not None:
+            quat = quat_from_euler_xyz(
+                torch.tensor([hand_root_rpy[0]], dtype=torch.float),
+                torch.tensor([hand_root_rpy[1]], dtype=torch.float),
+                torch.tensor([hand_root_rpy[2]], dtype=torch.float),
+            )[0]
+            xhand_hand_start_pose.r = gymapi.Quat(
+                float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])
+            )
+        else:
+            xhand_hand_start_pose.r = gymapi.Quat.from_axis_angle(
+                gymapi.Vec3(1, 0, 0), np.pi / 2 - 25 * (np.pi / 180)
+            )
 
         object_start_pose = gymapi.Transform()
         object_start_pose.p = gymapi.Vec3()
-        object_start_pose.p.x = xhand_hand_start_pose.p.x + pose_dx
-        object_start_pose.p.y = xhand_hand_start_pose.p.y + pose_dy
-        object_start_pose.p.z = xhand_hand_start_pose.p.z + pose_dz
+        object_init_pos = self._resolve_numeric_vector(
+            self.object_cfg.get("init_pos"), 3, "env.object.init_pos"
+        )
+        if object_init_pos is None:
+            object_init_pos = [0.0, 0.0, 0.0]
+        object_start_pose.p.x = float(object_init_pos[0])
+        object_start_pose.p.y = float(object_init_pos[1])
+        object_start_pose.p.z = float(object_init_pos[2])
 
         return xhand_hand_start_pose, object_start_pose
+
+    def _default_apply_action_mask(self):
+        return True
+
+    def _default_fingertip_body_names(self):
+        return [
+            "left_hand_index_rota_tip",
+            "left_hand_mid_tip",
+            "left_hand_pinky_tip",
+            "left_hand_ring_tip",
+            "left_hand_thumb_rota_tip",
+        ]
+
+    def _default_hand_dof_props(self):
+        xhand_dof_lower_limits = [
+            -0.175,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -1.05,
+            -0.17,
+        ]
+        xhand_dof_upper_limits = [
+            0.175,
+            1.92,
+            1.92,
+            1.92,
+            1.92,
+            1.92,
+            1.92,
+            1.92,
+            1.92,
+            1.83,
+            1.57,
+            1.83,
+        ]
+        xhand_effort_limits = [
+            0.4,
+            1.1,
+            0.4,
+            1.1,
+            0.4,
+            1.1,
+            0.4,
+            1.1,
+            1.1,
+            0.4,
+            1.1,
+            1.1,
+        ]
+        if len(xhand_effort_limits) < len(xhand_dof_lower_limits):
+            xhand_effort_limits = xhand_effort_limits + [
+                xhand_effort_limits[-1]
+                for _ in range(len(xhand_dof_lower_limits) - len(xhand_effort_limits))
+            ]
+        return (
+            xhand_dof_lower_limits,
+            xhand_dof_upper_limits,
+            xhand_effort_limits,
+            None,
+        )
+
+    def _default_joint_values(self, dof_names):
+        if self.config["env"]["initPose"] == "nutbolt_inclined":
+            joint_values = OrderedDict(
+                [
+                    ("left_hand_index_bend_joint", -0.17),
+                    ("left_hand_index_joint1", 1.1),
+                    ("left_hand_index_joint2", 0.4),
+                    ("left_hand_mid_joint1", 1.1),
+                    ("left_hand_mid_joint2", 0.4),
+                    ("left_hand_pinky_joint1", 0),
+                    ("left_hand_pinky_joint2", 0),
+                    ("left_hand_ring_joint1", 0),
+                    ("left_hand_ring_joint2", 0),
+                    ("left_hand_thumb_bend_joint", 1.3),
+                    ("left_hand_thumb_rota_joint1", 0.5),
+                    ("left_hand_thumb_rota_joint2", 0.45),
+                ]
+            )
+        elif self.config["env"]["initPose"] in (
+            "screwdriver_inclined",
+            "lightbulb_inclined",
+        ):
+            joint_values = OrderedDict(
+                [
+                    ("left_hand_index_bend_joint", -0.036),
+                    ("left_hand_index_joint1", 1.15),
+                    ("left_hand_index_joint2", 0.5),
+                    ("left_hand_mid_joint1", 0.925),
+                    ("left_hand_mid_joint2", 0.58),
+                    ("left_hand_pinky_joint1", 0),
+                    ("left_hand_pinky_joint2", 0),
+                    ("left_hand_ring_joint1", 1.3),
+                    ("left_hand_ring_joint2", 0.43),
+                    ("left_hand_thumb_bend_joint", 1.455),
+                    ("left_hand_thumb_rota_joint1", 0.817),
+                    ("left_hand_thumb_rota_joint2", 0.154),
+                ]
+            )
+        else:
+            raise ValueError(
+                f"Unsupported initPose: {self.config['env']['initPose']} for XHandHora"
+            )
+        if list(dof_names) != list(joint_values.keys()):
+            raise ValueError(
+                f"Unexpected DOF order for init pose resolution.\n"
+                f"Expected: {list(joint_values.keys())}\n"
+                f"Got: {list(dof_names)}"
+            )
+        return joint_values
+
+    def _resolve_hand_init_pose(self, dof_names):
+        custom_init = self.config["env"].get("customInitDofPos", None)
+        if custom_init is not None:
+            custom_values = self._resolve_numeric_vector(
+                custom_init, len(dof_names), "env.customInitDofPos"
+            )
+            return OrderedDict(zip(dof_names, custom_values))
+
+        hand_init_pose = self.hand_asset_cfg.get("handInitPose")
+        if hand_init_pose is not None:
+            if hasattr(hand_init_pose, "items"):
+                pose_map = {str(k): float(v) for k, v in hand_init_pose.items()}
+                missing = [name for name in dof_names if name not in pose_map]
+                extra = [name for name in pose_map.keys() if name not in dof_names]
+                if missing or extra:
+                    raise ValueError(
+                        "env.asset.handInitPose keys must match hand DOF names. "
+                        f"Missing={missing}, Extra={extra}"
+                    )
+                return OrderedDict((name, pose_map[name]) for name in dof_names)
+            init_values = self._resolve_numeric_vector(
+                hand_init_pose, len(dof_names), "env.asset.handInitPose"
+            )
+            return OrderedDict(zip(dof_names, init_values))
+
+        return self._default_joint_values(dof_names)
+
+    def _default_object_init_pos(self):
+        if self.config["env"]["initPose"] == "nutbolt_inclined":
+            return [0.0175, 0.06, 0.0]
+        if self.config["env"]["initPose"] in (
+            "screwdriver_inclined",
+            "lightbulb_inclined",
+        ):
+            return [0.009, 0.06, 0.0]
+        raise ValueError(
+            f"Unsupported initPose for object initialization: {self.config['env']['initPose']}"
+        )
+
+    def _sample_object_init_positions(self, batch_size):
+        base_pos = self._resolve_numeric_vector(
+            self.object_cfg.get("init_pos"), 3, "env.object.init_pos"
+        )
+        if base_pos is None:
+            base_pos = self._default_object_init_pos()
+        noise_cfg = self.object_cfg.get("init_pos_noise", [0.0075, 0.0075, 0.0])
+        noise_scale = self._resolve_numeric_vector(
+            noise_cfg, 3, "env.object.init_pos_noise"
+        )
+        base = torch.tensor(base_pos, device=self.device, dtype=torch.float).unsqueeze(0)
+        noise = (
+            torch.rand((batch_size, 3), device=self.device, dtype=torch.float)
+            * torch.tensor(noise_scale, device=self.device, dtype=torch.float)
+        )
+        return base.repeat(batch_size, 1) + noise
+
+    def _sample_hand_root_quats(self, batch_size):
+        hand_root_quat = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootQuat"), 4, "env.asset.handRootQuat"
+        )
+        if hand_root_quat is not None:
+            quat = torch.tensor(hand_root_quat, device=self.device, dtype=torch.float)
+            quat = quat / torch.norm(quat)
+            return quat.unsqueeze(0).repeat(batch_size, 1)
+
+        hand_root_rpy = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootRPY"), 3, "env.asset.handRootRPY"
+        )
+        if hand_root_rpy is not None:
+            roll = torch.full(
+                (batch_size,),
+                float(hand_root_rpy[0]),
+                device=self.device,
+                dtype=torch.float,
+            )
+            pitch = torch.full(
+                (batch_size,),
+                float(hand_root_rpy[1]),
+                device=self.device,
+                dtype=torch.float,
+            )
+            yaw = torch.full(
+                (batch_size,),
+                float(hand_root_rpy[2]),
+                device=self.device,
+                dtype=torch.float,
+            )
+            return quat_from_euler_xyz(roll, pitch, yaw)
+        return None
+
+    def _sample_hand_root_positions(self, env_ids):
+        hand_root_pos = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootPos"), 3, "env.asset.handRootPos"
+        )
+        if hand_root_pos is None:
+            original_pos = torch.zeros(
+                (len(env_ids), 3), device=self.device, dtype=torch.float
+            )
+            original_pos[:, 2] = 0.21
+            return original_pos + torch.rand_like(original_pos) * 0.001
+
+        pos = torch.tensor(hand_root_pos, device=self.device, dtype=torch.float)
+        pos = pos.unsqueeze(0).repeat(len(env_ids), 1)
+
+        z_scale_comp = float(self.hand_asset_cfg.get("handRootPosZScaleComp", 0.0))
+        if z_scale_comp != 0.0 and self.randomize_scale:
+            num_scales = len(self.randomize_scale_list)
+            scale_ids = (env_ids % num_scales).tolist()
+            scale_tensor = torch.tensor(
+                [self.randomize_scale_list[int(i)] for i in scale_ids],
+                device=self.device,
+                dtype=torch.float,
+            )
+            pos[:, 2] += z_scale_comp * (scale_tensor - 1.0)
+
+        pos_noise = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootPosNoise", [0.0, 0.0, 0.0]),
+            3,
+            "env.asset.handRootPosNoise",
+        )
+        if any(abs(v) > 0 for v in pos_noise):
+            pos += (
+                torch.rand((len(env_ids), 3), device=self.device, dtype=torch.float)
+                * torch.tensor(pos_noise, device=self.device, dtype=torch.float)
+            )
+        return pos
+
+    def _resolve_numeric_vector(self, value, expected_len, field_name):
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return [float(value) for _ in range(expected_len)]
+        values = [float(x) for x in list(value)]
+        if len(values) != expected_len:
+            raise ValueError(
+                f"{field_name} must have length {expected_len}; got {len(values)}"
+            )
+        return values
+
+    def _cfg_bool(self, value, default=False):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            token = value.strip().lower()
+            if token in ("true", "1", "yes", "y", "on"):
+                return True
+            if token in ("false", "0", "no", "n", "off"):
+                return False
+        return default
 
     @staticmethod
     def quat_to_axis_angle(quaternions: torch.Tensor) -> torch.Tensor:

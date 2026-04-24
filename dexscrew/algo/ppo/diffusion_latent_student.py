@@ -274,7 +274,7 @@ class DiffusionLatentStudent(ProprioAdapt):
         if base_latent is not None:
             x = x / self.residual_target_scale
             x = x + base_latent
-        return torch.tanh(x)
+        return x
 
     def _apply_obs_noise_curriculum(self):
         if not self.obs_noise_curriculum:
@@ -663,7 +663,7 @@ class DiffusionLatentStudent(ProprioAdapt):
                 _, _, _, _, e_gt = self.model._actor_critic(input_dict)
                 teacher_obs_input = torch.cat([input_dict["obs"], e_gt.detach()], dim=-1)
                 teacher_x = self.model.actor_mlp(teacher_obs_input)
-                teacher_mu = self.model.mu(teacher_x)
+                teacher_mu = torch.clamp(self.model.mu(teacher_x), -1.0, 1.0)
                 residual_base_latent = (
                     self._get_base_latent(input_dict["proprio_hist"])
                     if self.residual_base
@@ -695,7 +695,7 @@ class DiffusionLatentStudent(ProprioAdapt):
             if residual_base_latent is not None:
                 x0_pred = x0_pred / self.residual_target_scale
                 x0_pred = x0_pred + residual_base_latent
-            pred_latent = torch.tanh(x0_pred)
+            pred_latent = x0_pred
             latent_recon_loss = ((pred_latent - target_latent) ** 2).mean()
             student_obs_input = torch.cat([input_dict["obs"], pred_latent], dim=-1)
             student_x = self.model.actor_mlp(student_obs_input)

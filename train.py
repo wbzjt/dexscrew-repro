@@ -32,6 +32,8 @@
 import isaacgym
 
 import os
+import sys
+import importlib
 import hydra
 import datetime
 from termcolor import cprint
@@ -39,9 +41,13 @@ from omegaconf import DictConfig, OmegaConf
 from hydra.utils import to_absolute_path
 
 from dexscrew.algo.ppo.ppo import PPO
-from dexscrew.algo.ppo.padapt import ProprioAdapt
-from dexscrew.algo.ppo.pure_bc import PureBC
-from dexscrew.algo.ppo.diffusion_latent_student import DiffusionLatentStudent
+from dexscrew.algo.student import (
+    ProprioAdapt,
+    PureBC,
+    DiffusionLatentStudent,
+    ConsistencyLatentStudent,
+    FlowMatchingLatentStudent,
+)
 from dexscrew.algo.ppo.diffusion_action_chunk_student import DiffusionActionChunkStudent
 from dexscrew.tasks import isaacgym_task_map
 from dexscrew.utils.reformat import omegaconf_to_dict, print_dict
@@ -55,6 +61,42 @@ OmegaConf.register_new_resolver('if', lambda pred, a, b: a if pred else b)
 # allows us to resolve default arguments which are copied in multiple places in the config.
 # used primarily for num_env
 OmegaConf.register_new_resolver('resolve_default', lambda default, arg: default if arg == '' else arg)
+
+
+def import_wandb_package():
+    """Import the real wandb package even if the repo has a local ./wandb run directory."""
+    importlib.invalidate_caches()
+    try:
+        wandb = importlib.import_module("wandb")
+        if hasattr(wandb, "init"):
+            return wandb
+    except Exception:
+        pass
+
+    cwd = os.path.abspath(os.getcwd())
+    removed_entries = []
+    sanitized_sys_path = []
+    for entry in sys.path:
+        normalized = os.path.abspath(entry or cwd)
+        if normalized == cwd:
+            removed_entries.append(entry)
+            continue
+        sanitized_sys_path.append(entry)
+
+    original_sys_path = list(sys.path)
+    sys.modules.pop("wandb", None)
+    sys.path[:] = sanitized_sys_path
+    try:
+        importlib.invalidate_caches()
+        wandb = importlib.import_module("wandb")
+        if not hasattr(wandb, "init"):
+            raise ImportError(
+                "Imported module named 'wandb', but it does not expose wandb.init"
+            )
+        return wandb
+    finally:
+        sys.path[:] = original_sys_path
+        importlib.invalidate_caches()
 
 
 @hydra.main(config_name='config', config_path='configs')
@@ -84,17 +126,20 @@ def main(config: DictConfig):
     config.seed = set_seed(config.seed)
 
     if config.wandb_activate:
-        import wandb
-        run = wandb.init(
+        wandb = import_wandb_package()
+        wandb_kwargs = dict(
             project=config.wandb_project,
-            # group=cfg.wandb_group,
-            # entity=cfg.wandb_entity,
             config=cfg_dict,
             sync_tensorboard=True,
             name=run_name,
             resume="allow",
             monitor_gym=True,
         )
+        if config.wandb_group:
+            wandb_kwargs["group"] = config.wandb_group
+        if config.wandb_entity:
+            wandb_kwargs["entity"] = config.wandb_entity
+        run = wandb.init(**wandb_kwargs)
 
     cprint('Start Building the Environment', 'green', attrs=['bold'])
     env = isaacgym_task_map[config.task_name](
