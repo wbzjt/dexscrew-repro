@@ -4,6 +4,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-${SCRIPT_DIR}}"
 
+CONTAINER_ISAACGYM_BINDING="/opt/isaacgym/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so"
+if [[ -f "/.dockerenv" ]] && [[ -f "${CONTAINER_ISAACGYM_BINDING}" ]]; then
+  export ISAACGYM_DIR="${ISAACGYM_DIR:-/opt/isaacgym}"
+  export ISAACGYM_PATH="${ISAACGYM_PATH:-/opt/isaacgym}"
+  export PYTHONPATH="/opt/isaacgym/isaacgym/python${PYTHONPATH:+:${PYTHONPATH}}"
+  if [[ $# -gt 0 ]]; then
+    exec "$@"
+  fi
+  exec bash
+fi
+
 if [[ -z "${ISAACGYM_DIR:-}" ]]; then
   if [[ -d "$HOME/Codefield/third_party/isaacgym_preview4" ]]; then
     ISAACGYM_DIR="$HOME/Codefield/third_party/isaacgym_preview4"
@@ -96,6 +107,7 @@ fi
 
 docker run --rm "${DOCKER_TTY_FLAGS[@]}" \
   "${NAME_ARGS[@]}" \
+  --init \
   --gpus all \
   --runtime=nvidia \
   --user "${USER_ID}:${GROUP_ID}" \

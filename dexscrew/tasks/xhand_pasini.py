@@ -46,6 +46,7 @@ class XHandPasini(VecTask):
         # Debug toggles (Hydra overrides). Must be set before super().__init__
         # because VecTask.__init__ -> create_sim() -> _create_envs() uses them.
         env_cfg = self.config.get("env", {})
+        self.hand_asset_cfg = env_cfg.get("asset", {})
 
         def _cfg_bool(v, default=False):
             if v is None:
@@ -71,6 +72,10 @@ class XHandPasini(VecTask):
         self.debug_print_top_hand_contacts = _cfg_bool(
             env_cfg.get("debug_print_top_hand_contacts", False), default=False
         )
+        self.apply_action_mask = _cfg_bool(
+            env_cfg.get("apply_action_mask", True), default=True
+        )
+        self.custom_action_mask_indices = env_cfg.get("action_mask_indices")
 
         # When True, log extra debug metrics (lots of `debug/*` + `term/*`).
         # Keep this off by default to make retraining runs clean.
@@ -1663,8 +1668,18 @@ class XHandPasini(VecTask):
         # Keep Hora semantics but adapt to Pasini's DOF layout (4 fingers x 4 DOFs):
         # Hora masks the pinky always; Pasini has no pinky.
         # For nutbolt-like poses, Hora also masks the ring finger; in Pasini that's actions[8:12].
-        if self.config["env"]["initPose"] != "screwdriver_inclined":
-            action_mask[:, 8:12] = 0.0
+        if self.apply_action_mask:
+            if self.custom_action_mask_indices is not None:
+                mask_indices = [int(i) for i in list(self.custom_action_mask_indices)]
+                invalid = [i for i in mask_indices if i < 0 or i >= self.num_actions]
+                if invalid:
+                    raise ValueError(
+                        f"env.action_mask_indices contains invalid action ids {invalid}; "
+                        f"valid range is [0, {self.num_actions - 1}]"
+                    )
+                action_mask[:, mask_indices] = 0.0
+            elif self.config["env"]["initPose"] != "screwdriver_inclined":
+                action_mask[:, 8:12] = 0.0
         actions = actions * action_mask
         actions = F.pad(
             actions, (0, 1), value=0.0
@@ -2178,7 +2193,7 @@ class XHandPasini(VecTask):
             "lightbulb_inclined",
             "screwdriver_inclined",
         ):
-            return [0.009, 0.06, 0.0]
+            return [0.023, 0.03, 0.0]
         raise ValueError(
             f"Unsupported initPose for object initialization: {self.config['env']['initPose']}"
         )
@@ -2401,7 +2416,6 @@ class XHandPasini(VecTask):
             0.0,
             0.0,
         ]
-        self.xhand_dof_lower_limits = np.array(xhand_dof_lower_limits)
 
         xhand_dof_upper_limits = [
             0.35,
@@ -2421,12 +2435,42 @@ class XHandPasini(VecTask):
             1.57,
             1.57,
         ]
-        self.xhand_dof_upper_limits = np.array(xhand_dof_upper_limits)
 
         xhand_effort_limits = [1.0 for _ in xhand_dof_lower_limits]
         # IMPORTANT: The dexh13_right URDF sets DOF velocity limits to 0.
         # A zero velocity limit can lead to non-finite DOF state tensors on GPU pipeline.
         xhand_velocity_limits = [10.0 for _ in xhand_dof_lower_limits]
+
+        lower_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofLowerLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofLowerLimits",
+        )
+        upper_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofUpperLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofUpperLimits",
+        )
+        effort_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofEffortLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofEffortLimits",
+        )
+        velocity_override = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("dofVelocityLimits"),
+            self.num_xhand_hand_dofs,
+            "env.asset.dofVelocityLimits",
+        )
+        if lower_override is not None:
+            xhand_dof_lower_limits = lower_override
+        if upper_override is not None:
+            xhand_dof_upper_limits = upper_override
+        if effort_override is not None:
+            xhand_effort_limits = effort_override
+        if velocity_override is not None:
+            xhand_velocity_limits = velocity_override
+        self.xhand_dof_lower_limits = np.array(xhand_dof_lower_limits)
+        self.xhand_dof_upper_limits = np.array(xhand_dof_upper_limits)
 
         for i in range(self.num_xhand_hand_dofs):
             xhand_hand_dof_props["lower"][i] = xhand_dof_lower_limits[i]
@@ -2459,6 +2503,18 @@ class XHandPasini(VecTask):
             self.xhand_hand_dof_upper_limits, device=self.device
         )
         return xhand_hand_dof_props
+
+    def _resolve_numeric_vector(self, value, expected_len, field_name):
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return [float(value) for _ in range(expected_len)]
+        values = [float(x) for x in list(value)]
+        if len(values) != expected_len:
+            raise ValueError(
+                f"{field_name} must have length {expected_len}; got {len(values)}"
+            )
+        return values
 
     def _init_object_pose(self):
         hand_asset_file = self.config["env"]["asset"]["handAsset"]

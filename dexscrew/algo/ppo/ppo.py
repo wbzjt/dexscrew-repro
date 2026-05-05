@@ -15,6 +15,7 @@ import time
 import torch
 import numpy as np
 
+from dexscrew.algo.eval_select import EvalSelectMixin
 from dexscrew.algo.ppo.experience import ExperienceBuffer
 from dexscrew.algo.models.models import ActorCritic
 from dexscrew.algo.models.running_mean_std import RunningMeanStd
@@ -24,7 +25,7 @@ from dexscrew.utils.misc import AverageScalarMeter
 from tensorboardX import SummaryWriter
 
 
-class PPO(object):
+class PPO(EvalSelectMixin, object):
     def __init__(self, env, output_dif, full_config):
         self.device = full_config["rl_device"]
         self.network_config = full_config.train.network
@@ -166,6 +167,7 @@ class PPO(object):
         self.early_stop_min_agent_steps = int(
             self.ppo_config.get("early_stop_min_agent_steps", 0)
         )
+        self._init_eval_select(role="teacher", artifact_ext="pth")
         # ---- Timing
         self.data_collect_time = 0
         self.rl_train_time = 0
@@ -362,6 +364,14 @@ class PPO(object):
                 self.best_reward_step = int(self.agent_steps)
                 self.best_reward_wallclock_sec = elapsed_sec
                 self.save(os.path.join(self.nn_dir, f"best_reward_{mean_rewards:.2f}"))
+            eval_metrics = self._run_eval_select_if_due(
+                "EVAL/teacher",
+                train_reward=mean_rewards,
+                eval_best_stem="best_eval",
+                alias_stems=("best_deploy",),
+            )
+            if eval_metrics is not None:
+                self.obs = eval_metrics["final_obs_dict"]
             if significant_improvement and self.best_reward_epoch > 0:
                 self.epochs_since_improvement = 0
             elif has_episode_stats and self.best_reward_epoch > 0:
@@ -408,6 +418,21 @@ class PPO(object):
                 self.save(os.path.join(self.nn_dir, "last"))
                 early_stopped = True
                 break
+
+        final_train_reward = (
+            self.episode_rewards.get_mean()
+            if len(self.episode_rewards) > 0
+            else float("nan")
+        )
+        final_eval_metrics = self._run_final_eval_select(
+            "FINAL/teacher",
+            train_reward=final_train_reward,
+            eval_best_stem="best_eval",
+            alias_stems=("best_deploy",),
+        )
+        if final_eval_metrics is not None:
+            self.obs = final_eval_metrics["final_obs_dict"]
+        self._publish_eval_select_deploy_best("best_eval", "best_deploy")
 
         if early_stopped:
             print("training stopped by early stop")
@@ -468,6 +493,27 @@ class PPO(object):
             self.point_cloud_mean_std.load_state_dict(
                 checkpoint["point_cloud_mean_std"]
             )
+
+    def _eval_select_action(self, obs_dict):
+        if self.normalize_point_cloud:
+            point_cloud = self.point_cloud_mean_std(
+                obs_dict["point_cloud_info"].reshape(-1, 3)
+            ).reshape((obs_dict["obs"].shape[0], -1, 3))
+        else:
+            point_cloud = obs_dict["point_cloud_info"]
+
+        input_dict = {
+            "obs": self.running_mean_std(obs_dict["obs"]),
+            "priv_info": (
+                self.priv_mean_std(obs_dict["priv_info"])
+                if self.normalize_priv
+                else obs_dict["priv_info"]
+            ),
+            "proprio_hist": obs_dict["proprio_hist"],
+            "point_cloud_info": point_cloud,
+        }
+        mu, extrin, _ = self.model.act_inference(input_dict)
+        return torch.clamp(mu, -1.0, 1.0), {"extrin_record": extrin}
 
     def test(self):
         self.set_eval()

@@ -7,6 +7,7 @@ import time
 import torch
 import torch.nn as nn
 from tensorboardX import SummaryWriter
+from termcolor import cprint
 
 from dexscrew.algo.ppo.padapt import ProprioAdapt
 from dexscrew.utils.misc import AverageScalarMeter, tprint
@@ -427,6 +428,12 @@ class DiffusionActionChunkStudent(ProprioAdapt):
         super().set_eval()
         self.diffusion_model.eval()
 
+    def _eval_select_action(self, obs_dict):
+        obs = self.running_mean_std(obs_dict["obs"])
+        proprio_hist = self.sa_mean_std(obs_dict["proprio_hist"].detach())
+        chunk_actions = self.sample_action_chunk(obs, proprio_hist)
+        return torch.clamp(chunk_actions[:, 0, :], -1.0, 1.0), {}
+
     def _compute_chunk_training_loss(self, cond_obs, cond_prop, target_chunk):
         target_flat = target_chunk.reshape(target_chunk.shape[0], -1).detach()
         batch_size = target_flat.shape[0]
@@ -674,8 +681,20 @@ class DiffusionActionChunkStudent(ProprioAdapt):
 
             mean_rewards = self.mean_eps_reward.get_mean()
             if mean_rewards > self.best_rewards:
-                self.save(os.path.join(self.nn_dir, "model_best"))
+                if self.eval_select_enabled:
+                    self.save(os.path.join(self.nn_dir, "model_best_train"))
+                else:
+                    self.save(os.path.join(self.nn_dir, "model_best"))
                 self.best_rewards = mean_rewards
+
+            eval_metrics = self._run_eval_select_if_due(
+                "EVAL/student",
+                train_reward=mean_rewards,
+                eval_best_stem="model_best_eval",
+                alias_stems=("model_best", "model_best_deploy"),
+            )
+            if eval_metrics is not None:
+                obs_dict = eval_metrics["final_obs_dict"]
             student_eval_mean_rewards = self.student_mean_eps_reward.get_mean()
             if (
                 self.agent_steps >= self.model_selection_warmup_steps
@@ -733,6 +752,12 @@ class DiffusionActionChunkStudent(ProprioAdapt):
 
     def restore_train(self, fn):
         super().restore_train(fn)
+        if not fn:
+            return
+        checkpoint = torch.load(fn)
+        if "diffusion_model" in checkpoint:
+            self.diffusion_model.load_state_dict(checkpoint["diffusion_model"])
+            cprint("Loaded action-chunk diffusion_model for train resume", "green")
 
     def restore_test(self, fn):
         if not fn:

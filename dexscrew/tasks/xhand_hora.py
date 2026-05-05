@@ -76,8 +76,27 @@ class XHandHora(VecTask):
         self.normalize_penalties_by_num_actions = self._cfg_bool(
             env_cfg.get("normalize_penalties_by_num_actions", False), default=False
         )
+        self._setup_finger_object_contact_config(
+            env_cfg.get("finger_object_contact", {})
+        )
         self._setup_termination_config(env_cfg.get("termination", {}))
         self._setup_two_finger_gate_config(env_cfg.get("two_finger_gate", {}))
+        self._setup_fingertip_tangent_reward_config(
+            env_cfg.get("fingertip_tangent_reward", {})
+        )
+        self._setup_fingertip_torque_reward_config(
+            env_cfg.get("fingertip_torque_reward", {})
+        )
+        self._setup_active_two_finger_contact_config(
+            env_cfg.get("active_two_finger_contact", {})
+        )
+        self._setup_opposition_grip_reward_config(
+            env_cfg.get("opposition_grip_reward", {})
+        )
+        self._setup_thumb_slip_diagnostics_config(
+            env_cfg.get("thumb_slip_diagnostics", {})
+        )
+        self._setup_thumb_slip_penalty_config(env_cfg.get("thumb_slip_penalty", {}))
         self.with_camera = config["env"]["enableCameraSensors"]
         self.nut_termination_history_len = config["env"]["object"][
             "nut_termination_history_len"
@@ -117,14 +136,22 @@ class XHandHora(VecTask):
         self.xhand_hand_dof_pos = self.xhand_hand_dof_state[..., 0]
         self.xhand_hand_dof_vel = self.xhand_hand_dof_state[..., 1]
         self.pre_state = torch.zeros_like(self.xhand_hand_dof_pos)
-        # Disable pose-diff penalty for thumb joints by masking them out (thumb DOFs contain 'thumb' in name)
         dof_names = self.gym.get_asset_dof_names(self.hand_asset)
         thumb_indices = [i for i, name in enumerate(dof_names) if "thumb" in name]
+        pose_penalty_cfg = self.config["env"].get("pose_diff_penalty", {})
+        self.pose_diff_penalty_thumb_weight = float(
+            pose_penalty_cfg.get("thumb_weight", 0.0)
+        )
         self.pose_diff_penalty_mask = torch.ones(
             self.num_actions, device=self.device, dtype=torch.float
         )
         if len(thumb_indices) > 0:
-            self.pose_diff_penalty_mask[thumb_indices] = 0.0
+            self.pose_diff_penalty_mask[thumb_indices] = (
+                self.pose_diff_penalty_thumb_weight
+            )
+        self.pose_diff_penalty_thumb_indices = torch.as_tensor(
+            thumb_indices, dtype=torch.long, device=self.device
+        )
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(
             self.num_envs, -1, 3
         )
@@ -265,6 +292,9 @@ class XHandHora(VecTask):
         )
         self.nut_dof_vel_cf = torch.zeros(
             (self.num_envs, 1), device=self.device, dtype=torch.float
+        )
+        self.prev_thumb_drive_w = torch.zeros(
+            (self.num_envs,), device=self.device, dtype=torch.float
         )
         self.dof_acc = torch.zeros(
             (self.num_envs, self.num_dofs), device=self.device, dtype=torch.float
@@ -493,7 +523,10 @@ class XHandHora(VecTask):
                 rand_friction = np.random.uniform(
                     self.randomize_friction_lower, self.randomize_friction_upper
                 )
-                obj_restitution = np.random.uniform(0, 1)
+                obj_restitution = np.random.uniform(
+                    self.randomize_restitution_lower,
+                    self.randomize_restitution_upper,
+                )
 
                 hand_props = self.gym.get_actor_rigid_shape_properties(
                     env_ptr, hand_actor
@@ -891,6 +924,7 @@ class XHandHora(VecTask):
         self.dof_vel_finite_diff[:] = 0
         self.nut_dof_pos_history[env_ids] = 0
         self.nut_contact_history[env_ids] = 0
+        self.prev_thumb_drive_w[env_ids] = 0
 
         self.at_reset_buf[env_ids] = 1
 
@@ -1094,14 +1128,15 @@ class XHandHora(VecTask):
         # Update current angular velocity penalty threshold based on curriculum
         current_angvel_penalty_threshold = self._get_current_angvel_penalty_threshold()
 
-        # pose diff penalty (thumb DOFs masked out)
-        pose_diff_penalty = (
-            (
-                (self.xhand_hand_dof_pos - self.init_pose_buf[..., : self.num_actions])
-                ** 2
-            )
-            * self.pose_diff_penalty_mask
-        ).sum(-1)
+        pose_diff_sq = (
+            self.xhand_hand_dof_pos - self.init_pose_buf[..., : self.num_actions]
+        ) ** 2
+        pose_diff_penalty = (pose_diff_sq * self.pose_diff_penalty_mask).sum(-1)
+        thumb_pose_diff_penalty = torch.zeros_like(pose_diff_penalty)
+        if self.pose_diff_penalty_thumb_indices.numel() > 0:
+            thumb_pose_diff_penalty = pose_diff_sq.index_select(
+                -1, self.pose_diff_penalty_thumb_indices
+            ).sum(-1)
         # work and torque penalty
         torque_penalty = (self.torques[:, -1, : self.num_actions] ** 2).sum(-1)
         work_penalty = (
@@ -1113,6 +1148,7 @@ class XHandHora(VecTask):
         if self.normalize_penalties_by_num_actions:
             denom = float(max(int(self.num_actions), 1))
             pose_diff_penalty = pose_diff_penalty / denom
+            thumb_pose_diff_penalty = thumb_pose_diff_penalty / denom
             torque_penalty = torque_penalty / denom
             work_penalty = work_penalty / (denom * denom)
 
@@ -1124,15 +1160,21 @@ class XHandHora(VecTask):
         # Calculate proximity reward
         nut_states = self.rigid_body_states[:, self.screw_nut_rb_handle]
         nut_pos = nut_states[..., :3]
-        thumb_pos, index_pos = (
-            self.rigid_body_states[:, self.fingertip_handles[-1], :3],
-            self.rigid_body_states[:, self.fingertip_handles[0], :3],
+        fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+        thumb_pos = fingertip_pos[:, self.finger_contact_thumb_index, :]
+        other_pos = fingertip_pos[:, self.finger_contact_other_indices, :]
+        finger_target_pos = self._get_finger_contact_target_pos(
+            nut_pos=nut_pos,
+            nut_rot=nut_states[..., 3:7],
         )
-        thumb_dist, index_dist = torch.norm(thumb_pos - nut_pos, dim=-1), torch.norm(
-            index_pos - nut_pos, dim=-1
+        finger_threshold = self._get_finger_contact_threshold()
+        thumb_dist = torch.norm(thumb_pos - finger_target_pos, dim=-1)
+        other_dist_all = torch.norm(
+            other_pos - finger_target_pos.unsqueeze(1), dim=-1
         )
-        mean_dist = 0.5 * (thumb_dist + index_dist)
-        ratio = mean_dist / self.reset_dist_threshold
+        other_dist = other_dist_all.mean(dim=-1)
+        mean_dist = 0.5 * (thumb_dist + other_dist)
+        ratio = mean_dist / finger_threshold
         proximity_reward = torch.clamp(1.0 - ratio, min=0.0, max=1.0)
 
         nut_dof_linvel = (
@@ -1180,6 +1222,41 @@ class XHandHora(VecTask):
         self.ft_linvel_at_cf = (self.fingertip_pos - self.ft_pos_prev) / (
             self.control_freq_inv * self.dt
         )
+        fingertip_tangent_reward = torch.zeros_like(rotate_reward)
+        fingertip_tangent_stats = None
+        if self.fingertip_tangent_reward_enable:
+            fingertip_tangent_reward, fingertip_tangent_stats = (
+                self._compute_fingertip_tangent_reward(nut_pos)
+            )
+        fingertip_torque_reward = torch.zeros_like(rotate_reward)
+        fingertip_torque_stats = None
+        if self.fingertip_torque_reward_enable:
+            fingertip_torque_reward, fingertip_torque_stats = (
+                self._compute_fingertip_torque_reward(nut_pos)
+            )
+        active_contact_penalty = torch.zeros_like(rotate_reward)
+        active_contact_stats = None
+        if self.active_two_finger_contact_enable:
+            active_contact_penalty, active_contact_stats = (
+                self._compute_active_two_finger_contact_penalty(nut_dof_linvel)
+            )
+        opposition_grip_reward = torch.zeros_like(rotate_reward)
+        opposition_grip_stats = None
+        if self.opposition_grip_reward_enable:
+            opposition_grip_reward, opposition_grip_stats = (
+                self._compute_opposition_grip_reward(nut_pos)
+            )
+        thumb_slip_penalty = torch.zeros_like(rotate_reward)
+        thumb_slip_penalty_stats = None
+        if self.thumb_slip_penalty_enable:
+            thumb_slip_penalty, thumb_slip_penalty_stats = (
+                self._compute_thumb_slip_penalty(
+                    thumb_dist=thumb_dist,
+                    nut_dof_linvel=nut_dof_linvel,
+                    nut_pos=nut_pos,
+                )
+            )
+        finger_diag_stats = self._compute_finger_diagnostics(nut_pos)
         self.z_dist_penalty = (self.object_pos[:, 2] - self.object_z) ** 2
 
         if self.point_cloud_sampled_dim > 0:
@@ -1206,6 +1283,22 @@ class XHandHora(VecTask):
             self._get_reward_scale_by_name("proximity_reward"),
         )
         self.rew_buf[:] = self.rew_buf + two_finger_extra
+        if self.fingertip_tangent_reward_enable:
+            self.rew_buf[:] = self.rew_buf + fingertip_tangent_reward * (
+                self._get_reward_scale_by_name("fingertip_tangent_reward")
+            )
+        if self.fingertip_torque_reward_enable:
+            self.rew_buf[:] = self.rew_buf + fingertip_torque_reward * (
+                self._get_reward_scale_by_name("fingertip_torque_reward")
+            )
+        if self.active_two_finger_contact_enable:
+            self.rew_buf[:] = self.rew_buf + active_contact_penalty
+        if self.opposition_grip_reward_enable:
+            self.rew_buf[:] = self.rew_buf + (
+                opposition_grip_reward * self.opposition_grip_reward_scale
+            )
+        if self.thumb_slip_penalty_enable:
+            self.rew_buf[:] = self.rew_buf + thumb_slip_penalty
 
         self.reset_buf[:] = self.check_termination(self.object_pos)
         self.extras["step_all_reward"] = self.rew_buf.mean()
@@ -1217,6 +1310,10 @@ class XHandHora(VecTask):
         self.extras["pitch"] = torch.abs(object_angvel[:, 1]).mean()
         self.extras["yaw"] = torch.abs(object_angvel[:, 2]).mean()
         self.extras["z_dist_penalty"] = z_dist_penalty.mean()
+        self.extras["pose_diff_penalty/thumb_raw"] = thumb_pose_diff_penalty.mean()
+        self.extras["pose_diff_penalty/thumb_weighted"] = (
+            thumb_pose_diff_penalty * self.pose_diff_penalty_thumb_weight
+        ).mean()
         self.extras["rotate_penalty"] = rotate_penalty.mean()
 
         # curriculum tracking
@@ -1236,9 +1333,158 @@ class XHandHora(VecTask):
             self.extras["two_finger/other_contact_w"] = gate_stats[
                 "other_weight"
             ].mean()
+            self.extras["two_finger/other_mean_w"] = gate_stats[
+                "other_mean_weight"
+            ].mean()
+            self.extras["two_finger/other_min_w"] = gate_stats[
+                "other_min_weight"
+            ].mean()
             self.extras["two_finger/thumb_dist"] = gate_stats["thumb_dist"].mean()
             self.extras["two_finger/other_dist"] = gate_stats["other_dist"].mean()
+            self.extras["two_finger/other_mean_dist"] = gate_stats[
+                "other_mean_dist"
+            ].mean()
+            self.extras["two_finger/other_max_dist"] = gate_stats[
+                "other_max_dist"
+            ].mean()
             self.extras["two_finger/extra_penalty"] = two_finger_extra.mean()
+        if fingertip_tangent_stats is not None:
+            self.extras["fingertip_tangent/reward"] = (
+                fingertip_tangent_reward.mean()
+            )
+            self.extras["fingertip_tangent/tangent_vel"] = (
+                fingertip_tangent_stats["tangent_vel"].mean()
+            )
+            self.extras["fingertip_tangent/positive_vel"] = (
+                fingertip_tangent_stats["positive_tangent_vel"].mean()
+            )
+            self.extras["fingertip_tangent/dist_w"] = fingertip_tangent_stats[
+                "dist_weight"
+            ].mean()
+            self.extras["fingertip_tangent/contact_w"] = fingertip_tangent_stats[
+                "contact_weight"
+            ].mean()
+            self.extras["fingertip_tangent/reward_min"] = (
+                fingertip_tangent_stats["reward_all"].min(dim=-1).values.mean()
+            )
+        if fingertip_torque_stats is not None:
+            self.extras["fingertip_torque/reward"] = (
+                fingertip_torque_reward.mean()
+            )
+            self.extras["fingertip_torque/signed_torque"] = (
+                fingertip_torque_stats["signed_torque"].mean()
+            )
+            self.extras["fingertip_torque/positive_torque"] = (
+                fingertip_torque_stats["positive_torque"].mean()
+            )
+            self.extras["fingertip_torque/negative_torque"] = (
+                fingertip_torque_stats["negative_torque"].mean()
+            )
+            self.extras["fingertip_torque/abs_torque"] = fingertip_torque_stats[
+                "abs_torque"
+            ].mean()
+            self.extras["fingertip_torque/dist_w"] = fingertip_torque_stats[
+                "dist_weight"
+            ].mean()
+            self.extras["fingertip_torque/contact_w"] = fingertip_torque_stats[
+                "contact_weight"
+            ].mean()
+            self.extras["fingertip_torque/reward_min"] = (
+                fingertip_torque_stats["reward_all"].min(dim=-1).values.mean()
+            )
+        if active_contact_stats is not None:
+            self.extras["active_two_finger/penalty"] = active_contact_stats[
+                "penalty"
+            ].mean()
+            self.extras["active_two_finger/active_frac"] = active_contact_stats[
+                "active_frac"
+            ].mean()
+            self.extras["active_two_finger/pair_contact_w"] = active_contact_stats[
+                "pair_contact_w"
+            ].mean()
+            self.extras["active_two_finger/thumb_contact_w"] = active_contact_stats[
+                "thumb_contact_w"
+            ].mean()
+            self.extras["active_two_finger/other_contact_w"] = active_contact_stats[
+                "other_contact_w"
+            ].mean()
+        if opposition_grip_stats is not None:
+            self.extras["opposition_grip/reward"] = opposition_grip_reward.mean()
+            self.extras["opposition_grip/reward_scaled"] = (
+                opposition_grip_reward * self.opposition_grip_reward_scale
+            ).mean()
+            self.extras["opposition_grip/oppositeness"] = opposition_grip_stats[
+                "oppositeness"
+            ].mean()
+            self.extras["opposition_grip/radial_dot"] = opposition_grip_stats[
+                "radial_dot"
+            ].mean()
+            self.extras["opposition_grip/pair_dist_w"] = opposition_grip_stats[
+                "pair_dist_w"
+            ].mean()
+            self.extras["opposition_grip/pair_inward_w"] = opposition_grip_stats[
+                "pair_inward_w"
+            ].mean()
+            self.extras["opposition_grip/thumb_inward_force"] = opposition_grip_stats[
+                "thumb_inward_force"
+            ].mean()
+            self.extras["opposition_grip/other_inward_force"] = opposition_grip_stats[
+                "other_inward_force"
+            ].mean()
+        if thumb_slip_penalty_stats is not None:
+            self.extras["thumb_slip_penalty/penalty"] = thumb_slip_penalty.mean()
+            self.extras["thumb_slip_penalty/contact_loss"] = (
+                thumb_slip_penalty_stats["contact_loss"].mean()
+            )
+            self.extras["thumb_slip_penalty/far_loss"] = thumb_slip_penalty_stats[
+                "far_loss"
+            ].mean()
+            self.extras["thumb_slip_penalty/ejection_loss"] = (
+                thumb_slip_penalty_stats["ejection_loss"].mean()
+            )
+            self.extras["thumb_slip_penalty/after_drive_loss"] = (
+                thumb_slip_penalty_stats["after_drive_loss"].mean()
+            )
+            self.extras["thumb_slip_penalty/terminal_ease_loss"] = (
+                thumb_slip_penalty_stats["terminal_ease_loss"].mean()
+            )
+            self.extras["thumb_slip_penalty/return_contact_loss"] = (
+                thumb_slip_penalty_stats["return_contact_loss"].mean()
+            )
+            self.extras["thumb_slip_penalty/return_phase_w"] = (
+                thumb_slip_penalty_stats["return_phase_w"].mean()
+            )
+            self.extras["thumb_slip_penalty/return_context_w"] = (
+                thumb_slip_penalty_stats["return_context_w"].mean()
+            )
+            self.extras["thumb_slip_penalty/thumb_tangent_vel"] = (
+                thumb_slip_penalty_stats["thumb_tangent_vel"].mean()
+            )
+            self.extras["thumb_slip_penalty/thumb_contact_w"] = (
+                thumb_slip_penalty_stats["thumb_contact_w"].mean()
+            )
+            self.extras["thumb_slip_penalty/thumb_dist"] = (
+                thumb_slip_penalty_stats["thumb_dist"].mean()
+            )
+            self.extras["thumb_slip_penalty/thumb_tip_speed"] = (
+                thumb_slip_penalty_stats["thumb_tip_speed"].mean()
+            )
+            self.extras["thumb_slip_penalty/active_frac"] = (
+                thumb_slip_penalty_stats["active"].mean()
+            )
+            self.extras["thumb_slip_penalty/velocity_weight"] = (
+                thumb_slip_penalty_stats["velocity_weight"].mean()
+            )
+            self.extras["thumb_slip_penalty/speed_weight"] = (
+                thumb_slip_penalty_stats["speed_weight"].mean()
+            )
+            self.extras["thumb_slip_penalty/prev_drive_w"] = (
+                thumb_slip_penalty_stats["prev_drive_w"].mean()
+            )
+            self.extras["thumb_slip_penalty/current_drive_w"] = (
+                thumb_slip_penalty_stats["current_drive_w"].mean()
+            )
+        self._write_finger_diagnostic_extras(finger_diag_stats)
         if self.termination_log:
             reasons = getattr(self, "_last_termination_reasons", None)
             if isinstance(reasons, dict):
@@ -1436,14 +1682,24 @@ class XHandHora(VecTask):
         nut_states = self.rigid_body_states[:, self.screw_nut_rb_handle]
         nut_pos = nut_states[..., :3]
 
-        thumb_pos = self.rigid_body_states[:, self.fingertip_handles[-1], :3]
-        index_pos = self.rigid_body_states[:, self.fingertip_handles[0], :3]
-        thumb_dist = torch.norm(thumb_pos - nut_pos, dim=-1)
-        index_dist = torch.norm(index_pos - nut_pos, dim=-1)
+        fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+        thumb_pos = fingertip_pos[:, self.finger_contact_thumb_index, :]
+        other_pos = fingertip_pos[:, self.finger_contact_other_indices, :]
+        finger_target_pos = self._get_finger_contact_target_pos(
+            nut_pos=nut_pos,
+            nut_rot=nut_states[..., 3:7],
+        )
+        finger_threshold = self._get_finger_contact_threshold()
+        thumb_dist = torch.norm(thumb_pos - finger_target_pos, dim=-1)
+        other_dist_all = torch.norm(
+            other_pos - finger_target_pos.unsqueeze(1), dim=-1
+        )
         # Reset logging
-        finger_dist_condition = torch.logical_or(
-            thumb_dist > self.reset_dist_threshold,
-            index_dist > self.reset_dist_threshold,
+        tracked_dists = torch.cat(
+            [thumb_dist.unsqueeze(-1), other_dist_all], dim=-1
+        )
+        finger_dist_condition = torch.any(
+            tracked_dists > finger_threshold.unsqueeze(-1), dim=-1
         )
         finger_dist_reset = torch.zeros_like(resets)
         if self.termination_enable_finger_dist:
@@ -1552,6 +1808,51 @@ class XHandHora(VecTask):
         )
         self._last_termination_reasons = None
 
+    def _setup_finger_object_contact_config(self, contact_cfg):
+        if contact_cfg is None:
+            contact_cfg = {}
+        self.finger_contact_thumb_index = int(
+            contact_cfg.get("thumb_fingertip_index", max(self.fingers_num - 1, 0))
+        )
+        raw_other_indices = contact_cfg.get("other_fingertip_indices", [0])
+        if isinstance(raw_other_indices, (int, float)):
+            raw_other_indices = [raw_other_indices]
+        self.finger_contact_other_indices = [
+            int(i) for i in list(raw_other_indices)
+        ]
+        if not (0 <= self.finger_contact_thumb_index < self.fingers_num):
+            raise ValueError(
+                "env.finger_object_contact.thumb_fingertip_index is out of range "
+                f"for {self.fingers_num} fingertips: {self.finger_contact_thumb_index}"
+            )
+        if len(self.finger_contact_other_indices) == 0:
+            raise ValueError(
+                "env.finger_object_contact.other_fingertip_indices must not be empty"
+            )
+        for idx in self.finger_contact_other_indices:
+            if not (0 <= idx < self.fingers_num):
+                raise ValueError(
+                    "env.finger_object_contact.other_fingertip_indices contains an "
+                    f"out-of-range index for {self.fingers_num} fingertips: {idx}"
+                )
+        self.finger_contact_target = str(contact_cfg.get("target", "nut_pos"))
+        if self.finger_contact_target not in {"nut_pos", "object_pos"}:
+            raise ValueError(
+                "env.finger_object_contact.target must be 'nut_pos' or "
+                f"'object_pos'; got {self.finger_contact_target}"
+            )
+        self.finger_contact_target_offset = self._resolve_numeric_vector(
+            contact_cfg.get("target_offset", [0.0, 0.0, 0.0]),
+            3,
+            "env.finger_object_contact.target_offset",
+        )
+        self.finger_contact_scale_with_object = self._cfg_bool(
+            contact_cfg.get("scale_with_object", False), default=False
+        )
+        self.finger_contact_threshold_scale_with_object = self._cfg_bool(
+            contact_cfg.get("threshold_scale_with_object", False), default=False
+        )
+
     def _setup_two_finger_gate_config(self, gate_cfg):
         if gate_cfg is None:
             gate_cfg = {}
@@ -1562,7 +1863,18 @@ class XHandHora(VecTask):
             gate_cfg.get("thumb_fingertip_index", max(self.fingers_num - 1, 0))
         )
         raw_other_indices = gate_cfg.get("other_fingertip_indices", [0, 1])
+        if isinstance(raw_other_indices, (int, float)):
+            raw_other_indices = [raw_other_indices]
         self.two_finger_gate_other_indices = [int(i) for i in list(raw_other_indices)]
+        self.two_finger_gate_other_aggregation = str(
+            gate_cfg.get("other_aggregation", "max")
+        )
+        self.two_finger_gate_other_mean_weight = float(
+            gate_cfg.get("other_mean_weight", 0.5)
+        )
+        self.two_finger_gate_other_min_weight = float(
+            gate_cfg.get("other_min_weight", 0.5)
+        )
         self.two_finger_gate_target = str(gate_cfg.get("target", "nut_pos"))
         self.two_finger_gate_target_offset = self._resolve_numeric_vector(
             gate_cfg.get("target_offset", [0.0, 0.0, 0.0]),
@@ -1608,10 +1920,399 @@ class XHandHora(VecTask):
                     "env.two_finger_gate.other_fingertip_indices contains an out-of-range "
                     f"index for {self.fingers_num} fingertips: {idx}"
                 )
+        supported_aggregations = {"max", "mean", "min", "mean_min"}
+        if self.two_finger_gate_other_aggregation not in supported_aggregations:
+            raise ValueError(
+                "env.two_finger_gate.other_aggregation must be one of "
+                f"{sorted(supported_aggregations)}; got "
+                f"{self.two_finger_gate_other_aggregation}"
+            )
+        if self.two_finger_gate_other_aggregation == "mean_min":
+            if (
+                self.two_finger_gate_other_mean_weight
+                + self.two_finger_gate_other_min_weight
+            ) <= 0.0:
+                raise ValueError(
+                    "env.two_finger_gate.other_mean_weight + "
+                    "other_min_weight must be > 0 for mean_min aggregation"
+                )
         if self.two_finger_gate_far <= self.two_finger_gate_near:
             raise ValueError(
                 "env.two_finger_gate.far must be greater than near; "
                 f"got near={self.two_finger_gate_near}, far={self.two_finger_gate_far}"
+            )
+
+    def _setup_fingertip_tangent_reward_config(self, tangent_cfg):
+        if tangent_cfg is None:
+            tangent_cfg = {}
+        self.fingertip_tangent_reward_enable = self._cfg_bool(
+            tangent_cfg.get("enable", False), default=False
+        )
+        raw_indices = tangent_cfg.get("fingertip_indices", [1])
+        if isinstance(raw_indices, (int, float)):
+            raw_indices = [raw_indices]
+        self.fingertip_tangent_reward_indices = [int(i) for i in list(raw_indices)]
+        self.fingertip_tangent_reward_target = str(
+            tangent_cfg.get("target", "nut_pos")
+        )
+        self.fingertip_tangent_reward_target_offset = self._resolve_numeric_vector(
+            tangent_cfg.get("target_offset", [0.0, 0.0, 0.0]),
+            3,
+            "env.fingertip_tangent_reward.target_offset",
+        )
+        self.fingertip_tangent_reward_near = float(tangent_cfg.get("near", 0.08))
+        self.fingertip_tangent_reward_far = float(tangent_cfg.get("far", 0.13))
+        self.fingertip_tangent_reward_velocity_clip = float(
+            tangent_cfg.get("velocity_clip", 0.5)
+        )
+        self.fingertip_tangent_reward_scale_with_object = self._cfg_bool(
+            tangent_cfg.get("scale_with_object", False), default=False
+        )
+        self.fingertip_tangent_reward_positive_only = self._cfg_bool(
+            tangent_cfg.get("positive_only", True), default=True
+        )
+        self.fingertip_tangent_reward_use_contact_force = self._cfg_bool(
+            tangent_cfg.get("use_contact_force", True), default=True
+        )
+        self.fingertip_tangent_reward_contact_force_min = float(
+            tangent_cfg.get("contact_force_min", 0.3)
+        )
+        self.fingertip_tangent_reward_contact_force_max = float(
+            tangent_cfg.get("contact_force_max", 2.0)
+        )
+        self.fingertip_tangent_reward_aggregation = str(
+            tangent_cfg.get("aggregation", "mean")
+        )
+        if not self.fingertip_tangent_reward_enable:
+            return
+        if len(self.fingertip_tangent_reward_indices) == 0:
+            raise ValueError(
+                "env.fingertip_tangent_reward.fingertip_indices must not be empty"
+            )
+        for idx in self.fingertip_tangent_reward_indices:
+            if not (0 <= idx < self.fingers_num):
+                raise ValueError(
+                    "env.fingertip_tangent_reward.fingertip_indices contains an "
+                    f"out-of-range index for {self.fingers_num} fingertips: {idx}"
+                )
+        if self.fingertip_tangent_reward_target not in {"nut_pos", "object_pos"}:
+            raise ValueError(
+                "env.fingertip_tangent_reward.target must be 'nut_pos' or "
+                f"'object_pos'; got {self.fingertip_tangent_reward_target}"
+            )
+        if self.fingertip_tangent_reward_far <= self.fingertip_tangent_reward_near:
+            raise ValueError(
+                "env.fingertip_tangent_reward.far must be greater than near; "
+                f"got near={self.fingertip_tangent_reward_near}, "
+                f"far={self.fingertip_tangent_reward_far}"
+            )
+        if self.fingertip_tangent_reward_velocity_clip <= 0.0:
+            raise ValueError(
+                "env.fingertip_tangent_reward.velocity_clip must be > 0"
+            )
+        if self.fingertip_tangent_reward_aggregation not in {"mean", "min"}:
+            raise ValueError(
+                "env.fingertip_tangent_reward.aggregation must be one of "
+                "['mean', 'min']; got "
+                f"{self.fingertip_tangent_reward_aggregation}"
+            )
+
+    def _setup_thumb_slip_diagnostics_config(self, slip_cfg):
+        if slip_cfg is None:
+            slip_cfg = {}
+        self.thumb_slip_contact_drop_w = float(
+            slip_cfg.get("contact_drop_w", 0.2)
+        )
+        self.thumb_slip_far_dist = float(slip_cfg.get("far_dist", 0.09))
+        self.thumb_slip_high_tip_speed = float(
+            slip_cfg.get("high_tip_speed", 0.25)
+        )
+        self.thumb_slip_active_screw_vel = float(
+            slip_cfg.get("active_screw_vel", 0.2)
+        )
+
+    def _setup_thumb_slip_penalty_config(self, slip_cfg):
+        if slip_cfg is None:
+            slip_cfg = {}
+        self.thumb_slip_penalty_enable = self._cfg_bool(
+            slip_cfg.get("enable", False), default=False
+        )
+        self.thumb_slip_penalty_thumb_index = int(
+            slip_cfg.get("thumb_fingertip_index", self.finger_contact_thumb_index)
+        )
+        self.thumb_slip_penalty_active_screw_vel = float(
+            slip_cfg.get("active_screw_vel", 0.15)
+        )
+        self.thumb_slip_penalty_contact_force_min = float(
+            slip_cfg.get("contact_force_min", 0.3)
+        )
+        self.thumb_slip_penalty_contact_force_max = float(
+            slip_cfg.get("contact_force_max", 2.0)
+        )
+        self.thumb_slip_penalty_far_dist = float(slip_cfg.get("far_dist", 0.09))
+        self.thumb_slip_penalty_high_tip_speed = float(
+            slip_cfg.get("high_tip_speed", 0.25)
+        )
+        self.thumb_slip_penalty_high_tip_speed_span = float(
+            slip_cfg.get("high_tip_speed_span", 0.2)
+        )
+        self.thumb_slip_penalty_scale_with_object = self._cfg_bool(
+            slip_cfg.get("scale_with_object", False), default=False
+        )
+        self.thumb_slip_contact_penalty_scale = float(
+            slip_cfg.get("contact_penalty_scale", 0.0)
+        )
+        self.thumb_slip_far_penalty_scale = float(
+            slip_cfg.get("far_penalty_scale", 0.0)
+        )
+        self.thumb_slip_ejection_penalty_scale = float(
+            slip_cfg.get("ejection_penalty_scale", 0.0)
+        )
+        self.thumb_slip_after_drive_penalty_scale = float(
+            slip_cfg.get("after_drive_penalty_scale", 0.0)
+        )
+        self.thumb_slip_terminal_ease_penalty_scale = float(
+            slip_cfg.get("terminal_ease_penalty_scale", 0.0)
+        )
+        self.thumb_slip_terminal_ease_near_limit = float(
+            slip_cfg.get("terminal_ease_near_limit", 0.75)
+        )
+        self.thumb_slip_terminal_ease_limit_span = float(
+            slip_cfg.get("terminal_ease_limit_span", 0.2)
+        )
+        self.thumb_slip_terminal_ease_vel_clip = float(
+            slip_cfg.get("terminal_ease_vel_clip", 1.5)
+        )
+        self.thumb_slip_return_contact_penalty_scale = float(
+            slip_cfg.get("return_contact_penalty_scale", 0.0)
+        )
+        self.thumb_slip_return_tangent_vel_threshold = float(
+            slip_cfg.get("return_tangent_vel_threshold", 0.02)
+        )
+        self.thumb_slip_return_tangent_vel_span = float(
+            slip_cfg.get("return_tangent_vel_span", 0.10)
+        )
+        if not self.thumb_slip_penalty_enable:
+            return
+        if not (0 <= self.thumb_slip_penalty_thumb_index < self.fingers_num):
+            raise ValueError(
+                "env.thumb_slip_penalty.thumb_fingertip_index is out of range "
+                f"for {self.fingers_num} fingertips: "
+                f"{self.thumb_slip_penalty_thumb_index}"
+            )
+        if self.thumb_slip_penalty_contact_force_max <= (
+            self.thumb_slip_penalty_contact_force_min
+        ):
+            raise ValueError(
+                "env.thumb_slip_penalty.contact_force_max must be greater than "
+                "contact_force_min"
+            )
+        if self.thumb_slip_penalty_far_dist <= 0.0:
+            raise ValueError("env.thumb_slip_penalty.far_dist must be > 0")
+        if self.thumb_slip_penalty_high_tip_speed_span <= 0.0:
+            raise ValueError(
+                "env.thumb_slip_penalty.high_tip_speed_span must be > 0"
+            )
+        if not (0.0 <= self.thumb_slip_terminal_ease_near_limit < 1.0):
+            raise ValueError(
+                "env.thumb_slip_penalty.terminal_ease_near_limit must be in [0, 1)"
+            )
+        if self.thumb_slip_terminal_ease_limit_span <= 0.0:
+            raise ValueError(
+                "env.thumb_slip_penalty.terminal_ease_limit_span must be > 0"
+            )
+        if self.thumb_slip_terminal_ease_vel_clip <= 0.0:
+            raise ValueError(
+                "env.thumb_slip_penalty.terminal_ease_vel_clip must be > 0"
+            )
+        if self.thumb_slip_return_tangent_vel_threshold < 0.0:
+            raise ValueError(
+                "env.thumb_slip_penalty.return_tangent_vel_threshold must be >= 0"
+            )
+        if self.thumb_slip_return_tangent_vel_span <= 0.0:
+            raise ValueError(
+                "env.thumb_slip_penalty.return_tangent_vel_span must be > 0"
+            )
+
+    def _setup_fingertip_torque_reward_config(self, torque_cfg):
+        if torque_cfg is None:
+            torque_cfg = {}
+        self.fingertip_torque_reward_enable = self._cfg_bool(
+            torque_cfg.get("enable", False), default=False
+        )
+        raw_indices = torque_cfg.get("fingertip_indices", [1])
+        if isinstance(raw_indices, (int, float)):
+            raw_indices = [raw_indices]
+        self.fingertip_torque_reward_indices = [int(i) for i in list(raw_indices)]
+        self.fingertip_torque_reward_target = str(
+            torque_cfg.get("target", "nut_pos")
+        )
+        self.fingertip_torque_reward_target_offset = self._resolve_numeric_vector(
+            torque_cfg.get("target_offset", [0.0, 0.0, 0.0]),
+            3,
+            "env.fingertip_torque_reward.target_offset",
+        )
+        self.fingertip_torque_reward_near = float(torque_cfg.get("near", 0.08))
+        self.fingertip_torque_reward_far = float(torque_cfg.get("far", 0.13))
+        self.fingertip_torque_reward_clip = float(
+            torque_cfg.get("torque_clip", 0.04)
+        )
+        self.fingertip_torque_reward_scale_with_object = self._cfg_bool(
+            torque_cfg.get("scale_with_object", False), default=False
+        )
+        self.fingertip_torque_reward_positive_only = self._cfg_bool(
+            torque_cfg.get("positive_only", True), default=True
+        )
+        self.fingertip_torque_reward_force_sign = float(
+            torque_cfg.get("force_sign", -1.0)
+        )
+        self.fingertip_torque_reward_contact_force_min = float(
+            torque_cfg.get("contact_force_min", 0.3)
+        )
+        self.fingertip_torque_reward_contact_force_max = float(
+            torque_cfg.get("contact_force_max", 2.0)
+        )
+        self.fingertip_torque_reward_aggregation = str(
+            torque_cfg.get("aggregation", "mean")
+        )
+        if not self.fingertip_torque_reward_enable:
+            return
+        if len(self.fingertip_torque_reward_indices) == 0:
+            raise ValueError(
+                "env.fingertip_torque_reward.fingertip_indices must not be empty"
+            )
+        for idx in self.fingertip_torque_reward_indices:
+            if not (0 <= idx < self.fingers_num):
+                raise ValueError(
+                    "env.fingertip_torque_reward.fingertip_indices contains an "
+                    f"out-of-range index for {self.fingers_num} fingertips: {idx}"
+                )
+        if self.fingertip_torque_reward_target not in {"nut_pos", "object_pos"}:
+            raise ValueError(
+                "env.fingertip_torque_reward.target must be 'nut_pos' or "
+                f"'object_pos'; got {self.fingertip_torque_reward_target}"
+            )
+        if self.fingertip_torque_reward_far <= self.fingertip_torque_reward_near:
+            raise ValueError(
+                "env.fingertip_torque_reward.far must be greater than near; "
+                f"got near={self.fingertip_torque_reward_near}, "
+                f"far={self.fingertip_torque_reward_far}"
+            )
+        if self.fingertip_torque_reward_clip <= 0.0:
+            raise ValueError(
+                "env.fingertip_torque_reward.torque_clip must be > 0"
+            )
+        if self.fingertip_torque_reward_aggregation not in {"mean", "min"}:
+            raise ValueError(
+                "env.fingertip_torque_reward.aggregation must be one of "
+                "['mean', 'min']; got "
+                f"{self.fingertip_torque_reward_aggregation}"
+            )
+
+    def _setup_active_two_finger_contact_config(self, contact_cfg):
+        if contact_cfg is None:
+            contact_cfg = {}
+        self.active_two_finger_contact_enable = self._cfg_bool(
+            contact_cfg.get("enable", False), default=False
+        )
+        self.active_two_finger_contact_thumb_index = int(
+            contact_cfg.get("thumb_fingertip_index", max(self.fingers_num - 1, 0))
+        )
+        self.active_two_finger_contact_other_index = int(
+            contact_cfg.get("other_fingertip_index", 0)
+        )
+        self.active_two_finger_contact_screw_vel = float(
+            contact_cfg.get("active_screw_vel", 0.2)
+        )
+        self.active_two_finger_contact_force_min = float(
+            contact_cfg.get("contact_force_min", 0.5)
+        )
+        self.active_two_finger_contact_force_max = float(
+            contact_cfg.get("contact_force_max", 2.0)
+        )
+        self.active_two_finger_contact_penalty_scale = float(
+            contact_cfg.get("penalty_scale", 0.0)
+        )
+        if not self.active_two_finger_contact_enable:
+            return
+        for name, idx in (
+            ("thumb_fingertip_index", self.active_two_finger_contact_thumb_index),
+            ("other_fingertip_index", self.active_two_finger_contact_other_index),
+        ):
+            if not (0 <= idx < self.fingers_num):
+                raise ValueError(
+                    f"env.active_two_finger_contact.{name} is out of range "
+                    f"for {self.fingers_num} fingertips: {idx}"
+                )
+        if self.active_two_finger_contact_force_max <= (
+            self.active_two_finger_contact_force_min
+        ):
+            raise ValueError(
+                "env.active_two_finger_contact.contact_force_max must be greater "
+                "than contact_force_min"
+            )
+
+    def _setup_opposition_grip_reward_config(self, grip_cfg):
+        if grip_cfg is None:
+            grip_cfg = {}
+        self.opposition_grip_reward_enable = self._cfg_bool(
+            grip_cfg.get("enable", False), default=False
+        )
+        self.opposition_grip_thumb_index = int(
+            grip_cfg.get("thumb_fingertip_index", max(self.fingers_num - 1, 0))
+        )
+        self.opposition_grip_other_index = int(
+            grip_cfg.get("other_fingertip_index", 0)
+        )
+        self.opposition_grip_target = str(grip_cfg.get("target", "nut_pos"))
+        self.opposition_grip_target_offset = self._resolve_numeric_vector(
+            grip_cfg.get("target_offset", [0.0, 0.0, 0.0]),
+            3,
+            "env.opposition_grip_reward.target_offset",
+        )
+        self.opposition_grip_scale_with_object = self._cfg_bool(
+            grip_cfg.get("scale_with_object", False), default=False
+        )
+        self.opposition_grip_near = float(grip_cfg.get("near", 0.08))
+        self.opposition_grip_far = float(grip_cfg.get("far", 0.13))
+        self.opposition_grip_opposite_cos_min = float(
+            grip_cfg.get("opposite_cos_min", 0.2)
+        )
+        self.opposition_grip_contact_force_min = float(
+            grip_cfg.get("contact_force_min", 0.5)
+        )
+        self.opposition_grip_contact_force_max = float(
+            grip_cfg.get("contact_force_max", 3.0)
+        )
+        self.opposition_grip_force_sign = float(grip_cfg.get("force_sign", -1.0))
+        self.opposition_grip_reward_scale = float(grip_cfg.get("reward_scale", 0.0))
+        if not self.opposition_grip_reward_enable:
+            return
+        for name, idx in (
+            ("thumb_fingertip_index", self.opposition_grip_thumb_index),
+            ("other_fingertip_index", self.opposition_grip_other_index),
+        ):
+            if not (0 <= idx < self.fingers_num):
+                raise ValueError(
+                    f"env.opposition_grip_reward.{name} is out of range "
+                    f"for {self.fingers_num} fingertips: {idx}"
+                )
+        if self.opposition_grip_target not in {"nut_pos", "object_pos"}:
+            raise ValueError(
+                "env.opposition_grip_reward.target must be 'nut_pos' or "
+                f"'object_pos'; got {self.opposition_grip_target}"
+            )
+        if self.opposition_grip_far <= self.opposition_grip_near:
+            raise ValueError(
+                "env.opposition_grip_reward.far must be greater than near; "
+                f"got near={self.opposition_grip_near}, far={self.opposition_grip_far}"
+            )
+        if self.opposition_grip_contact_force_max <= (
+            self.opposition_grip_contact_force_min
+        ):
+            raise ValueError(
+                "env.opposition_grip_reward.contact_force_max must be greater "
+                "than contact_force_min"
             )
 
     def _get_current_object_scale_tensor(self):
@@ -1620,6 +2321,829 @@ class XHandHora(VecTask):
         return torch.ones(
             self.num_envs, device=self.device, dtype=torch.float
         ) * float(self.base_obj_scale)
+
+    def _get_finger_contact_target_pos(self, nut_pos, nut_rot):
+        target_offset = torch.tensor(
+            self.finger_contact_target_offset,
+            device=self.device,
+            dtype=torch.float,
+        ).unsqueeze(0)
+        if self.finger_contact_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            target_offset = target_offset * scale_ratio.unsqueeze(-1)
+
+        if self.finger_contact_target == "nut_pos":
+            target_base = nut_pos
+            target_rot = nut_rot
+        elif self.finger_contact_target == "object_pos":
+            target_base = self.object_pos
+            target_rot = self.object_rot
+        else:
+            raise ValueError(
+                "Unsupported env.finger_object_contact.target: "
+                f"{self.finger_contact_target}"
+            )
+
+        if target_offset.shape[0] == 1:
+            target_offset = target_offset.expand(self.num_envs, -1)
+        return target_base + quat_apply(target_rot, target_offset)
+
+    def _get_finger_contact_threshold(self):
+        threshold = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.float
+        ) * float(self.reset_dist_threshold)
+        if self.finger_contact_threshold_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            threshold = threshold * scale_ratio
+        return threshold
+
+    def _compute_fingertip_tangent_reward(self, nut_pos):
+        fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+        fingertip_vel = self.ft_linvel_at_cf.reshape(
+            self.num_envs, self.fingers_num, 3
+        )
+        target_offset = torch.tensor(
+            self.fingertip_tangent_reward_target_offset,
+            device=self.device,
+            dtype=torch.float,
+        ).unsqueeze(0)
+        scale_ratio = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        if self.fingertip_tangent_reward_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            target_offset = target_offset * scale_ratio.unsqueeze(-1)
+
+        if self.fingertip_tangent_reward_target == "nut_pos":
+            target_base = nut_pos
+            target_rot = self.nut_states[:, 3:7]
+        elif self.fingertip_tangent_reward_target == "object_pos":
+            target_base = self.object_pos
+            target_rot = self.object_rot
+        else:
+            raise ValueError(
+                "Unsupported env.fingertip_tangent_reward.target: "
+                f"{self.fingertip_tangent_reward_target}"
+            )
+
+        if target_offset.shape[0] == 1:
+            target_offset = target_offset.expand(self.num_envs, -1)
+        target_pos = target_base + quat_apply(target_rot, target_offset)
+
+        near = (
+            torch.ones_like(scale_ratio) * self.fingertip_tangent_reward_near
+        )
+        far = torch.ones_like(scale_ratio) * self.fingertip_tangent_reward_far
+        if self.fingertip_tangent_reward_scale_with_object:
+            near = near * scale_ratio
+            far = far * scale_ratio
+        span = torch.clamp(far - near, min=1e-6)
+
+        tracked_pos = fingertip_pos[:, self.fingertip_tangent_reward_indices, :]
+        tracked_vel = fingertip_vel[:, self.fingertip_tangent_reward_indices, :]
+        radial = tracked_pos - target_pos.unsqueeze(1)
+        radius = torch.norm(radial, dim=-1)
+        tangent = torch.cross(
+            self.rot_axis_buf.unsqueeze(1).expand_as(radial), radial, dim=-1
+        )
+        tangent_norm = torch.clamp(torch.norm(tangent, dim=-1, keepdim=True), min=1e-6)
+        tangent_dir = tangent / tangent_norm
+        tangent_vel = (tracked_vel * tangent_dir).sum(dim=-1)
+        if self.fingertip_tangent_reward_positive_only:
+            positive_tangent_vel = torch.clamp(tangent_vel, min=0.0)
+        else:
+            positive_tangent_vel = tangent_vel
+
+        dist_weight = torch.clamp(
+            (far.unsqueeze(-1) - radius) / span.unsqueeze(-1),
+            min=0.0,
+            max=1.0,
+        )
+        contact_weight = torch.ones_like(dist_weight)
+        if self.fingertip_tangent_reward_use_contact_force:
+            fingertip_force = torch.norm(
+                self.contact_forces[:, self.fingertip_handles, :], dim=-1
+            )
+            tracked_force = fingertip_force[
+                :, self.fingertip_tangent_reward_indices
+            ]
+            force_span = max(
+                self.fingertip_tangent_reward_contact_force_max
+                - self.fingertip_tangent_reward_contact_force_min,
+                1e-6,
+            )
+            contact_weight = torch.clamp(
+                (
+                    tracked_force
+                    - self.fingertip_tangent_reward_contact_force_min
+                )
+                / force_span,
+                min=0.0,
+                max=1.0,
+            )
+
+        normalized_vel = torch.clamp(
+            positive_tangent_vel / self.fingertip_tangent_reward_velocity_clip,
+            min=0.0,
+            max=1.0,
+        )
+        reward_all = normalized_vel * dist_weight * contact_weight
+        if self.fingertip_tangent_reward_aggregation == "min":
+            reward = reward_all.min(dim=-1).values
+        else:
+            reward = reward_all.mean(dim=-1)
+        stats = {
+            "tangent_vel": tangent_vel,
+            "positive_tangent_vel": positive_tangent_vel,
+            "dist_weight": dist_weight,
+            "contact_weight": contact_weight,
+            "reward_all": reward_all,
+        }
+        return reward, stats
+
+    def _compute_fingertip_torque_reward(self, nut_pos):
+        fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+        target_offset = torch.tensor(
+            self.fingertip_torque_reward_target_offset,
+            device=self.device,
+            dtype=torch.float,
+        ).unsqueeze(0)
+        scale_ratio = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        if self.fingertip_torque_reward_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            target_offset = target_offset * scale_ratio.unsqueeze(-1)
+
+        if self.fingertip_torque_reward_target == "nut_pos":
+            target_base = nut_pos
+            target_rot = self.nut_states[:, 3:7]
+        elif self.fingertip_torque_reward_target == "object_pos":
+            target_base = self.object_pos
+            target_rot = self.object_rot
+        else:
+            raise ValueError(
+                "Unsupported env.fingertip_torque_reward.target: "
+                f"{self.fingertip_torque_reward_target}"
+            )
+
+        if target_offset.shape[0] == 1:
+            target_offset = target_offset.expand(self.num_envs, -1)
+        target_pos = target_base + quat_apply(target_rot, target_offset)
+
+        near = torch.ones_like(scale_ratio) * self.fingertip_torque_reward_near
+        far = torch.ones_like(scale_ratio) * self.fingertip_torque_reward_far
+        if self.fingertip_torque_reward_scale_with_object:
+            near = near * scale_ratio
+            far = far * scale_ratio
+        span = torch.clamp(far - near, min=1e-6)
+
+        tracked_pos = fingertip_pos[:, self.fingertip_torque_reward_indices, :]
+        radial = tracked_pos - target_pos.unsqueeze(1)
+        radius = torch.norm(radial, dim=-1)
+        tracked_force = self.contact_forces[
+            :, [self.fingertip_handles[i] for i in self.fingertip_torque_reward_indices], :
+        ]
+        force_on_object = tracked_force * self.fingertip_torque_reward_force_sign
+        torque_vec = torch.cross(radial, force_on_object, dim=-1)
+        signed_torque = (
+            torque_vec * self.rot_axis_buf.unsqueeze(1).expand_as(torque_vec)
+        ).sum(dim=-1)
+        if self.fingertip_torque_reward_positive_only:
+            positive_torque = torch.clamp(signed_torque, min=0.0)
+        else:
+            positive_torque = signed_torque
+        negative_torque = torch.clamp(-signed_torque, min=0.0)
+
+        dist_weight = torch.clamp(
+            (far.unsqueeze(-1) - radius) / span.unsqueeze(-1),
+            min=0.0,
+            max=1.0,
+        )
+        force_mag = torch.norm(tracked_force, dim=-1)
+        force_span = max(
+            self.fingertip_torque_reward_contact_force_max
+            - self.fingertip_torque_reward_contact_force_min,
+            1e-6,
+        )
+        contact_weight = torch.clamp(
+            (force_mag - self.fingertip_torque_reward_contact_force_min)
+            / force_span,
+            min=0.0,
+            max=1.0,
+        )
+        normalized_torque = torch.clamp(
+            positive_torque / self.fingertip_torque_reward_clip,
+            min=0.0,
+            max=1.0,
+        )
+        reward_all = normalized_torque * dist_weight * contact_weight
+        if self.fingertip_torque_reward_aggregation == "min":
+            reward = reward_all.min(dim=-1).values
+        else:
+            reward = reward_all.mean(dim=-1)
+        stats = {
+            "signed_torque": signed_torque,
+            "positive_torque": torch.clamp(signed_torque, min=0.0),
+            "negative_torque": negative_torque,
+            "abs_torque": torch.abs(signed_torque),
+            "dist_weight": dist_weight,
+            "contact_weight": contact_weight,
+            "reward_all": reward_all,
+        }
+        return reward, stats
+
+    def _compute_active_two_finger_contact_penalty(self, nut_dof_linvel):
+        fingertip_force = torch.norm(
+            self.contact_forces[:, self.fingertip_handles, :], dim=-1
+        )
+        force_span = max(
+            self.active_two_finger_contact_force_max
+            - self.active_two_finger_contact_force_min,
+            1e-6,
+        )
+        thumb_force = fingertip_force[:, self.active_two_finger_contact_thumb_index]
+        other_force = fingertip_force[:, self.active_two_finger_contact_other_index]
+        thumb_contact_w = torch.clamp(
+            (thumb_force - self.active_two_finger_contact_force_min) / force_span,
+            min=0.0,
+            max=1.0,
+        )
+        other_contact_w = torch.clamp(
+            (other_force - self.active_two_finger_contact_force_min) / force_span,
+            min=0.0,
+            max=1.0,
+        )
+        pair_contact_w = torch.minimum(thumb_contact_w, other_contact_w)
+        positive_velocity = torch.clamp(nut_dof_linvel, min=0.0)
+        active = (nut_dof_linvel > self.active_two_finger_contact_screw_vel).float()
+        penalty = (
+            self.active_two_finger_contact_penalty_scale
+            * active
+            * positive_velocity
+            * (1.0 - pair_contact_w)
+        )
+        stats = {
+            "penalty": penalty,
+            "active_frac": active,
+            "pair_contact_w": pair_contact_w,
+            "thumb_contact_w": thumb_contact_w,
+            "other_contact_w": other_contact_w,
+        }
+        return penalty, stats
+
+    def _compute_thumb_slip_penalty(self, thumb_dist, nut_dof_linvel, nut_pos):
+        fingertip_force = torch.norm(
+            self.contact_forces[:, self.fingertip_handles, :], dim=-1
+        )
+        fingertip_vel = self.ft_linvel_at_cf.reshape(
+            self.num_envs, self.fingers_num, 3
+        )
+        thumb_force = fingertip_force[:, self.thumb_slip_penalty_thumb_index]
+        thumb_tip_speed = torch.norm(
+            fingertip_vel[:, self.thumb_slip_penalty_thumb_index, :], dim=-1
+        )
+        force_span = max(
+            self.thumb_slip_penalty_contact_force_max
+            - self.thumb_slip_penalty_contact_force_min,
+            1e-6,
+        )
+        thumb_contact_w = torch.clamp(
+            (thumb_force - self.thumb_slip_penalty_contact_force_min) / force_span,
+            min=0.0,
+            max=1.0,
+        )
+
+        active = (nut_dof_linvel > self.thumb_slip_penalty_active_screw_vel).float()
+        velocity_weight = torch.clamp(
+            torch.clamp(nut_dof_linvel, min=0.0) / max(float(self.angvel_clip_max), 1e-6),
+            min=0.0,
+            max=1.0,
+        )
+        active_weight = active * velocity_weight
+        speed_weight = torch.clamp(
+            (
+                thumb_tip_speed - self.thumb_slip_penalty_high_tip_speed
+            )
+            / self.thumb_slip_penalty_high_tip_speed_span,
+            min=0.0,
+            max=1.0,
+        )
+
+        far_dist = torch.ones_like(thumb_dist) * self.thumb_slip_penalty_far_dist
+        if self.thumb_slip_penalty_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            far_dist = far_dist * scale_ratio
+
+        contact_loss = active_weight * (1.0 - thumb_contact_w)
+        far_loss = active_weight * torch.clamp(
+            (thumb_dist - far_dist) / torch.clamp(far_dist, min=1e-6),
+            min=0.0,
+            max=1.0,
+        )
+        detach_loss = torch.maximum(contact_loss, far_loss)
+        ejection_loss = detach_loss * speed_weight
+        after_drive_loss = self.prev_thumb_drive_w * detach_loss * speed_weight
+
+        terminal_ease_loss = torch.zeros_like(contact_loss)
+        if self.pose_diff_penalty_thumb_indices.numel() > 0:
+            thumb_indices = self.pose_diff_penalty_thumb_indices
+            lower = self.xhand_hand_dof_lower_limits.index_select(0, thumb_indices)
+            upper = self.xhand_hand_dof_upper_limits.index_select(0, thumb_indices)
+            thumb_pos = self.xhand_hand_dof_pos.index_select(-1, thumb_indices)
+            thumb_vel = self.xhand_hand_dof_vel.index_select(-1, thumb_indices)
+            thumb_span = torch.clamp(upper - lower, min=1e-6)
+            thumb_norm = torch.clamp((thumb_pos - lower) / thumb_span, 0.0, 1.0)
+            thumb_edge = torch.abs(thumb_norm - 0.5) * 2.0
+            edge_weight = torch.clamp(
+                (
+                    thumb_edge.max(dim=-1).values
+                    - self.thumb_slip_terminal_ease_near_limit
+                )
+                / self.thumb_slip_terminal_ease_limit_span,
+                min=0.0,
+                max=1.0,
+            )
+            thumb_joint_vel_abs = torch.abs(thumb_vel).mean(dim=-1)
+            joint_vel_weight = torch.clamp(
+                thumb_joint_vel_abs / self.thumb_slip_terminal_ease_vel_clip,
+                min=0.0,
+                max=1.0,
+            )
+            terminal_ease_loss = active_weight * edge_weight * joint_vel_weight
+
+        thumb_tangent_vel = torch.zeros_like(contact_loss)
+        return_phase_w = torch.zeros_like(contact_loss)
+        return_context_w = torch.zeros_like(contact_loss)
+        return_contact_loss = torch.zeros_like(contact_loss)
+        if self.thumb_slip_return_contact_penalty_scale != 0.0:
+            fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+            thumb_pos = fingertip_pos[:, self.thumb_slip_penalty_thumb_index, :]
+            thumb_vel_vec = fingertip_vel[:, self.thumb_slip_penalty_thumb_index, :]
+
+            target_offset = torch.tensor(
+                self.fingertip_torque_reward_target_offset,
+                device=self.device,
+                dtype=torch.float,
+            ).unsqueeze(0)
+            scale_ratio = torch.ones(
+                self.num_envs, device=self.device, dtype=torch.float
+            )
+            if self.fingertip_torque_reward_scale_with_object:
+                scale_ratio = self._get_current_object_scale_tensor() / max(
+                    float(self.base_obj_scale), 1e-6
+                )
+                target_offset = target_offset * scale_ratio.unsqueeze(-1)
+
+            if self.fingertip_torque_reward_target == "nut_pos":
+                target_base = nut_pos
+                target_rot = self.nut_states[:, 3:7]
+            elif self.fingertip_torque_reward_target == "object_pos":
+                target_base = self.object_pos
+                target_rot = self.object_rot
+            else:
+                target_base = nut_pos
+                target_rot = self.nut_states[:, 3:7]
+
+            if target_offset.shape[0] == 1:
+                target_offset = target_offset.expand(self.num_envs, -1)
+            target_pos = target_base + quat_apply(target_rot, target_offset)
+
+            radial = thumb_pos - target_pos
+            tangent = torch.cross(self.rot_axis_buf, radial, dim=-1)
+            tangent_norm = torch.clamp(
+                torch.norm(tangent, dim=-1, keepdim=True), min=1e-6
+            )
+            tangent_dir = tangent / tangent_norm
+            thumb_tangent_vel = (thumb_vel_vec * tangent_dir).sum(dim=-1)
+            return_phase_w = torch.clamp(
+                (
+                    (-thumb_tangent_vel)
+                    - self.thumb_slip_return_tangent_vel_threshold
+                )
+                / self.thumb_slip_return_tangent_vel_span,
+                min=0.0,
+                max=1.0,
+            )
+            return_context_w = torch.maximum(active, self.prev_thumb_drive_w)
+            return_contact_loss = return_context_w * return_phase_w * thumb_contact_w
+
+        current_thumb_drive_w = (active * thumb_contact_w).detach()
+        penalty = (
+            self.thumb_slip_contact_penalty_scale * contact_loss
+            + self.thumb_slip_far_penalty_scale * far_loss
+            + self.thumb_slip_ejection_penalty_scale * ejection_loss
+            + self.thumb_slip_after_drive_penalty_scale * after_drive_loss
+            + self.thumb_slip_terminal_ease_penalty_scale * terminal_ease_loss
+            + self.thumb_slip_return_contact_penalty_scale * return_contact_loss
+        )
+        stats = {
+            "contact_loss": contact_loss,
+            "far_loss": far_loss,
+            "ejection_loss": ejection_loss,
+            "after_drive_loss": after_drive_loss,
+            "terminal_ease_loss": terminal_ease_loss,
+            "return_contact_loss": return_contact_loss,
+            "return_phase_w": return_phase_w,
+            "return_context_w": return_context_w,
+            "thumb_tangent_vel": thumb_tangent_vel,
+            "thumb_contact_w": thumb_contact_w,
+            "thumb_dist": thumb_dist,
+            "thumb_tip_speed": thumb_tip_speed,
+            "active": active,
+            "velocity_weight": velocity_weight,
+            "speed_weight": speed_weight,
+            "prev_drive_w": self.prev_thumb_drive_w.clone(),
+            "current_drive_w": current_thumb_drive_w,
+        }
+        self.prev_thumb_drive_w[:] = current_thumb_drive_w
+        return penalty, stats
+
+    def _compute_opposition_grip_reward(self, nut_pos):
+        fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+        target_offset = torch.tensor(
+            self.opposition_grip_target_offset,
+            device=self.device,
+            dtype=torch.float,
+        ).unsqueeze(0)
+        scale_ratio = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        if self.opposition_grip_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            target_offset = target_offset * scale_ratio.unsqueeze(-1)
+
+        if self.opposition_grip_target == "nut_pos":
+            target_base = nut_pos
+            target_rot = self.nut_states[:, 3:7]
+        elif self.opposition_grip_target == "object_pos":
+            target_base = self.object_pos
+            target_rot = self.object_rot
+        else:
+            raise ValueError(
+                "Unsupported env.opposition_grip_reward.target: "
+                f"{self.opposition_grip_target}"
+            )
+
+        if target_offset.shape[0] == 1:
+            target_offset = target_offset.expand(self.num_envs, -1)
+        target_pos = target_base + quat_apply(target_rot, target_offset)
+
+        thumb_pos = fingertip_pos[:, self.opposition_grip_thumb_index, :]
+        other_pos = fingertip_pos[:, self.opposition_grip_other_index, :]
+        thumb_radial = thumb_pos - target_pos
+        other_radial = other_pos - target_pos
+        thumb_radius = torch.norm(thumb_radial, dim=-1)
+        other_radius = torch.norm(other_radial, dim=-1)
+        thumb_dir = thumb_radial / torch.clamp(thumb_radius.unsqueeze(-1), min=1e-6)
+        other_dir = other_radial / torch.clamp(other_radius.unsqueeze(-1), min=1e-6)
+
+        near = torch.ones_like(scale_ratio) * self.opposition_grip_near
+        far = torch.ones_like(scale_ratio) * self.opposition_grip_far
+        if self.opposition_grip_scale_with_object:
+            near = near * scale_ratio
+            far = far * scale_ratio
+        span = torch.clamp(far - near, min=1e-6)
+        thumb_dist_w = torch.clamp((far - thumb_radius) / span, min=0.0, max=1.0)
+        other_dist_w = torch.clamp((far - other_radius) / span, min=0.0, max=1.0)
+        pair_dist_w = torch.minimum(thumb_dist_w, other_dist_w)
+
+        radial_dot = (thumb_dir * other_dir).sum(dim=-1)
+        opposite_span = max(1.0 - self.opposition_grip_opposite_cos_min, 1e-6)
+        oppositeness = torch.clamp(
+            ((-radial_dot) - self.opposition_grip_opposite_cos_min)
+            / opposite_span,
+            min=0.0,
+            max=1.0,
+        )
+
+        thumb_force = self.contact_forces[
+            :, self.fingertip_handles[self.opposition_grip_thumb_index], :
+        ]
+        other_force = self.contact_forces[
+            :, self.fingertip_handles[self.opposition_grip_other_index], :
+        ]
+        thumb_force_on_object = thumb_force * self.opposition_grip_force_sign
+        other_force_on_object = other_force * self.opposition_grip_force_sign
+        thumb_inward_force = (thumb_force_on_object * (-thumb_dir)).sum(dim=-1)
+        other_inward_force = (other_force_on_object * (-other_dir)).sum(dim=-1)
+        force_span = max(
+            self.opposition_grip_contact_force_max
+            - self.opposition_grip_contact_force_min,
+            1e-6,
+        )
+        thumb_inward_w = torch.clamp(
+            (thumb_inward_force - self.opposition_grip_contact_force_min)
+            / force_span,
+            min=0.0,
+            max=1.0,
+        )
+        other_inward_w = torch.clamp(
+            (other_inward_force - self.opposition_grip_contact_force_min)
+            / force_span,
+            min=0.0,
+            max=1.0,
+        )
+        pair_inward_w = torch.minimum(thumb_inward_w, other_inward_w)
+        reward = oppositeness * pair_dist_w * pair_inward_w
+        stats = {
+            "reward": reward,
+            "oppositeness": oppositeness,
+            "radial_dot": radial_dot,
+            "pair_dist_w": pair_dist_w,
+            "pair_inward_w": pair_inward_w,
+            "thumb_inward_w": thumb_inward_w,
+            "other_inward_w": other_inward_w,
+            "thumb_inward_force": thumb_inward_force,
+            "other_inward_force": other_inward_force,
+        }
+        return reward, stats
+
+    def _compute_finger_diagnostics(self, nut_pos):
+        fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
+        fingertip_vel = self.ft_linvel_at_cf.reshape(
+            self.num_envs, self.fingers_num, 3
+        )
+        target_offset = torch.tensor(
+            self.fingertip_torque_reward_target_offset,
+            device=self.device,
+            dtype=torch.float,
+        ).unsqueeze(0)
+        scale_ratio = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        if self.fingertip_torque_reward_scale_with_object:
+            scale_ratio = self._get_current_object_scale_tensor() / max(
+                float(self.base_obj_scale), 1e-6
+            )
+            target_offset = target_offset * scale_ratio.unsqueeze(-1)
+
+        if self.fingertip_torque_reward_target == "nut_pos":
+            target_base = nut_pos
+            target_rot = self.nut_states[:, 3:7]
+        elif self.fingertip_torque_reward_target == "object_pos":
+            target_base = self.object_pos
+            target_rot = self.object_rot
+        else:
+            target_base = nut_pos
+            target_rot = self.nut_states[:, 3:7]
+
+        if target_offset.shape[0] == 1:
+            target_offset = target_offset.expand(self.num_envs, -1)
+        target_pos = target_base + quat_apply(target_rot, target_offset)
+
+        radial = fingertip_pos - target_pos.unsqueeze(1)
+        dist = torch.norm(radial, dim=-1)
+        radial_dir = radial / torch.clamp(dist.unsqueeze(-1), min=1e-6)
+        tangent = torch.cross(
+            self.rot_axis_buf.unsqueeze(1).expand_as(radial), radial, dim=-1
+        )
+        tangent_norm = torch.clamp(torch.norm(tangent, dim=-1, keepdim=True), min=1e-6)
+        tangent_dir = tangent / tangent_norm
+        tangent_vel = (fingertip_vel * tangent_dir).sum(dim=-1)
+        positive_tangent_vel = torch.clamp(tangent_vel, min=0.0)
+
+        fingertip_force = self.contact_forces[:, self.fingertip_handles, :]
+        force_mag = torch.norm(fingertip_force, dim=-1)
+        force_span = max(
+            self.fingertip_torque_reward_contact_force_max
+            - self.fingertip_torque_reward_contact_force_min,
+            1e-6,
+        )
+        force_weight = torch.clamp(
+            (force_mag - self.fingertip_torque_reward_contact_force_min)
+            / force_span,
+            min=0.0,
+            max=1.0,
+        )
+
+        force_on_object = fingertip_force * self.fingertip_torque_reward_force_sign
+        inward_normal_force = torch.clamp(
+            -(force_on_object * radial_dir).sum(dim=-1), min=0.0
+        )
+        tangent_force = (force_on_object * tangent_dir).sum(dim=-1)
+        positive_tangent_force = torch.clamp(tangent_force, min=0.0)
+        torque_vec = torch.cross(radial, force_on_object, dim=-1)
+        signed_torque = (
+            torque_vec * self.rot_axis_buf.unsqueeze(1).expand_as(torque_vec)
+        ).sum(dim=-1)
+        positive_torque = torch.clamp(signed_torque, min=0.0)
+
+        contribution_indices = [idx for idx in [0, 1, 3] if idx < self.fingers_num]
+        if contribution_indices:
+            torque_denominator = positive_torque[:, contribution_indices].sum(
+                dim=-1, keepdim=True
+            )
+        else:
+            torque_denominator = positive_torque.sum(dim=-1, keepdim=True)
+        torque_ratio = positive_torque / torch.clamp(torque_denominator, min=1e-6)
+
+        middle_joint_vel_abs = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        middle_joint0_sign_flip = torch.zeros_like(middle_joint_vel_abs)
+        if self.num_xhand_hand_dofs >= 8:
+            middle_vel = self.xhand_hand_dof_vel[:, 4:8]
+            middle_joint_vel_abs = torch.abs(middle_vel).mean(dim=-1)
+            current_middle_joint0_vel = self.xhand_hand_dof_vel[:, 4]
+            previous_middle_joint0_vel = self.dof_vel_prev[:, -1, 4]
+            vel_threshold = 1e-4
+            middle_joint0_sign_flip = (
+                (current_middle_joint0_vel * previous_middle_joint0_vel < 0.0)
+                & (torch.abs(current_middle_joint0_vel) > vel_threshold)
+                & (torch.abs(previous_middle_joint0_vel) > vel_threshold)
+            ).float()
+
+        index_middle_tip_dist = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        if self.fingers_num > 1:
+            index_middle_tip_dist = torch.norm(
+                fingertip_pos[:, 0, :] - fingertip_pos[:, 1, :], dim=-1
+            )
+
+        thumb_slip_stats = self._compute_thumb_slip_diagnostics(
+            dist=dist,
+            force_weight=force_weight,
+            fingertip_vel=fingertip_vel,
+            force_mag=force_mag,
+            inward_normal_force=inward_normal_force,
+            tangent_vel=tangent_vel,
+        )
+
+        return {
+            "signed_torque": signed_torque,
+            "positive_torque": positive_torque,
+            "torque_ratio": torque_ratio,
+            "positive_tangent_vel": positive_tangent_vel,
+            "force_mag": force_mag,
+            "inward_normal_force": inward_normal_force,
+            "tangent_force": tangent_force,
+            "positive_tangent_force": positive_tangent_force,
+            "force_weight": force_weight,
+            "dist": dist,
+            "middle_joint_vel_abs": middle_joint_vel_abs,
+            "middle_joint0_sign_flip": middle_joint0_sign_flip,
+            "index_middle_tip_dist": index_middle_tip_dist,
+            "thumb_slip": thumb_slip_stats,
+        }
+
+    def _compute_thumb_slip_diagnostics(
+        self,
+        dist,
+        force_weight,
+        fingertip_vel,
+        force_mag=None,
+        inward_normal_force=None,
+        tangent_vel=None,
+    ):
+        zero = torch.zeros((), device=self.device, dtype=torch.float)
+        thumb_idx = int(self.finger_contact_thumb_index)
+        if thumb_idx >= self.fingers_num:
+            return {
+                "contact_drop_frac": zero,
+                "far_frac": zero,
+                "active_detach_frac": zero,
+                "active_far_frac": zero,
+                "ejection_frac": zero,
+                "tip_speed_mean": zero,
+                "tip_speed_p95": zero,
+                "joint_vel_abs_mean": zero,
+                "joint_vel_abs_p95": zero,
+                "dist_p95": zero,
+                "contact_w_p05": zero,
+                "force_raw_mean": zero,
+                "force_raw_p05": zero,
+                "normal_force_mean": zero,
+                "normal_force_p05": zero,
+                "tangent_vel_abs_mean": zero,
+                "tangent_vel_abs_p95": zero,
+                "active_normal_drop_frac": zero,
+                "active_screw_frac": zero,
+                "score": zero,
+            }
+
+        thumb_contact_w = force_weight[:, thumb_idx]
+        thumb_dist = dist[:, thumb_idx]
+        thumb_tip_speed = torch.norm(fingertip_vel[:, thumb_idx, :], dim=-1)
+        if force_mag is None:
+            thumb_force_raw = torch.zeros_like(thumb_dist)
+        else:
+            thumb_force_raw = force_mag[:, thumb_idx]
+        if inward_normal_force is None:
+            thumb_normal_force = torch.zeros_like(thumb_dist)
+        else:
+            thumb_normal_force = inward_normal_force[:, thumb_idx]
+        if tangent_vel is None:
+            thumb_tangent_vel_abs = torch.zeros_like(thumb_dist)
+        else:
+            thumb_tangent_vel_abs = torch.abs(tangent_vel[:, thumb_idx])
+
+        thumb_joint_vel_abs = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.float
+        )
+        if self.num_xhand_hand_dofs >= 16:
+            thumb_joint_vel_abs = torch.abs(self.xhand_hand_dof_vel[:, 12:16]).mean(
+                dim=-1
+            )
+
+        contact_drop = thumb_contact_w < self.thumb_slip_contact_drop_w
+        far = thumb_dist > self.thumb_slip_far_dist
+        high_tip_speed = thumb_tip_speed > self.thumb_slip_high_tip_speed
+        active_screw = self.nut_dof_vel.view(-1) > self.thumb_slip_active_screw_vel
+        normal_drop = thumb_normal_force < self.fingertip_torque_reward_contact_force_min
+
+        active_count = torch.clamp(active_screw.float().sum(), min=1.0)
+        active_detach_frac = (contact_drop & active_screw).float().sum() / active_count
+        active_far_frac = (far & active_screw).float().sum() / active_count
+        active_normal_drop_frac = (
+            (normal_drop & active_screw).float().sum() / active_count
+        )
+        ejection_frac = (far & high_tip_speed).float().mean()
+        score = active_detach_frac + active_far_frac + ejection_frac
+
+        return {
+            "contact_drop_frac": contact_drop.float().mean(),
+            "far_frac": far.float().mean(),
+            "active_detach_frac": active_detach_frac,
+            "active_far_frac": active_far_frac,
+            "ejection_frac": ejection_frac,
+            "tip_speed_mean": thumb_tip_speed.mean(),
+            "tip_speed_p95": torch.quantile(thumb_tip_speed, 0.95),
+            "joint_vel_abs_mean": thumb_joint_vel_abs.mean(),
+            "joint_vel_abs_p95": torch.quantile(thumb_joint_vel_abs, 0.95),
+            "dist_p95": torch.quantile(thumb_dist, 0.95),
+            "contact_w_p05": torch.quantile(thumb_contact_w, 0.05),
+            "force_raw_mean": thumb_force_raw.mean(),
+            "force_raw_p05": torch.quantile(thumb_force_raw, 0.05),
+            "normal_force_mean": thumb_normal_force.mean(),
+            "normal_force_p05": torch.quantile(thumb_normal_force, 0.05),
+            "tangent_vel_abs_mean": thumb_tangent_vel_abs.mean(),
+            "tangent_vel_abs_p95": torch.quantile(thumb_tangent_vel_abs, 0.95),
+            "active_normal_drop_frac": active_normal_drop_frac,
+            "active_screw_frac": active_screw.float().mean(),
+            "score": score,
+        }
+
+    def _write_finger_diagnostic_extras(self, stats):
+        finger_names = {
+            0: "index",
+            1: "middle",
+            3: "thumb",
+        }
+        for idx, name in finger_names.items():
+            if idx >= self.fingers_num:
+                continue
+            self.extras[f"finger_torque/{name}/signed"] = stats[
+                "signed_torque"
+            ][:, idx].mean()
+            self.extras[f"finger_torque/{name}/positive"] = stats[
+                "positive_torque"
+            ][:, idx].mean()
+            self.extras[f"finger_torque/{name}/ratio_positive"] = stats[
+                "torque_ratio"
+            ][:, idx].mean()
+            self.extras[f"finger_tangent/{name}/positive_vel"] = stats[
+                "positive_tangent_vel"
+            ][:, idx].mean()
+            self.extras[f"finger_tangent/{name}/positive_force"] = stats[
+                "positive_tangent_force"
+            ][:, idx].mean()
+            self.extras[f"finger_contact/{name}/force_raw"] = stats[
+                "force_mag"
+            ][:, idx].mean()
+            self.extras[f"finger_contact/{name}/normal_force"] = stats[
+                "inward_normal_force"
+            ][:, idx].mean()
+            self.extras[f"finger_contact/{name}/force_w"] = stats[
+                "force_weight"
+            ][:, idx].mean()
+            self.extras[f"finger_dist/{name}"] = stats["dist"][:, idx].mean()
+
+        self.extras["finger_motion/middle_joint_vel_abs"] = stats[
+            "middle_joint_vel_abs"
+        ].mean()
+        self.extras["finger_motion/middle_joint0_sign_flip_rate"] = stats[
+            "middle_joint0_sign_flip"
+        ].mean()
+        self.extras["finger_motion/index_middle_tip_dist"] = stats[
+            "index_middle_tip_dist"
+        ].mean()
+
+        for name, value in stats.get("thumb_slip", {}).items():
+            self.extras[f"thumb_slip/{name}"] = value
 
     def _apply_two_finger_gate(self, rotate_reward_raw, nut_dof_linvel, nut_pos):
         fingertip_pos = self.rigid_body_states[:, self.fingertip_handles, :3]
@@ -1704,10 +3228,29 @@ class XHandHora(VecTask):
             thumb_weight = thumb_weight * thumb_force_w
             other_weight_all = other_weight_all * other_force_w_all
 
-        other_weight, other_best_idx = other_weight_all.max(dim=-1)
-        other_dist = other_dist_all.gather(
-            1, other_best_idx.unsqueeze(-1)
-        ).squeeze(-1)
+        other_weight_mean = other_weight_all.mean(dim=-1)
+        other_weight_min = other_weight_all.min(dim=-1).values
+        other_dist_mean = other_dist_all.mean(dim=-1)
+        other_dist_max = other_dist_all.max(dim=-1).values
+        if self.two_finger_gate_other_aggregation == "max":
+            other_weight, other_best_idx = other_weight_all.max(dim=-1)
+            other_dist = other_dist_all.gather(
+                1, other_best_idx.unsqueeze(-1)
+            ).squeeze(-1)
+        elif self.two_finger_gate_other_aggregation == "mean":
+            other_weight = other_weight_mean
+            other_dist = other_dist_mean
+        elif self.two_finger_gate_other_aggregation == "min":
+            other_weight = other_weight_min
+            other_dist = other_dist_max
+        elif self.two_finger_gate_other_aggregation == "mean_min":
+            mean_w = self.two_finger_gate_other_mean_weight
+            min_w = self.two_finger_gate_other_min_weight
+            weight_sum = max(mean_w + min_w, 1e-6)
+            other_weight = (
+                mean_w * other_weight_mean + min_w * other_weight_min
+            ) / weight_sum
+            other_dist = other_dist_mean
         gate = torch.clamp(thumb_weight * other_weight, min=0.0, max=1.0)
         gate = torch.pow(gate, self.two_finger_gate_power)
         gate_mult = self.two_finger_gate_min_mult + (
@@ -1731,8 +3274,12 @@ class XHandHora(VecTask):
             "gate": gate,
             "thumb_weight": thumb_weight,
             "other_weight": other_weight,
+            "other_mean_weight": other_weight_mean,
+            "other_min_weight": other_weight_min,
             "thumb_dist": thumb_dist,
             "other_dist": other_dist,
+            "other_mean_dist": other_dist_mean,
+            "other_max_dist": other_dist_max,
         }
         return rotate_reward, two_finger_extra, gate_stats
 
@@ -1746,6 +3293,12 @@ class XHandHora(VecTask):
         self.randomize_friction = rand_config["randomizeFriction"]
         self.randomize_friction_lower = rand_config["randomizeFrictionLower"]
         self.randomize_friction_upper = rand_config["randomizeFrictionUpper"]
+        self.randomize_restitution_lower = rand_config.get(
+            "randomizeRestitutionLower", 0.0
+        )
+        self.randomize_restitution_upper = rand_config.get(
+            "randomizeRestitutionUpper", 1.0
+        )
         self.randomize_screw_joint_friction = rand_config.get(
             "randomizeScrewJointFriction", False
         )

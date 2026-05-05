@@ -39,6 +39,467 @@ Start date: 2026-03-24.
 
 ---
 
+## v2-202 (2026-04-30) -- DOTPG 2h Distillation From Thumbstable PPO Teacher Completed
+
+### Target milestone/subgoal
+- Distill a DOTPG student for 2h from the sim2real two-finger thumbstable PPO teacher:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`
+
+### What changed (files + behavior impact)
+- Updated `scripts/dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh`.
+  - Converted the DOTPG defaults from smoke-test settings to real distillation settings:
+    - `train.dotpg.warmup_steps=5000`
+    - `train.dotpg.adapt_warmup_steps=1000`
+    - `train.dotpg.bc_coef=2.5`
+    - `train.dotpg.bc_pretrain_steps=2000`
+    - `train.dotpg.bc_pretrain_lr=0.0003`
+    - `train.dotpg.bc_batch_size=512`
+    - `train.dotpg.online_expert=True`
+  - Rationale: the first attempted run inherited `bc_pretrain_steps=0`, so it behaved like a near-random DOTPG policy and reached only `Current Best: 1.76` early.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `bash -n scripts/dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh`
+    - Outcome: pass.
+  - `git diff --check -- scripts/dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh dexscrew/dotpg/dotpg.py train.py dexscrew/algo/student/__init__.py dexscrew/dotpg/__init__.py`
+    - Outcome: pass.
+- Final 2h DOTPG command:
+  - Cache: `sim2real_twofinger_thumbstable_dotpg_bc_s42_2h`
+  - Output dir:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/sim2real_twofinger_thumbstable_dotpg_bc_s42_2h`
+  - Teacher checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`
+  - Result:
+    - `exit_status=124`, expected from the 7200s timeout.
+    - Adapt warmup completed: `loss: 0.0287`.
+    - Expert buffer collected: `80000` samples.
+    - BC pretrain completed: loss decreased from about `0.0751` to about `0.0382`.
+    - Final observed DOTPG `Current Best`: `1426.51`.
+    - No Traceback, CUDA OOM, FileNotFoundError, or segfault was observed in the final log scan.
+- Produced files:
+  - `student_output/dotpg_nn/model_best.ckpt`
+  - `student_output/dotpg_tb/events.out.tfevents...`
+  - `expert_buffer_student_raw.pt`
+  - `config_043004_21e8eff.yaml`
+  - `train_2h.log`
+- Cleanup:
+  - No residual process specific to `sim2real_twofinger_thumbstable_dotpg_bc_s42_2h` remained after timeout.
+  - A separate user/visualization process for `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive` was still active on GPU, so no additional DOTPG restore/test was launched to avoid interfering with the viewer.
+
+### Local conclusion
+- DOTPG is now runnable for the requested sim2real thumbstable teacher and produces a valid student checkpoint.
+- With BC/adapt warmup, DOTPG improved steadily from near zero to `1426.51`, but plateaued far below:
+  - PPO teacher: `6103.04`
+  - previous PAdapt student: around `4261` final observed best in the 3.5h local run.
+- Current DOTPG result should be treated as an algorithm-support/ablation checkpoint, not as the preferred sim2real deployment student.
+
+### Remaining blocked/risky
+- The DOTPG `model_best.ckpt` has not yet been visually restored because another GPU visualization process was active at completion.
+- DOTPG sample efficiency is currently much lower than PAdapt in this task.
+- If DOTPG is pursued further, the next tuning target is not environment reward; it is DOTPG-specific stability:
+  - longer/stronger BC or TD3+BC regularization,
+  - larger expert buffer,
+  - `state_mode=teacher` diagnostic run to separate student adapter difficulty from DOTPG policy learning difficulty.
+
+### Single recommended next step
+- After the current visualization process exits, run the DOTPG visualizer on:
+  `outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/sim2real_twofinger_thumbstable_dotpg_bc_s42_2h/student_output/dotpg_nn/model_best.ckpt`
+  and compare behavior against the PAdapt student before spending more time on DOTPG tuning.
+
+---
+
+## v2-202 (2026-04-30) -- Sim2Real TwoFinger CoDrive YAML Smoke-Validated
+
+### Target milestone/subgoal
+- Pause the current YAML direction and create a new config based on the stable `Dexh13HoraLightbulbSim2RealTwoFinger` task that encourages true index+thumb cooperative rotation instead of index-only normal bracing plus thumb-only drive.
+
+### What changed (files + behavior impact)
+- Added task config:
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+- Added matching train config:
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+- The new task preserves the stable Sim2Real two-finger setup, including index+thumb action mask, bulb scale randomization around `1.15-1.25`, termination, and thumb slip guard.
+- Co-drive changes:
+  - `rotate_reward_scale: 3.0`, reduced from `4.5` so pure object rotation is less dominant.
+  - `fingertip_tangent_reward_scale: 1.0`, increased from `0.6`.
+  - `fingertip_torque_reward_scale: 2.0`, increased from `0.3`.
+  - `fingertip_torque_reward.torque_clip: 4.0`, down from `8.0`, so early positive index+thumb torque is rewarded sooner.
+  - two-finger contact force thresholds raised to `1.2-3.5`.
+  - `active_two_finger_contact.penalty_scale: -2.5`, stronger penalty when active rotation occurs without both active contacts.
+  - `opposition_grip_reward.reward_scale: 0.7`, modestly stronger stable opposed grip support.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Current visualizer session was stopped cleanly before changes.
+- Static check:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+  - Outcome: pass.
+- Local IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive headless=True seed=42 sim_device=cuda:0 rl_device=cuda:0 graphics_device_id=0 train.algo=PPO wandb_activate=False task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=96 train.ppo.output_name=Dexh13HoraLightbulb_teacher/smoke_codrive_tmp task.env.termination.log=True`
+  - Outcome: Hydra resolved the new task/train config, the environment built with 4 envs, PPO entered the loop, and exited via `max steps achieved`.
+
+### Local conclusion
+- The new CoDrive YAML is technically runnable.
+- The design intentionally uses reward shaping rather than hard trajectory forcing:
+  - strict simultaneous turn-and-release may be physically over-constrained for an ellipsoid bulb;
+  - min-aggregated positive torque over index+thumb directly targets the current failure mode where index only presses normally.
+
+### Remaining blocked/risky
+- The smoke validates startup only, not behavior.
+- Stronger co-drive reward may reduce scalar reward or make learning slower if the policy cannot discover coordinated torque early.
+- If this still learns index bracing, the next step should be a code-level coactive torque gate/penalty that explicitly multiplies positive rotate reward by min positive index+thumb torque.
+
+### Single recommended next step
+- Run a 20-30 minute PPO probe with `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`, then visualize whether index fingertip produces visible tangential drive instead of only normal support.
+
+---
+
+## v2-203 (2026-04-30) -- Cloud Sim2Real TwoFinger CoDrive PPO 2h Launched
+
+### Target milestone/subgoal
+- Sync the new CoDrive YAML to the GPU cloud machine and launch a 2h PPO teacher run.
+
+### What changed (files + behavior impact)
+- Added cloud launch script:
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_ppo2h/run_ppo_2h_aggressive.sh`
+- Synced local repo inputs to:
+  - `cloud-training:/root/code/dexscrew-repro/`
+- Synced the pipeline script separately under:
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_ppo2h/`
+- Remote run task:
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+- Remote output:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/sim2real_twofinger_codrive_s42_2h/`
+
+### What was verified (commands + key outcomes)
+- Local checks:
+  - `bash -n outputs/cloud_pipeline_sim2real_twofinger_codrive_ppo2h/run_ppo_2h_aggressive.sh`
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml outputs/cloud_pipeline_sim2real_twofinger_codrive_ppo2h/run_ppo_2h_aggressive.sh`
+  - Outcome: pass.
+- Remote preflight:
+  - SSH target: `cloud-training` (`root@180.184.47.96:22222`).
+  - `tmux` exists.
+  - GPU visible: `NVIDIA GeForce RTX 4090 D`, `24564 MiB`.
+  - No matching `train.py` process was running before launch.
+- Remote launch:
+  - tmux session:
+    - `sim2real_twofinger_codrive_ppo2h`
+  - command uses:
+    - `timeout 7200`
+    - `task.env.numEnvs=12288`
+    - `train.ppo.minibatch_size=24576`
+    - `num_threads=22`
+    - `task.env.termination.log=True`
+  - pipeline log:
+    - `outputs/cloud_pipeline_sim2real_twofinger_codrive_ppo2h/latest.log`
+- Startup checks:
+  - Hydra resolved `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`.
+  - Logged key reward settings:
+    - `rotate_reward_scale: 3.0`
+    - `fingertip_tangent_reward_scale: 1.0`
+    - `fingertip_torque_reward_scale: 2.0`
+    - `fingertip_torque_reward.torque_clip: 4.0`
+  - Environment generated scale caches for `1.175` and `1.225`.
+  - GPU after allocation: about `14329 MiB / 24564 MiB`.
+  - Checkpoints started updating:
+    - `best_reward_58.56.pth`
+    - then `best_reward_73.33.pth`
+
+### Local conclusion
+- The requested 2h cloud PPO run is active and using the intended CoDrive YAML.
+- The aggressive `12288/24576` resource setting allocated successfully on the 24GB cloud GPU.
+- The log is noisy because `train.py` prints the dirty git diff at startup; use anchored runtime greps or checkpoint timestamps rather than plain `grep Agent Steps`.
+
+### Remaining blocked/risky
+- The 2h run has not yet completed.
+- Behavior quality is unknown until the final/best checkpoint is synced and visualized.
+- CoDrive rewards may initially learn slower than the previous stable two-finger YAML because thumb-only rotation is less rewarded.
+
+### Single recommended next step
+- After the expected timeout around `2026-04-30 14:06 CST`, verify `ppo_exit_status=124`, sync:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/sim2real_twofinger_codrive_s42_2h/`
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_ppo2h/`
+  then visualize the best PPO checkpoint.
+
+---
+
+## v2-204 (2026-04-30) -- Cloud CoDrive PPO 2h Completed, Synced, Viewer Opened
+
+### Target milestone/subgoal
+- Confirm the cloud `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive` 2h PPO run finished, sync artifacts locally, and open local headed visualization.
+
+### What changed (files + behavior impact)
+- Synced cloud output to local:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/sim2real_twofinger_codrive_s42_2h/`
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_ppo2h/`
+- No source/config behavior change in this step.
+
+### What was verified (commands + key outcomes)
+- Remote completion:
+  - `phase.txt`: `done`
+  - `ppo_exit_status`: `124`
+  - pipeline ended at `2026-04-30T06:06:33+00:00`.
+- Final checkpoints synced locally:
+  - `stage1_nn/best_reward_4159.37.pth`
+  - `stage1_nn/ep_1000_step_0147m_reward_4059.04.pth`
+  - `stage1_nn/ep_500_step_0073m_reward_3729.03.pth`
+  - `stage1_nn/last.pth`
+- Final observed training status:
+  - around `195M` agent steps before timeout.
+  - best reward `4159.37`.
+- Local viewer launched with:
+  - `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+  - `checkpoint=outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/sim2real_twofinger_codrive_s42_2h/stage1_nn/best_reward_4159.37.pth`
+  - `headless=False`
+  - `task.env.numEnvs=1`
+  - action/obs noise and random force disabled.
+
+### Local conclusion
+- The requested 2h cloud PPO completed normally and artifacts are local.
+- The local viewer is running against the correct CoDrive best checkpoint.
+
+### Remaining blocked/risky
+- User visual inspection is still needed to decide whether the index fingertip visibly participates in tangential rotation rather than mostly bracing.
+- A separate local DOTPG student training process was already running and left untouched; the viewer still launched with enough GPU memory headroom.
+
+### Single recommended next step
+- Inspect the current local viewer. If the index still only braces, add a harder code-level coactive torque gate/penalty instead of only increasing YAML reward weights.
+
+---
+
+## v2-205 (2026-04-30) -- Cloud CoDrive PAdapt Distillation 2h Launched
+
+### Target milestone/subgoal
+- Distill the visually acceptable 2h CoDrive PPO teacher using `ProprioAdapt` / PAdapt.
+
+### What changed (files + behavior impact)
+- Added cloud PAdapt launch script:
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_padapt2h/run_padapt_2h.sh`
+- Added remote stop watcher after user requested a quick 30min validation:
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_padapt2h/stop_at_30m.sh`
+  - It stops the active tmux run at `30min` from launch and preserves `stage2_nn/model_best_30m.ckpt`.
+- The script uses the CoDrive task directly rather than the older non-CoDrive student script default:
+  - `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+- Teacher checkpoint:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/sim2real_twofinger_codrive_s42_2h/stage1_nn/best_reward_4159.37.pth`
+- Student output:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger_codrive/sim2real_twofinger_codrive_padapt_s42_2h/`
+
+### What was verified (commands + key outcomes)
+- Local script checks:
+  - `bash -n outputs/cloud_pipeline_sim2real_twofinger_codrive_padapt2h/run_padapt_2h.sh`
+  - `git diff --check -- outputs/cloud_pipeline_sim2real_twofinger_codrive_padapt2h/run_padapt_2h.sh`
+  - Outcome: pass.
+- Cloud preflight:
+  - GPU visible and idle before launch:
+    - `NVIDIA GeForce RTX 4090 D`, `24564 MiB`, `0%` utilization.
+  - CoDrive teacher checkpoint exists on cloud.
+  - CoDrive task/train configs exist on cloud.
+- Remote tmux launch:
+  - session: `sim2real_twofinger_codrive_padapt2h`
+  - timeout: `7200` seconds.
+  - resource: `task.env.numEnvs=48`, `train.ppo.minibatch_size=576`.
+- Startup log verified:
+  - `train.algo=ProprioAdapt`
+  - `train.ppo.proprio_adapt=True`
+  - actual task resolved as `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+  - actual checkpoint resolved to `best_reward_4159.37.pth`
+  - CoDrive reward settings are present in the runtime config.
+- Initial training status:
+  - `phase.txt`: `padapt`
+  - `model_best.ckpt` has already been created under `stage2_nn/`.
+  - Current best in early logs reached about `3033.24`.
+  - GPU use around `2703 MiB / 24564 MiB`.
+- 30min watcher status:
+  - scheduled at `2026-04-30T06:49:16+00:00`
+  - deadline: `2026-04-30T07:12:44+00:00` (`2026-04-30 15:12:44 CST`)
+  - initial `sleep_sec=1408`.
+
+### Local conclusion
+- The requested CoDrive PAdapt distillation is running correctly on cloud and is now scheduled to stop at the 30min quick-validation point.
+- Based on the previous 3.5h PAdapt run, rough line-fraction estimates were:
+  - about `3986` by 30m,
+  - about `4062` by 60m,
+  - about `4138` by 90m,
+  - about `4186` by 120m,
+  - about `4261` by 210m.
+- Practical recommendation: `1h` is enough for a quick probe, `1.5h` is a good cost/performance point, and `2h` is the better default when the teacher behavior is worth preserving. This launch uses `2h`.
+
+### Remaining blocked/risky
+- The PAdapt run has not reached the 30min stop point yet.
+- Student visual behavior may still underperform the PPO teacher even if scalar reward is good; visual inspection is required after sync.
+
+### Single recommended next step
+- After the scheduled stop around `2026-04-30 15:12:44 CST`, verify `phase.txt=stopped_30m`, sync:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger_codrive/sim2real_twofinger_codrive_padapt_s42_2h/`
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_padapt2h/`
+  then visualize `stage2_nn/model_best_30m.ckpt` or latest `model_best.ckpt`.
+
+---
+
+## v2-206 (2026-04-30) -- CoDrive PAdapt 30m Synced and Viewer Opened
+
+### Target milestone/subgoal
+- Use the 30min quick-validation PAdapt snapshot for the CoDrive student and open local visualization.
+
+### What changed (files + behavior impact)
+- Synced cloud student output locally:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger_codrive/sim2real_twofinger_codrive_padapt_s42_2h/`
+- Synced cloud pipeline logs locally:
+  - `outputs/cloud_pipeline_sim2real_twofinger_codrive_padapt2h/`
+- No source/config behavior change.
+
+### What was verified (commands + key outcomes)
+- Remote 30min stop completed:
+  - `phase.txt`: `stopped_30m`
+  - `manual_stop_reason`: `manual_stop_30m`
+  - `padapt_exit_status`: `120` from manual interrupt/timeout wrapper behavior after watcher stop.
+  - stop log preserved:
+    - `stage2_nn/model_best_30m.ckpt`
+- Final remote PAdapt reward from stdout:
+  - `Current Best: 3448.38`
+- Synced local checkpoints:
+  - `stage2_nn/model_best.ckpt`
+  - `stage2_nn/model_best_30m.ckpt`
+- Local viewer launched with:
+  - `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+  - `train.algo=ProprioAdapt`
+  - `train.ppo.proprio_adapt=True`
+  - `checkpoint=outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger_codrive/sim2real_twofinger_codrive_padapt_s42_2h/stage2_nn/model_best_30m.ckpt`
+  - `headless=False`
+  - `task.env.numEnvs=1`
+  - obs/action noise and random force disabled.
+- Viewer process restored the checkpoint and entered rollout, printing `Step 1...`.
+
+### Local conclusion
+- The 30min CoDrive PAdapt snapshot is local and currently being visualized.
+- This is a quick-validation student; its scalar reward is below the PPO teacher (`3448.38` vs teacher `4159.37`), but it may still preserve the visually important co-drive behavior.
+
+### Remaining blocked/risky
+- User visual inspection is required to decide whether 30min PAdapt is good enough or should continue to 1h/2h.
+- Manual-stop exit status is nonzero by design; artifact preservation was successful.
+
+### Single recommended next step
+- Inspect the current local student viewer. If behavior is acceptable, keep `model_best_30m.ckpt` as the quick student candidate; otherwise resume/launch a longer 1h or 2h PAdapt run from the same CoDrive teacher.
+
+---
+
+## v2-207 (2026-04-30) -- CoDrive Sim2Real Bundle Created
+
+### Target milestone/subgoal
+- Package the selected CoDrive PPO teacher and 30min PAdapt student artifacts into a compact `sim2real/codrive/` folder.
+
+### What changed (files + behavior impact)
+- Created/updated bundle directory:
+  - `sim2real/codrive/`
+- Bundle contents:
+  - `sim2real/codrive/model_best_30m.ckpt`
+  - `sim2real/codrive/best_reward_4159.37.pth`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+- No training/source behavior changed.
+
+### What was verified (commands + key outcomes)
+- Re-synced remote student and teacher checkpoint outputs from `cloud-training`.
+- Verified bundle sizes:
+  - student ckpt: `1301474 bytes`
+  - teacher pth: `1179649 bytes`
+  - task YAML: `9828 bytes`
+  - train YAML: `856 bytes`
+- Verified SHA1 equality with source artifacts:
+  - `model_best_30m.ckpt`: `843bc3868a45fce5e8e9bcc4823fe90b67d0d8c5`
+  - `best_reward_4159.37.pth`: `7d028b3db549c9422f268cfd391a968976988b6a`
+- Verified bundled YAMLs match current repo configs via `diff -q`.
+
+### Local conclusion
+- `sim2real/codrive/` now contains the minimal CoDrive sim2real handoff bundle requested by the user.
+
+### Remaining blocked/risky
+- The bundle intentionally does not include TensorBoard logs or full output directories.
+- If future export/JIT uses a different expected filename, update the export command to point to `sim2real/codrive/model_best_30m.ckpt`.
+
+### Single recommended next step
+- Use the bundled student checkpoint for export/real-world inference validation, keeping the PPO teacher `.pth` only as provenance and fallback visualization reference.
+
+---
+
+## v2-204 (2026-04-30) -- SeeTaCloud 4090 Remote Environment Prepared
+
+### Target milestone/subgoal
+- Set up the newly opened SeeTaCloud SSH target so it can train the current DexScrew/IsaacGym project like the previous cloud machine.
+
+### What changed (files + behavior impact)
+- Synced the current local project to:
+  - `root@connect.bjb2.seetacloud.com:22411:/root/code/dexscrew-repro/`
+- Synced IsaacGym Preview4 to:
+  - `/root/Codefield/third_party/isaacgym_preview4/`
+- Reused existing remote conda env:
+  - `/root/miniconda3/envs/dexscrew`
+- Installed/confirmed Python dependencies from:
+  - `requirements.txt`
+- Installed IsaacGym into the `dexscrew` conda env:
+  - `pip install -e /root/Codefield/third_party/isaacgym_preview4/isaacgym/python`
+- Configured Git safe directory to avoid root/dubious-ownership failures after rsync:
+  - `git config --global --add safe.directory /root/code/dexscrew-repro`
+- Installed remote `tmux` through apt for long-running jobs.
+- Added activation helper:
+  - `outputs/cloud_setup_seetacloud/activate_dexscrew_ig.sh`
+
+### What was verified (commands + key outcomes)
+- Remote preflight:
+  - SSH target works:
+    - `ssh -p 22411 root@connect.bjb2.seetacloud.com`
+  - Host:
+    - `autodl-container-fvufu5jw9a-733711b2`
+  - GPU:
+    - `NVIDIA GeForce RTX 4090`, `24564 MiB`
+  - Memory:
+    - about `1.0 TiB`
+  - Disk:
+    - about `20 GiB` free after sync/install.
+- Conda/Python:
+  - env: `dexscrew`
+  - Python: `3.8.20`
+  - Torch: `2.4.1+cu121`
+  - `torch.cuda.is_available() == True`
+  - NumPy: `1.22.4`
+- IsaacGym:
+  - import path:
+    - `/root/Codefield/third_party/isaacgym_preview4/isaacgym/python/isaacgym/__init__.py`
+  - binding loaded:
+    - `gym_38.so`
+- Project:
+  - remote git HEAD: `21e8eff`
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml` exists.
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml` exists.
+- Training smoke:
+  - command used `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`, `task.env.numEnvs=4`, `train.ppo.minibatch_size=12`, `train.ppo.max_agent_steps=24`.
+  - outcome:
+    - IsaacGym torch extension compiled/loaded;
+    - CUDA PhysX environment built;
+    - generated initial pose caches for scales `1.175` and `1.225`;
+    - PPO reached `max steps achieved`.
+- Long-run tooling:
+  - `tmux 3.0a` installed and available.
+
+### Local conclusion
+- The new SeeTaCloud 4090 machine is ready for DexScrew IsaacGym training.
+- Use:
+  - `source /root/code/dexscrew-repro/outputs/cloud_setup_seetacloud/activate_dexscrew_ig.sh`
+  before launching training commands on that machine.
+
+### Remaining blocked/risky
+- No long training job has been launched on the new SeeTaCloud target yet.
+- Free root disk is only about `20 GiB`; avoid syncing large local `outputs/` or TensorBoard event archives unless needed.
+- The smoke validates technical readiness, not policy behavior.
+
+### Single recommended next step
+- Launch the next requested PPO/student run on this new target from `/root/code/dexscrew-repro` using the activation helper and `tmux`, with explicit wall-clock `timeout` for reproducibility.
+
+---
+
 ## v2-002 (2026-03-24) — Handoff File Split And Bootstrap Alignment
 
 ### Target milestone/subgoal
@@ -7160,3 +7621,7111 @@ Start date: 2026-03-24.
 
 ### Single recommended next step
 - Preserve the v2-114 experimental next step: run one bounded 5-minute headless PPO teacher comparison on the migrated active `Dexh13HoraLightbulb` task with wandb enabled, then compare its reward/time curve against the old reward-relaxed DexH13 teacher baseline.
+
+---
+
+## v2-116 (2026-04-24) — DexH13 Lightbulb Middle-Finger Gate Probe Config
+
+### Target milestone/subgoal
+- Create a small, reversible probe to test whether the DexH13 middle finger can learn to participate in lightbulb contact before changing geometry or adding a full three-finger gate.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleProbe.yaml`
+  - Added a task variant cloned from `Dexh13HoraLightbulb`.
+  - Keeps runtime `task.name: Dexh13HoraLightbulb` so it uses the existing `Dexh13Hora` class.
+  - Changes only the diagnostic gate intent:
+    - `eval_cache_name: middle_probe`
+    - `env.two_finger_gate.other_fingertip_indices: [1]`
+  - Behavior impact: the gate now rewards/penalizes thumb + middle-finger participation instead of thumb + best-of(index, middle).
+- `configs/train/Dexh13HoraLightbulbMiddleProbe.yaml`
+  - Added train config cloned from `Dexh13HoraLightbulb` so `task=Dexh13HoraLightbulbMiddleProbe` resolves through Hydra without extra `train=` overrides.
+- `scripts/dexh13_lightbulb_teacher_middle_probe.sh`
+  - Added teacher launcher for the middle-finger gate probe.
+- `scripts/vis_dexh13_lightbulb_teacher_middle_probe.sh`
+  - Added viewer launcher for middle-probe PPO checkpoints.
+
+### What was verified (commands + key outcomes)
+- Static script checks:
+  - `bash -n scripts/dexh13_lightbulb_teacher_middle_probe.sh`
+  - `bash -n scripts/vis_dexh13_lightbulb_teacher_middle_probe.sh`
+  - Outcome: pass.
+- Config diff check:
+  - `diff -u configs/task/Dexh13HoraLightbulb.yaml configs/task/Dexh13HoraLightbulbMiddleProbe.yaml | sed -n '1,80p'`
+  - Outcome: confirmed the task variant differs only in `eval_cache_name` and `two_finger_gate.other_fingertip_indices`.
+- Train config equivalence check:
+  - `diff -u configs/train/Dexh13HoraLightbulb.yaml configs/train/Dexh13HoraLightbulbMiddleProbe.yaml || true`
+  - Outcome: no diff; train hyperparameters match the active DexH13 lightbulb baseline.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbMiddleProbe.yaml configs/train/Dexh13HoraLightbulbMiddleProbe.yaml scripts/dexh13_lightbulb_teacher_middle_probe.sh scripts/vis_dexh13_lightbulb_teacher_middle_probe.sh docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- No IsaacGym training or smoke run was executed in this session; the next run should validate Hydra/runtime behavior.
+- This is not a final three-finger grasp reward. It only tests whether thumb + middle can become a viable contact pair.
+- If the middle finger still does not approach/contact the lightbulb, the next likely bottleneck is hand/object geometry or initial pose, not just the gate.
+
+### Single recommended next step
+- Run a bounded PPO teacher probe on `Dexh13HoraLightbulbMiddleProbe`, then visualize the best checkpoint and compare whether the middle finger shows contact tendency relative to the current `dexh13_lightbulb_ppo` baseline.
+
+---
+
+## v2-117 (2026-04-24) — Middle-Probe Visual Diagnosis
+
+### Target milestone/subgoal
+- Interpret the unexpectedly strong `Dexh13HoraLightbulbMiddleProbe` reward and user-observed viewer behavior before changing to a full three-finger gate.
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - Added this diagnostic note.
+  - Behavior impact: no runtime behavior changed.
+
+### What was verified (commands + key outcomes)
+- Live middle-probe training status:
+  - `find outputs/Dexh13HoraLightbulb_teacher_middle_probe/middle_probe_s42/stage1_nn ...`
+  - Outcome: best checkpoint advanced from early negative reward to `best_reward_3107.56.pth`.
+- TensorBoard event parse:
+  - Parsed `outputs/Dexh13HoraLightbulb_teacher_middle_probe/middle_probe_s42/stage1_tb/events.out.tfevents.*` inside the IsaacGym Docker image.
+  - Outcome:
+    - `episode_rewards/step max ~= 3065.77` in one snapshot, then checkpoint advanced to `3107.56`.
+    - `episode_lengths/step` increased to roughly `779`, so the run is no longer dying immediately after `grace_steps=150`.
+    - `two_finger/other_contact_w` remains near `1.0`, but viewer inspection reports the visible middle finger still has little/no contact.
+- Reward/code inspection:
+  - `configs/task/Dexh13HoraLightbulbMiddleProbe.yaml`
+  - `dexscrew/tasks/xhand_hora.py`
+  - Outcome: middle-probe changed only `two_finger_gate.other_fingertip_indices` to `[1]`; `proximity_reward` and `finger_dist` termination still use thumb + index.
+- Lightbulb asset inspection:
+  - `assets/screw/lightbulb/0000_lightbulb.urdf`
+  - mesh bounding-box script over:
+    - `assets/lightbulb/lightbulb_head.stl`
+    - `assets/lightbulb/lightbulb_socket.stl`
+    - `assets/lightbulb/contact0.stl`
+    - `assets/lightbulb/contact1.stl`
+  - Outcome:
+    - visual uses `lightbulb_head.stl` + `lightbulb_socket.stl`;
+    - collision uses simplified `contact0.stl` + `contact1.stl`;
+    - head collision and visual are broadly aligned but not identical, and collision meshes are very low-poly approximations.
+
+### Remaining blocked/risky
+- The high middle-probe reward does not yet prove true visible middle-finger participation.
+- Existing reward/termination still contains thumb+index assumptions, so the policy can retain thumb+index rotation while satisfying or exploiting the modified gate indirectly.
+- Visual/collision mismatch can make contact appear offset in the viewer; tactile/contact metrics may refer to the collision mesh, not the visible bulb surface.
+
+### Single recommended next step
+- Before implementing a full three-finger gate, add explicit per-finger diagnostics for index/middle/thumb distance and contact force, then run/visualize a short probe to confirm whether the middle finger is actually contacting the collision geometry or whether the current reward is still dominated by thumb+index behavior.
+
+---
+
+## v2-118 (2026-04-24) — Middle-Finger Proximity/Finger-Dist ContactViz Probe
+
+### Target milestone/subgoal
+- Make the DexH13 lightbulb middle-finger probe internally consistent before the next short training run:
+  - gate uses thumb + middle,
+  - proximity reward uses thumb + middle,
+  - finger-distance termination uses thumb + middle,
+  - viewer shows the same geometry used for collision.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Added `env.finger_object_contact` config parsing with backward-compatible defaults:
+    - default thumb index: last fingertip,
+    - default other fingertip: index finger (`[0]`).
+  - Rewired `proximity_reward` distance calculation to use configured thumb + configured other fingertip(s) instead of hardcoded thumb + index.
+  - Rewired `finger_dist` termination to use the same configured fingertip set instead of hardcoded thumb + index.
+  - Behavior impact: existing tasks without `finger_object_contact` keep old thumb+index behavior; the new probe can explicitly test thumb+middle.
+- `assets/screw/contactviz/0000_lightbulb.urdf`
+  - Added a debug lightbulb asset where visual geometry is exactly the same STL geometry as collision geometry (`contact0.stl`, `contact1.stl`).
+  - Behavior impact: physics collision remains the same low-poly contact mesh as the active lightbulb asset, but viewer contact inspection no longer uses the mismatched high-detail visual head/socket meshes.
+- `configs/task/Dexh13HoraLightbulbMiddleContactViz.yaml`
+  - Added task variant cloned from the lightbulb middle probe.
+  - Sets `env.object.type: screw_contactviz`.
+  - Sets `env.finger_object_contact.thumb_fingertip_index: 3`.
+  - Sets `env.finger_object_contact.other_fingertip_indices: [1]`.
+  - Keeps `env.two_finger_gate.other_fingertip_indices: [1]`.
+- `configs/train/Dexh13HoraLightbulbMiddleContactViz.yaml`
+  - Added matching train config so `task=Dexh13HoraLightbulbMiddleContactViz` resolves directly.
+- `scripts/dexh13_lightbulb_teacher_middle_contactviz.sh`
+  - Added teacher launcher for the contact-visualized, thumb+middle-consistent probe.
+- `scripts/vis_dexh13_lightbulb_teacher_middle_contactviz.sh`
+  - Added viewer launcher for the contactviz probe checkpoints.
+
+### What was verified (commands + key outcomes)
+- Code syntax:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - Outcome: `syntax_ok`.
+- Script syntax:
+  - `bash -n scripts/dexh13_lightbulb_teacher_middle_contactviz.sh`
+  - `bash -n scripts/vis_dexh13_lightbulb_teacher_middle_contactviz.sh`
+  - Outcome: `scripts_ok`.
+- URDF XML parse:
+  - `python - <<'PY' ... ET.parse('assets/screw/contactviz/0000_lightbulb.urdf') ... PY`
+  - Outcome: `xml_ok`.
+- Patch hygiene:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbMiddleContactViz.yaml configs/train/Dexh13HoraLightbulbMiddleContactViz.yaml scripts/dexh13_lightbulb_teacher_middle_contactviz.sh scripts/vis_dexh13_lightbulb_teacher_middle_contactviz.sh assets/screw/contactviz/0000_lightbulb.urdf docs/session_handoff_v2.md`
+  - Outcome: pass.
+- Runtime process check:
+  - `docker inspect --format '{{.Name}} {{.Config.Cmd}}' laughing_wiles`
+  - Outcome: `laughing_wiles` is the old `dexh13_lightbulb_teacher_middle_probe.sh 0 42 middle_probe_s42` run, not the new contactviz run.
+
+### Remaining blocked/risky
+- No IsaacGym smoke/training run has been executed for `Dexh13HoraLightbulbMiddleContactViz` yet.
+- Contactviz visual geometry is intentionally low-poly because it mirrors collision meshes; it is for contact debugging, not final presentation.
+- If the middle finger still does not participate after this probe, the likely next variable is initial object pose/hand geometry clearance rather than reward index mismatch.
+
+### Single recommended next step
+- Stop the old `middle_probe_s42` container if using the same GPU, then run a bounded 30-minute PPO teacher probe on `Dexh13HoraLightbulbMiddleContactViz` and visualize the latest `best_reward_*.pth` checkpoint.
+
+---
+
+## v2-119 (2026-04-24) — Enlarged Lightbulb Position Probe
+
+### Target milestone/subgoal
+- Add a small geometry/initial-position ablation after the contactviz thumb+middle probe still showed no middle-finger contact.
+- Test whether a larger bulb plus a slight object offset gives the middle finger more usable contact opportunity.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Added task variant cloned from `Dexh13HoraLightbulbMiddleContactViz`.
+  - Keeps thumb+middle `finger_object_contact` and `two_finger_gate` settings.
+  - Keeps `env.object.type: screw_contactviz`, so visual geometry still matches collision geometry.
+  - Sets fixed enlarged object scale:
+    - `env.baseObjScale: 1.20`
+    - `randomizeScale: False`
+    - `randomizeScaleList: [1.20]`
+  - Sets a fixed small object offset:
+    - `env.object.init_pos: [0.010, 0.0, 0.0]`
+    - `env.object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - Raises hand z from `0.195` to `0.207`, matching the existing `0.06 * (scale - 1.0)` compensation rule for scale `1.20`.
+- `configs/train/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Added matching train config so the new task resolves directly through Hydra.
+- `scripts/dexh13_lightbulb_teacher_middle_scalepos.sh`
+  - Added teacher launcher for the enlarged/offset probe.
+- `scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh`
+  - Added viewer launcher for the enlarged/offset probe checkpoints.
+
+### What was verified (commands + key outcomes)
+- Script syntax:
+  - `bash -n scripts/dexh13_lightbulb_teacher_middle_scalepos.sh`
+  - `bash -n scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh`
+  - Outcome: pass.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml configs/train/Dexh13HoraLightbulbMiddleScalePos.yaml scripts/dexh13_lightbulb_teacher_middle_scalepos.sh scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh docs/session_handoff_v2.md`
+  - Outcome: pass.
+- Runtime process check:
+  - `docker ps --format ...`
+  - Outcome: only `agitated_shannon` viewer container was running; no active training container was observed in this check.
+
+### Remaining blocked/risky
+- No IsaacGym runtime smoke/training run has been executed for `Dexh13HoraLightbulbMiddleScalePos` yet.
+- The default offset uses `+x 1cm` as the first thumb-side hypothesis; if visualization shows this moves the bulb the wrong way, override `task.env.object.init_pos` on the command line rather than editing the config.
+- Because the object scale is fixed at `1.20`, compare this run against contactviz as a geometry probe, not as a final robustness setting.
+
+### Single recommended next step
+- Run a bounded 30-minute PPO teacher probe on `Dexh13HoraLightbulbMiddleScalePos`, visualize the latest best checkpoint, and compare whether the middle finger now approaches or contacts the bulb.
+
+---
+
+## v2-120 (2026-04-24) — MiddleScalePos Hand Z Raise
+
+### Target milestone/subgoal
+- Adjust the enlarged lightbulb position probe's initial hand height after visual inspection.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Raised `env.asset.handRootPos` z by 1 cm:
+    - before: `[0.11, 0.020, 0.207]`
+    - after: `[0.11, 0.020, 0.217]`
+  - Behavior impact: the DexH13 hand starts 1 cm higher for this scalepos probe only. Bulb scale (`1.20`) and object offset (`[0.010, 0.0, 0.0]`) are unchanged.
+
+### What was verified (commands + key outcomes)
+- Config spot check:
+  - `rg -n "handRootPos|baseObjScale|init_pos" configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: confirmed `baseObjScale=1.20`, `init_pos=[0.010, 0.0, 0.0]`, and `handRootPos=[0.11, 0.020, 0.217]`.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- No IsaacGym viewer/training run has been executed after this z-height change.
+
+### Single recommended next step
+- Open the scalepos viewer/training visualization again and check whether the raised hand reduces initial crowding while preserving reachable thumb/index/middle contact.
+
+---
+
+## v2-121 (2026-04-24) — MiddleScalePos Bulb Y Centering
+
+### Target milestone/subgoal
+- Adjust the enlarged lightbulb probe so the bulb center aligns better with the DexH13 palm/middle-finger centerline after visual inspection showed coordinated four-finger motion.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Changed object initial position:
+    - before: `init_pos: [0.010, 0.0, 0.0]`
+    - after: `init_pos: [0.010, 0.020, 0.0]`
+  - Behavior impact: the fixed enlarged bulb probe now shifts the bulb center toward the middle-finger/palm y line while preserving:
+    - `baseObjScale: 1.20`
+    - `handRootPos: [0.11, 0.020, 0.217]`
+    - no object position noise.
+
+### What was verified (commands + key outcomes)
+- Config spot check:
+  - `rg -n "baseObjScale|init_pos|handRootPos" configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: confirmed `baseObjScale=1.20`, `init_pos=[0.010, 0.020, 0.0]`, and `handRootPos=[0.11, 0.020, 0.217]`.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- No IsaacGym viewer/training run has been executed after this y-centering change.
+
+### Single recommended next step
+- Reopen the scalepos viewer to validate the centered bulb init pose, then run the next bounded 30-minute PPO probe if the initial geometry looks right.
+
+---
+
+## v2-122 (2026-04-24) — MiddleScalePos Soft Three-Finger Gate
+
+### Target milestone/subgoal
+- Move the DexH13 lightbulb scalepos probe from middle-finger-only contact probing to a soft three-finger objective after visual confirmation that the middle finger has a motion trend.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Added configurable `env.two_finger_gate.other_aggregation` with supported modes:
+    - `max` (old default behavior, preserves existing tasks),
+    - `mean`,
+    - `min`,
+    - `mean_min`.
+  - Added `other_mean_weight` and `other_min_weight` for `mean_min`.
+  - For `mean_min`, the non-thumb gate term becomes:
+    - `(other_mean_weight * mean(other_weights) + other_min_weight * min(other_weights)) / weight_sum`.
+  - Added TensorBoard extras:
+    - `two_finger/other_mean_w`
+    - `two_finger/other_min_w`
+    - `two_finger/other_mean_dist`
+    - `two_finger/other_max_dist`
+  - Existing tasks without `other_aggregation` still use `max`, so `[0,1]` remains old "best of index/middle" behavior unless explicitly changed.
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Changed `finger_object_contact.other_fingertip_indices` from `[1]` to `[0, 1]`.
+    - Behavior impact: proximity reward and finger-distance termination now track thumb + index + middle.
+  - Changed `two_finger_gate.other_fingertip_indices` from `[1]` to `[0, 1]`.
+  - Added soft three-finger gate aggregation:
+    - `other_aggregation: mean_min`
+    - `other_mean_weight: 0.5`
+    - `other_min_weight: 0.5`
+  - Behavior impact: gate now uses thumb multiplied by `0.5 * mean(index,middle) + 0.5 * min(index,middle)` instead of thumb + middle only.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - Outcome: `syntax_ok`.
+- Config spot check:
+  - `rg -n "finger_object_contact|other_fingertip_indices|other_aggregation|other_mean_weight|other_min_weight|baseObjScale|init_pos|handRootPos" configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome:
+    - `finger_object_contact.other_fingertip_indices: [0, 1]`
+    - `two_finger_gate.other_fingertip_indices: [0, 1]`
+    - `other_aggregation: mean_min`
+    - `baseObjScale: 1.20`
+    - current user-edited `init_pos: [0.012, 0.005, 0.0]`
+    - `handRootPos: [0.11, 0.020, 0.217]`
+- Patch hygiene:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- No IsaacGym runtime smoke/training run has been executed after the soft three-finger gate change.
+- The log namespace is still `two_finger/...` for compatibility, even though this scalepos probe is now a soft three-finger objective.
+- The soft gate is intentionally not a hard three-finger requirement; if index dominates and middle weakens again, increase `other_min_weight` or reduce `min_mult` in a follow-up probe.
+
+### Single recommended next step
+- Run a bounded 30-minute PPO teacher probe on `Dexh13HoraLightbulbMiddleScalePos` with a new cache name, then compare `two_finger/other_mean_w` and `two_finger/other_min_w` to verify that both index and middle contribute.
+
+---
+
+## v2-123 (2026-04-25) — MiddleScalePos Ring Action Mask Probe
+
+### Target milestone/subgoal
+- Isolate index/middle/thumb coordination by preventing the ring finger policy actions from interfering with middle-finger rotation during the soft three-finger lightbulb probe.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Enabled action masking:
+    - `apply_action_mask: True`
+    - `action_mask_indices: [8, 9, 10, 11]`
+  - Behavior impact:
+    - DexH13 DOF/action order is index `0:3`, middle `4:7`, ring `8:11`, thumb `12:15`;
+    - policy actions for all four right-ring joints are multiplied by zero before simulation.
+  - Set all four ring init joints to zero:
+    - `right_ring_joint_0: 0.0`
+    - `right_ring_joint_1: 0.0`
+    - `right_ring_joint_2: 0.0`
+    - `right_ring_joint_3: 0.0`
+
+### What was verified (commands + key outcomes)
+- Config spot check:
+  - `rg -n "apply_action_mask|action_mask_indices|right_ring_joint" configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: confirmed ring action mask `[8, 9, 10, 11]` and all right-ring init joints set to `0.0`.
+- Code syntax:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - Outcome: `syntax_ok`.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- No IsaacGym runtime smoke/training run has been executed after the ring action mask change.
+- Because this task uses torque control, action masking prevents active policy torque on ring joints, but it does not physically weld the joints. Contact forces may still move the ring passively. If strict immobilization is needed, add a follow-up probe that tightens ring DOF lower/upper limits near zero.
+
+### Single recommended next step
+- Reopen the scalepos viewer or run a short headless=False probe to confirm the ring starts outward/neutral and no longer receives policy-driven motion, then train a new 30-minute cache if the init pose looks right.
+
+---
+
+## v2-124 (2026-04-25) — MiddleScalePos Ring DOF Limit Lock
+
+### Target milestone/subgoal
+- Upgrade the ring-mask probe from action-only freezing to a near-physical ring joint lock.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Kept ring policy action masking:
+    - `apply_action_mask: True`
+    - `action_mask_indices: [8, 9, 10, 11]`
+  - Kept all ring init joints at `0.0`.
+  - Tightened ring DOF lower/upper limits:
+    - ring joint 0 lower/upper: `[-0.001, 0.001]`
+    - ring joints 1/2/3 lower/upper: `[0.0, 0.001]`
+  - Behavior impact:
+    - ring starts at zero,
+    - policy cannot actively command ring actions,
+    - IsaacGym receives near-zero joint limits for ring DOFs, making passive ring motion much more constrained than action masking alone.
+
+### What was verified (commands + key outcomes)
+- Config spot check:
+  - `nl -ba configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml | sed -n '6,16p;188,202p'`
+  - `rg -n "dofLowerLimits|dofUpperLimits|action_mask_indices|right_ring_joint" configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: confirmed ring action mask, ring init zeros, and tightened ring limits.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- No IsaacGym runtime smoke/training run has been executed after the ring DOF limit lock.
+- Limits are near-zero rather than exactly equal to avoid possible physics/import issues from identical lower/upper values.
+
+### Single recommended next step
+- Visualize the scalepos init pose with `headless=False` and confirm ring remains effectively fixed before starting a new 30-minute training cache.
+
+---
+
+## v2-125 (2026-04-25) — MiddleScalePos GPU OOM Cleanup
+
+### Target milestone/subgoal
+- Restore runnable state for the `Dexh13HoraLightbulbMiddleScalePos` 8192-env PPO teacher probe after a PhysX GPU allocator crash.
+
+### What changed (files + behavior impact)
+- No repo files or configs were changed for the runtime issue.
+- Stopped the stale Docker training container `festive_hermann`, which was still running the old `initpose_test3` cache and occupying about 10.5 GiB of GPU memory.
+
+### What was verified (commands + key outcomes)
+- GPU/process check:
+  - `nvidia-smi`
+  - `docker ps`
+  - `ps -fp 2572386`
+  - Outcome before cleanup: old `python train.py ... output_name=Dexh13HoraLightbulb_teacher_middle_scalepos/initpose_test3 ...` occupied about 10560 MiB on the RTX 4080 SUPER.
+- Cleanup:
+  - `docker stop festive_hermann && nvidia-smi`
+  - Outcome after cleanup: GPU memory dropped to about 1869 MiB, leaving enough free memory to rerun the 8192-env scalepos training probe.
+
+### Remaining blocked/risky
+- The failed run was a runtime GPU memory exhaustion, not a config syntax or reward-code issue.
+- If another viewer or training process is open, 8192 envs can still fail close to env creation. Use a lower env count such as `task.env.numEnvs=4096 train.ppo.minibatch_size=8192` as a fallback.
+
+### Single recommended next step
+- Rerun the intended 30-minute `Dexh13HoraLightbulbMiddleScalePos` training command with a fresh cache name, then inspect TensorBoard/W&B contact and termination metrics before deciding whether to keep the ring-lock variant.
+
+---
+
+## v2-126 (2026-04-25) — MiddleScalePos Softer Thumb-Dominance Reduction
+
+### Target milestone/subgoal
+- Reduce the current thumb-dominant lightbulb rotation strategy without adding new reward code, by making the existing soft three-finger gate depend more strongly on both index and middle participation.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Kept `two_finger_gate.other_aggregation: mean_min`.
+  - Changed index/middle aggregation weights:
+    - `other_mean_weight: 0.5 -> 0.2`
+    - `other_min_weight: 0.5 -> 0.8`
+  - Lowered the residual positive-rotation reward multiplier when the gate is poor:
+    - `min_mult: 0.20 -> 0.05`
+  - Kept contact-force gating enabled and softened its lower threshold:
+    - `use_contact_force: True`
+    - `contact_force_min: 0.5 -> 0.3`
+    - `contact_force_max: 2.0`
+  - Behavior impact:
+    - thumb-only rotation should receive much less positive rotation reward;
+    - index and middle both need to be close/contacting for near-full rotate reward;
+    - this is still a config-only probe, not the more aggressive fingertip tangential-contribution reward.
+
+### What was verified (commands + key outcomes)
+- Config spot check:
+  - `sed -n '70,92p' configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: confirmed the updated soft-three-finger gate weights, `min_mult`, and contact-force threshold.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- This may initially lower scalar reward because it removes an easy thumb-dominant shortcut.
+- It still does not directly reward fingertip tangential velocity/work contribution; if index/middle remain light passive contacts, add an explicit contribution/alignment bonus in code as the next, more aggressive probe.
+
+### Single recommended next step
+- Run a fresh 30-minute cache for `Dexh13HoraLightbulbMiddleScalePos`, then visualize and compare `two_finger/other_min_w`, `two_finger/other_mean_w`, `two_finger/gate`, and rotation reward against the previous `initpose_test4` behavior.
+
+---
+
+## v2-127 (2026-04-25) — Middle Tangential Contribution Reward
+
+### Target milestone/subgoal
+- Move beyond "middle/index are present" gating by adding an explicit middle-finger tangential-motion bonus for the lightbulb task.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Added `env.fingertip_tangent_reward` parsing with validation.
+  - Added a contact- and distance-gated fingertip tangent reward:
+    - computes radial vector from configured target point to fingertip;
+    - computes positive tangent direction as `rotation_axis x radial`;
+    - projects fingertip linear velocity onto that tangent direction;
+    - clips/normalizes the positive projection;
+    - multiplies by distance and contact-force weights.
+  - Added TensorBoard/W&B extras:
+    - `fingertip_tangent/reward`
+    - `fingertip_tangent/tangent_vel`
+    - `fingertip_tangent/positive_vel`
+    - `fingertip_tangent/dist_w`
+    - `fingertip_tangent/contact_w`
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Added `reward.fingertip_tangent_reward_scale: 0.6`.
+  - Enabled `fingertip_tangent_reward` for middle fingertip only (`fingertip_indices: [1]`) with:
+    - target `nut_pos + [0.0, 0.0, 0.04]`;
+    - distance window `near: 0.08`, `far: 0.13`;
+    - `velocity_clip: 0.5`;
+    - object-scale-aware distances;
+    - contact-force weighting from `0.3` to `2.0`.
+
+### What was verified (commands + key outcomes)
+- Syntax check without writing pyc:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(...) ... PY`
+  - Outcome: `syntax_ok`.
+- Config spot check:
+  - `nl -ba configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml | sed -n '58,116p'`
+  - Outcome: confirmed tangent reward scale and middle-only tangent reward block.
+- Patch hygiene:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: pass.
+- Runtime status check:
+  - `docker ps`
+  - `docker top naughty_almeida -eo pid,ppid,stat,etime,cmd`
+  - Outcome: `naughty_almeida` is still running `init_pose_test5`; that already-running process will not pick up the new code/config until restarted.
+
+### Remaining blocked/risky
+- No IsaacGym runtime smoke run has been executed after adding the tangent reward.
+- The new reward uses fingertip velocity, distance, and contact-force magnitude; it encourages middle tangential motion but still does not directly measure signed contact torque on the bulb.
+- If the middle finger gets dragged passively by the already-rotating bulb, the velocity term may still become positive. The contact and distance gates reduce empty motion, but a future force-torque contribution reward may be needed if passive riding appears.
+
+### Single recommended next step
+- Stop any old `MiddleScalePos` training container, then run a fresh cache for the tangent-reward variant and monitor `fingertip_tangent/*` together with visual middle-finger behavior.
+
+---
+
+## v2-128 (2026-04-26) — Persistent IsaacGym Shell and Ctrl-C Cleanup Wrapper
+
+### Target milestone/subgoal
+- Reduce Docker start/stop friction and make `Ctrl+C` reliably stop IsaacGym training subprocesses without leaving orphaned `python train.py` jobs consuming GPU memory.
+
+### What changed (files + behavior impact)
+- `docker-run-isaacgym.sh`
+  - Added Docker `--init` so container PID 1 uses Docker's init process for cleaner signal forwarding and child reaping.
+- `docker-shell-isaacgym.sh`
+  - New helper to enter or start a named interactive IsaacGym container.
+  - Default container name: `dexscrew_isaacgym_shell`.
+  - If the named container is already running, the helper uses `docker exec -it ... bash`.
+- `scripts/run_with_cleanup.sh`
+  - New in-container wrapper for training commands.
+  - Starts the requested command in a new process group via `setsid`.
+  - On `Ctrl+C`, `TERM`, or `HUP`, stops the entire process group, escalating `INT -> TERM -> KILL` if needed.
+
+### What was verified (commands + key outcomes)
+- Bash syntax:
+  - `bash -n docker-run-isaacgym.sh docker-shell-isaacgym.sh scripts/run_with_cleanup.sh`
+  - Outcome: pass.
+- Ctrl-C cleanup simulation:
+  - `timeout -s INT 1s scripts/run_with_cleanup.sh bash -c 'sleep 1000' ; status=$?; echo status:${status}; pgrep -af 'sleep 1000' || true`
+  - Outcome: wrapper emitted process-group cleanup messages and no standalone `sleep 1000` child remained.
+- Patch hygiene:
+  - `git diff --check -- docker-run-isaacgym.sh docker-shell-isaacgym.sh scripts/run_with_cleanup.sh`
+  - Outcome: pass.
+
+### Remaining blocked/risky
+- This helper was validated with a dummy process, not a full IsaacGym training run.
+- A user can still start multiple training jobs inside the same container and hit GPU OOM; the wrapper solves cleanup, not scheduling.
+
+### Single recommended next step
+- Use `./docker-shell-isaacgym.sh` once, then launch the next `MiddleScalePos` probe inside the container with `scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh ...`; after `Ctrl+C`, check `nvidia-smi` once to confirm no large `python` process remains.
+
+---
+
+## v2-129 (2026-04-26) — Middle Tangent 30-Minute PPO Probe
+
+### Target milestone/subgoal
+- Run the first PPO teacher probe after adding the middle-finger tangential contribution reward and the user's updated init pose.
+
+### What changed (files + behavior impact)
+- No source/config files were changed during this execution step.
+- Stopped the stale `naughty_almeida` container running `init_pose_test5`, freeing about 10.6 GiB of GPU memory.
+- Launched a fresh run:
+  - cache: `middle_tangent_s42_30m`
+  - task: `Dexh13HoraLightbulbMiddleScalePos`
+  - seed: `42`
+  - timeout: `1800s`
+  - W&B run: `middle_tangent_s42_30m_2026-04-26_05-43-08`
+
+### What was verified (commands + key outcomes)
+- Pre-run config/runtime check:
+  - `rg -n "fingertip_tangent_reward|fingertip_tangent_reward_scale|other_mean_weight|other_min_weight|min_mult|init_pos|handRootPos|right_middle_joint" configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: confirmed tangent reward enabled, soft three-finger gate weights, current `init_pos: [0.012, -0.010, 0.0]`, and `handRootPos: [0.11, 0.020, 0.217]`.
+- Training command:
+  - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_tangent_s42_30m True wandb_activate=True task.env.termination.log=True`
+  - Outcome: run completed via timeout cleanup; no large training `python` process remained afterward.
+- Best checkpoint:
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_tangent_s42_30m/stage1_nn/best_reward_2193.02.pth`
+- TensorBoard metric spot check:
+  - event: `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_tangent_s42_30m/stage1_tb/events.out.tfevents.1777182202.wbz-ubuntu22-pc`
+  - `episode_rewards/step`: last/max `2192.43`, min `-66.57`.
+  - `episode_lengths/step`: last/max `686.87`.
+  - `two_finger/gate`: last `0.9983`, max `0.9997`.
+  - `two_finger/other_min_w`: last `0.9987`, max `0.9999`.
+  - `fingertip_tangent/reward`: last `0.0442`, max `0.1966`.
+  - `fingertip_tangent/positive_vel`: last `0.0222`, max `0.0995`.
+  - termination fractions were low at the end (`finger_dist_frac=0.000122`, `nut_stagnant_frac=0`, `no_contact_frac=0`).
+- Post-run GPU cleanup:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - Outcome: no 10+ GiB training `python` process remained.
+
+### Remaining blocked/risky
+- The scalar result is healthy, but middle-finger behavior has not yet been visually inspected.
+- `fingertip_tangent/reward` is active but relatively small by the end; if visualization still shows passive middle contact, a stronger force-torque contribution reward or a different bulb edge placement may be needed.
+
+### Single recommended next step
+- Visualize `middle_tangent_s42_30m` and inspect whether the middle finger actively pushes tangentially or merely rides along while thumb/index still dominate.
+
+---
+
+## v2-130 (2026-04-26) — MiddleScalePos Y-Offset And Torque Contribution Probe
+
+### Target milestone/subgoal
+- Continue DexH13 lightbulb middle-finger task-space probing after the user moved the enlarged bulb to `init_pos: [0.012, -0.014, 0.0]`.
+- Compare the geometry-only tangent reward run against a new middle-fingertip contact-torque contribution probe.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Current user-edited bulb position used for both runs:
+    - `object.init_pos: [0.012, -0.014, 0.0]`
+  - Added and enabled `reward.fingertip_torque_reward_scale: 0.4`.
+  - Added `env.fingertip_torque_reward` for middle fingertip only (`fingertip_indices: [1]`):
+    - target: `nut_pos + [0.0, 0.0, 0.04]`
+    - distance window: `near: 0.08`, `far: 0.13`
+    - `torque_clip: 8.0`
+    - `force_sign: -1.0` to approximate fingertip-on-bulb reaction force from Isaac net contact force on the fingertip.
+- `dexscrew/tasks/xhand_hora.py`
+  - Added `env.fingertip_torque_reward` parsing and validation.
+  - Added middle fingertip torque reward:
+    - `torque = cross(fingertip_pos - target_pos, force_on_bulb) dot rotation_axis`
+    - positive signed torque is clipped/normalized, distance-gated, and contact-gated.
+  - Added TensorBoard/W&B extras:
+    - `fingertip_torque/reward`
+    - `fingertip_torque/signed_torque`
+    - `fingertip_torque/positive_torque`
+    - `fingertip_torque/negative_torque`
+    - `fingertip_torque/abs_torque`
+    - `fingertip_torque/dist_w`
+    - `fingertip_torque/contact_w`
+
+### What was verified (commands + key outcomes)
+- Syntax and patch hygiene:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: pass.
+- Runtime smoke:
+  - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 240 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 torque_smoke_s42 True wandb_activate=False task.env.termination.log=True num_envs=64 train.ppo.minibatch_size=768`
+  - Outcome: training loop entered successfully and wrote `fingertip_torque/*` scalars.
+  - Smoke showed `torque_clip: 0.04` would saturate immediately, so it was changed to `8.0` and scale lowered to `0.4` before the formal run.
+- Geometry-only tangent run:
+  - command:
+    - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_tangent_yneg014_s42_30m True wandb_activate=True task.env.termination.log=True`
+  - best checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_tangent_yneg014_s42_30m/stage1_nn/best_reward_2274.37.pth`
+  - key metrics:
+    - `episode_rewards/step` last/max `2273.8`
+    - `episode_lengths/step` last/max `698.99`
+    - `fingertip_tangent/positive_vel` last `0.0358`, max `0.0655`
+    - `fingertip_tangent/reward` last `0.0715`, max `0.1292`
+    - `two_finger/gate` last `0.9995`
+    - termination fractions remained low.
+- Torque reward run:
+  - command:
+    - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_torqueclip8_yneg014_s42_30m True wandb_activate=True task.env.termination.log=True`
+  - W&B run:
+    - `middle_torqueclip8_yneg014_s42_30m_2026-04-26_08-45-18`
+    - run id: `3oslhmxg`
+  - best checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_torqueclip8_yneg014_s42_30m/stage1_nn/best_reward_2222.42.pth`
+  - key metrics:
+    - `episode_rewards/step` last/max `2219.1` (stdout best `2222.42`)
+    - `episode_lengths/step` last/max `693.65`
+    - `screw/angular_velocity` last `0.8883`, max `1.2829`
+    - `fingertip_tangent/positive_vel` last `0.0624`, max `0.0693`
+    - `fingertip_tangent/reward` last `0.1248`, max `0.1386`
+    - `fingertip_torque/reward` last `0.7026`, max `0.7827`
+    - `fingertip_torque/signed_torque` last `5.6233`, max `6.2865`
+    - `fingertip_torque/negative_torque` stayed near zero.
+    - `two_finger/gate` last `0.9994`
+    - termination fractions remained low.
+- Post-run GPU cleanup:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - Outcome: no large IsaacGym training `python` process remained.
+
+### Remaining blocked/risky
+- Scalar metrics cannot prove the middle finger is visually doing useful work; the torque run must be visualized.
+- `fingertip_torque/*` is based on net fingertip contact force, so it is still a proxy for finger-on-bulb torque and may include non-bulb contacts if the geometry changes.
+- The torque run slightly lowers scalar best reward (`2222.42` vs `2274.37`) but improves middle-related signal:
+  - tangent positive velocity `0.0624` vs `0.0358`
+  - tangent reward `0.1248` vs `0.0715`
+
+### Single recommended next step
+- Visualize `middle_torqueclip8_yneg014_s42_30m` and compare it against `middle_tangent_yneg014_s42_30m`.
+- If middle visibly contributes, keep the torque reward but consider reducing scale to `0.2` for a longer run.
+- If middle still passively rides along, set `fingertip_torque_reward_scale: 0.0` and keep `fingertip_torque/*` as diagnostics while continuing geometry/init-pose search.
+
+---
+
+## v2-131 (2026-04-26) — MiddleScalePos Torque Scale Closed-Loop Probe
+
+### Target milestone/subgoal
+- Continue the DexH13 lightbulb middle-finger task-space probe with the user's current bulb pose.
+- Sweep middle fingertip torque-reward strength to balance scalar PPO reward against explicit middle-finger contribution metrics.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Changed `reward.fingertip_torque_reward_scale` from `0.4` to `0.2`, ran a 30-minute probe, then changed it to `0.3` and ran a second 30-minute probe.
+  - Current checked-in config is `fingertip_torque_reward_scale: 0.3`.
+  - Kept all other active scalepos settings fixed:
+    - `object.init_pos: [0.012, -0.014, 0.0]`
+    - `baseObjScale: 1.20`
+    - `handRootPos: [0.11, 0.020, 0.217]`
+    - soft three-finger gate with `mean_min`, `other_mean_weight: 0.2`, `other_min_weight: 0.8`, `min_mult: 0.05`
+    - middle-only tangent and torque reward blocks
+    - ring action mask plus near-zero ring DOF limits.
+
+### What was verified (commands + key outcomes)
+- Syntax and patch hygiene:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`
+  - Outcome: pass.
+- Torque scale `0.2` run:
+  - command:
+    - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_torque02_yneg014_s42_30m True wandb_activate=True task.env.termination.log=True`
+  - W&B run:
+    - `middle_torque02_yneg014_s42_30m_2026-04-26_09-47-36`
+    - run id: `affubsbp`
+  - best checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_torque02_yneg014_s42_30m/stage1_nn/best_reward_2275.70.pth`
+  - key TensorBoard metrics:
+    - `episode_rewards/step` last/max `2274.99`
+    - `episode_lengths/step` last/max `704.65`
+    - `fingertip_tangent/positive_vel` last `0.0490`, max `0.0542`
+    - `fingertip_tangent/reward` last `0.0979`, max `0.1063`
+    - `fingertip_torque/signed_torque` last `5.7763`, max `6.1914`
+    - `fingertip_torque/reward` last `0.7217`, max `0.7709`
+    - `two_finger/gate` last `0.9988`
+    - termination fractions remained low.
+- Torque scale `0.3` run:
+  - command:
+    - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_torque03_yneg014_s42_30m True wandb_activate=True task.env.termination.log=True`
+  - W&B run:
+    - `middle_torque03_yneg014_s42_30m_2026-04-26_10-18-54`
+    - run id: `mhm3z12p`
+  - best checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_torque03_yneg014_s42_30m/stage1_nn/best_reward_2325.61.pth`
+  - key TensorBoard metrics:
+    - `episode_rewards/step` last/max `2325.05`
+    - `episode_lengths/step` last/max `704.93`
+    - `fingertip_tangent/positive_vel` last `0.0389`, max `0.0441`
+    - `fingertip_tangent/reward` last `0.0768`, max `0.0873`
+    - `fingertip_torque/signed_torque` last `5.5558`, max `6.2639`
+    - `fingertip_torque/reward` last `0.6913`, max `0.7782`
+    - `two_finger/gate` last `0.9956`
+    - termination fractions remained low.
+- Baseline comparison from this sweep:
+  - tangent-only y=-0.014 run: best checkpoint `2274.37`, TB reward last/max `2273.8`.
+  - torque `0.4` run: best checkpoint `2222.42`, TB reward last/max `2219.1`, but strongest middle tangent metrics.
+  - torque `0.3` gives best scalar reward so far.
+  - torque `0.2` gives a better middle-signal compromise than `0.3` while almost matching tangent-only scalar reward.
+- Post-run GPU cleanup:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - Outcome: no large IsaacGym training `python` process remained; only small Chrome/ToDesk GPU processes were listed.
+
+### Remaining blocked/risky
+- Scalar reward alone still does not prove middle-finger active contribution.
+- `0.3` is the best scalar checkpoint, but its terminal middle tangent metrics are weaker than `0.2` and much weaker than `0.4`.
+- `0.2` may be the better visual-behavior candidate if the goal is specifically to see middle-finger tangential participation instead of only maximizing short-run reward.
+
+### Single recommended next step
+- Visualize `middle_torque03_yneg014_s42_30m` first because it is the best scalar checkpoint.
+- Compare against `middle_torque02_yneg014_s42_30m`; if `0.3` still looks thumb-dominant while `0.2` shows more middle participation, revert config to `fingertip_torque_reward_scale: 0.2` before longer training.
+
+---
+
+## v2-132 (2026-04-27) — IsaacGym Wrapper In-Container Guard
+
+### Target milestone/subgoal
+- Fix the user's visualization launch error when running `./docker-run-isaacgym.sh ...` from an already-open IsaacGym container shell at `/workspace/dexscrew-repro`.
+
+### What changed (files + behavior impact)
+- `docker-run-isaacgym.sh`
+  - Added an in-container guard:
+    - detects `/.dockerenv` plus `/opt/isaacgym/.../gym_38.so`;
+    - exports `ISAACGYM_DIR=/opt/isaacgym`, `ISAACGYM_PATH=/opt/isaacgym`, and IsaacGym `PYTHONPATH`;
+    - directly executes the requested command instead of trying to start a nested Docker container.
+  - Behavior impact:
+    - From host: wrapper behavior is unchanged.
+    - From inside the persistent container: `./docker-run-isaacgym.sh bash scripts/vis_...` now works as a forgiving alias for direct execution.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `bash -n docker-run-isaacgym.sh`
+  - Outcome: pass.
+- In-container wrapper path:
+  - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell bash -lc './docker-run-isaacgym.sh bash -lc "echo ISAACGYM_DIR=\\$ISAACGYM_DIR; python -c \\"import isaacgym; print(\\\\\\"isaacgym_ok\\\\\\")\\""'`
+  - Outcome: printed `ISAACGYM_DIR=/opt/isaacgym` and imported `/opt/isaacgym/.../gym_38.so` successfully.
+
+### Remaining blocked/risky
+- The fix resolves the IsaacGym binding path error only.
+- Viewer launch can still depend on X11/display forwarding; if a later error mentions `DISPLAY`, `XAUTHORITY`, or graphics device, handle that separately.
+
+### Single recommended next step
+- Rerun the original visualization command from the current shell:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_torque03_yneg014_s42_30m`
+
+---
+
+## v2-133 (2026-04-27) -- MiddleScalePos Six-Run Middle Contribution Matrix
+
+### Target milestone/subgoal
+- Execute the requested closed-loop DexH13 lightbulb middle-finger matrix:
+  - compare `y=-0.018` vs `y=-0.020`;
+  - compare middle torque reward scale `0.3` vs `0.2`;
+  - test aggressive index joint0 interference limit `upper=0.1`;
+  - add per-finger diagnostics before changing reward further.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Added diagnostic-only per-finger scalar logging. Reward behavior is unchanged by these new logs.
+  - New scalar groups:
+    - `finger_torque/index|middle|thumb/signed`
+    - `finger_torque/index|middle|thumb/positive`
+    - `finger_torque/index|middle|thumb/ratio_positive`
+    - `finger_tangent/index|middle|thumb/positive_vel`
+    - `finger_contact/index|middle|thumb/force_w`
+    - `finger_dist/index|middle|thumb`
+    - `finger_motion/middle_joint_vel_abs`
+    - `finger_motion/middle_joint0_sign_flip_rate`
+    - `finger_motion/index_middle_tip_dist`
+- Main task config was not permanently moved for the scan; y offsets, torque scales, and index joint0 upper limit were applied through Hydra overrides per run.
+
+### What was verified (commands + key outcomes)
+- Syntax and patch hygiene:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(Path('dexscrew/tasks/xhand_hora.py').read_text(), 'dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml docker-run-isaacgym.sh docs/session_handoff_v2.md`
+  - Outcome: pass.
+- 64-env smoke run:
+  - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 240 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 diag_smoke_s42 True wandb_activate=False task.env.termination.log=True num_envs=64 train.ppo.minibatch_size=768`
+  - Outcome: completed under timeout with best reward `98.06`.
+  - TensorBoard scalar parse confirmed all new `finger_*` diagnostic tags were written.
+- Six requested 30-minute runs, all launched through `scripts/run_with_cleanup.sh`, seed `42`, 8192 envs, W&B enabled, termination logging enabled:
+
+| Group | Cache | y | torque scale | index joint0 upper | best ckpt reward | reward last | middle pos torque | middle ratio | middle tangent vel | middle joint vel | tip dist | any reset frac | Notes |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| A1 | `middle_yneg018_torque03_diag_s42_30m` | -0.018 | 0.3 | unchanged | 2291.35 | 2291.35 | 6.7000 | 0.8374 | 0.0562 | 1.1461 | 0.0351 | 0.000122 | Best scalar reward |
+| A2 | `middle_yneg020_torque03_diag_s42_30m` | -0.020 | 0.3 | unchanged | 2265.80 | 2265.80 | 7.0730 | 0.8267 | 0.0680 | 1.4239 | 0.0365 | 0.000488 | Best middle torque/tangent among good-reward runs |
+| A3 | `middle_yneg018_torque03_idxlim_s42_30m` | -0.018 | 0.3 | 0.1 | 2190.39 | 2190.39 | 6.4346 | 0.8596 | 0.0602 | 1.3598 | 0.0331 | 0.000366 | Highest middle ratio, but reward lower and tips closer |
+| B1 | `middle_yneg018_torque02_diag_s42_30m` | -0.018 | 0.2 | unchanged | 2232.55 | 2231.32 | 6.0284 | 0.8269 | 0.0539 | 1.1764 | 0.0407 | 0.000488 | Best anti-interference proxy |
+| B2 | `middle_yneg020_torque02_diag_s42_30m` | -0.020 | 0.2 | unchanged | 2206.53 | 2116.48 | 6.5251 | 0.8099 | 0.0328 | 0.9704 | 0.0363 | 0.000488 | Weak middle tangent despite checkpoint passing |
+| B3 | `middle_yneg018_torque02_idxlim_s42_30m` | -0.018 | 0.2 | 0.1 | 1833.89 | 1833.50 | 6.4275 | 0.7576 | 0.0636 | 1.3548 | 0.0311 | 0.000488 | Failed reward threshold; thumb contribution increased |
+
+- Best checkpoints:
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg018_torque03_diag_s42_30m/stage1_nn/best_reward_2291.35.pth`
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg020_torque03_diag_s42_30m/stage1_nn/best_reward_2265.80.pth`
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg018_torque03_idxlim_s42_30m/stage1_nn/best_reward_2190.39.pth`
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg018_torque02_diag_s42_30m/stage1_nn/best_reward_2232.55.pth`
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg020_torque02_diag_s42_30m/stage1_nn/best_reward_2206.53.pth`
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg018_torque02_idxlim_s42_30m/stage1_nn/best_reward_1833.89.pth`
+- Post-run GPU cleanup:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - Outcome after each run: no large IsaacGym training `python` process remained; only small desktop/browser GPU processes were present.
+
+### Local conclusion
+- The best scalar candidate is A1 (`middle_yneg018_torque03_diag_s42_30m`).
+- The best middle-contribution candidate is A2 (`middle_yneg020_torque03_diag_s42_30m`):
+  - highest middle positive torque among reward-passing runs;
+  - highest middle tangent positive velocity among reward-passing runs.
+- B1 (`middle_yneg018_torque02_diag_s42_30m`) is the most conservative anti-interference backup:
+  - largest index-middle fingertip distance;
+  - lower middle joint0 flip maximum than the torque-0.3 variants;
+  - scalar reward still above the short-run acceptance floor.
+- Aggressive index joint0 upper limit `0.1` is not a good default yet:
+  - A3 reduces index contribution and raises middle ratio, but lowers reward and brings index/middle tips closer.
+  - B3 fails the reward threshold and shifts load toward thumb.
+  - If index limiting is revisited, try a milder `upper=0.2` before using `0.1`.
+
+### Remaining blocked/risky
+- These diagnostics are fingertip net-force proxies; they strongly suggest middle contribution but still need viewer confirmation that contact is actually on the bulb and not from incidental geometry.
+- A2 may have more useful middle torque but also higher middle joint velocity, so it could still look like visible oscillation.
+- Because the six-run matrix already meets the proxy middle-ratio threshold, the next decision should be based on visual behavior, not scalar reward alone.
+
+### Single recommended next step
+- Visualize A2 and A1:
+  - A2 first for middle contribution: `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_yneg020_torque03_diag_s42_30m`
+  - A1 second for scalar baseline: `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_yneg018_torque03_diag_s42_30m`
+- If A2 visually shows middle active pushing without severe oscillation, continue the y scan at `y=-0.022` and `y=-0.024` with torque scale `0.3`.
+- If A2 still oscillates, compare B1 visually before adding any stronger reward; B1 is the best lower-jitter backup.
+
+---
+
+## v2-134 (2026-04-27) -- MiddleScalePos 2h Index Upper 0.15 Probe
+
+### Target milestone/subgoal
+- Run the user's requested 2-hour DexH13 lightbulb PPO probe:
+  - `object.init_pos: [0.012, -0.018, 0.0]`
+  - `fingertip_torque_reward_scale: 0.3`
+  - index joint0 upper limit relaxed from the failed aggressive `0.1` probe to `0.15`.
+
+### What changed (files + behavior impact)
+- No source or task config files were changed for the experiment.
+- The index joint0 limit was applied only as a Hydra override:
+  - `task.env.asset.dofUpperLimits=[0.15,1.57,1.57,1.57,0.35,1.57,1.57,1.57,0.001,0.001,0.001,0.001,0.35,1.57,1.57,1.57]`
+
+### What was verified (commands + key outcomes)
+- Bootstrap context:
+  - Read `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+- Training command:
+  - `docker exec -w /workspace/dexscrew-repro dexscrew_isaacgym_shell timeout 7200 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_yneg018_torque03_idxlim015_s42_2h True wandb_activate=True task.env.termination.log=True 'task.env.object.init_pos=[0.012,-0.018,0.0]' 'task.env.reward.fingertip_torque_reward_scale=0.3' 'task.env.asset.dofUpperLimits=[0.15,1.57,1.57,1.57,0.35,1.57,1.57,1.57,0.001,0.001,0.001,0.001,0.35,1.57,1.57,1.57]'`
+  - Outcome: timeout ended normally after about `Collect 105.1min + Train RL 14.5min ~= 119.6min`.
+  - No OOM or segmentation fault occurred.
+- Best checkpoint:
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg018_torque03_idxlim015_s42_2h/stage1_nn/best_reward_2947.48.pth`
+- TensorBoard event:
+  - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/middle_yneg018_torque03_idxlim015_s42_2h/stage1_tb/events.out.tfevents.1777247662.wbz-ubuntu22-pc`
+- Key scalar metrics:
+  - `episode_rewards/step`: last `2870.07`, max `2947.48`
+  - `episode_lengths/step`: last `789.31`, max `792.36`
+  - `screw/angular_velocity`: last `0.5601`, max `1.2571`
+  - `screw/positive_vel_ratio`: last `0.7545`, max `0.8195`
+  - `fingertip_tangent/positive_vel`: last `0.0450`, max `0.0740`
+  - `fingertip_torque/signed_torque`: last `6.8288`, max `6.9272`
+  - `fingertip_torque/reward`: last `0.8484`, max `0.8638`
+  - `finger_torque/index/positive`: last `1.1856`, max `1.3200`
+  - `finger_torque/middle/positive`: last `6.8288`, max `6.9272`
+  - `finger_torque/thumb/positive`: last `0.0401`, max `2.2561`
+  - `finger_torque/index/ratio_positive`: last `0.1465`, max `0.1579`
+  - `finger_torque/middle/ratio_positive`: last `0.8500`, max `0.8980`
+  - `finger_torque/thumb/ratio_positive`: last `0.0035`, max `0.1697`
+  - `finger_tangent/index/positive_vel`: last `0.0146`, max `0.0381`
+  - `finger_tangent/middle/positive_vel`: last `0.0450`, max `0.0740`
+  - `finger_tangent/thumb/positive_vel`: last `0.0684`, max `0.1299`
+  - `finger_motion/middle_joint_vel_abs`: last `0.9608`, max `1.2410`
+  - `finger_motion/middle_joint0_sign_flip_rate`: last `0.0`, max `0.8209`
+  - `finger_motion/index_middle_tip_dist`: last `0.0347`, max `0.0382`
+  - `term/any_reset_frac`: last `0.000122`, max `0.002563`
+  - `term/no_contact_frac`: last/max `0`
+- Post-run cleanup:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - `pgrep -af 'train.py|dexh13_lightbulb_teacher_middle_scalepos|middle_yneg018_torque03_idxlim015' || true`
+  - Outcome: no training Python process remained; only desktop/browser GPU processes were listed.
+
+### Local conclusion
+- Reward-wise, index joint0 upper `0.15` is much better than the previous aggressive `0.1` probe:
+  - previous A3 30min `upper=0.1`: best `2190.39`
+  - current 2h `upper=0.15`: best `2947.48`
+- It also surpasses the no-index-limit short probes:
+  - A1 `y=-0.018`, torque `0.3`, no index limit: best `2291.35`
+  - A2 `y=-0.020`, torque `0.3`, no index limit: best `2265.80`
+- The new diagnostics strongly favor middle contribution:
+  - middle positive torque last `6.83`
+  - middle positive torque ratio last `0.85`
+  - index ratio last `0.15`
+  - thumb ratio last `0.0035`
+- The caveat remains important: `finger_torque/*` is a fingertip net-force proxy, so visual confirmation is required before concluding that middle truly rotates the bulb.
+
+### Remaining blocked/risky
+- The best reward checkpoint appears around the first half of the 2h run; the last scalar reward is lower (`2870.07`), so the best checkpoint should be used for visualization.
+- Thumb tangent positive velocity remains nontrivial (`0.0684` last), even though thumb positive torque ratio is tiny; visualization should check whether thumb is still driving motion through another contact geometry.
+- Index-middle tip distance is not larger than B1, so the index-limit improvement may be coming from reduced index torque dominance rather than clean spatial separation.
+
+### Single recommended next step
+- Visualize the new best checkpoint:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_yneg018_torque03_idxlim015_s42_2h`
+- Compare visually against A2 (`middle_yneg020_torque03_diag_s42_30m`).
+- If middle visibly pushes the bulb edge in the new run, make `index joint0 upper=0.15` the active mild index-limit setting for the next geometry sweep or long run.
+
+---
+
+## v2-135 (2026-04-27) -- Smooth Lightbulb Head Collision Probe
+
+### Target milestone/subgoal
+- Test the user's hypothesis that replacing the faceted lightbulb head collision with a smoother ellipsoid-like collision may reduce the thumb's late-rotation slip/launch behavior.
+- Keep the strongest current middle-finger setup fixed:
+  - `object.init_pos: [0.012, -0.018, 0.0]`
+  - `fingertip_torque_reward_scale: 0.3`
+  - index joint0 upper limit `0.15`
+  - ring action mask plus near-zero ring DOF lock.
+
+### What changed (files + behavior impact)
+- `assets/lightbulb/smooth_head_collision.stl`
+  - Added a generated smooth ellipsoid collision mesh for the lightbulb head.
+  - It matches the previous `contact0.stl` bounding box exactly:
+    - center approximately `[0.021264, -0.0000615, -0.0000615]`
+    - radii approximately `[0.034592, 0.0315595, 0.0315595]`
+  - Mesh size is intentionally modest: `960` triangles, `48084` bytes.
+- `assets/screw/smoothbulb/0000_lightbulb.urdf`
+  - Added a new object asset type path instead of overwriting `screw_contactviz`.
+  - Visual meshes use the high-fidelity lightbulb head/socket meshes.
+  - Head collision uses `../../lightbulb/smooth_head_collision.stl`.
+  - Socket collision keeps the existing `../../lightbulb/contact1.stl`.
+  - This can be selected with Hydra override `task.env.object.type=screw_smoothbulb`.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context:
+  - Read `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+- Asset validation:
+  - Parsed `assets/screw/smoothbulb/0000_lightbulb.urdf` with `xml.etree.ElementTree`.
+  - Verified the new STL exists and its bounding box matches the previous head collision dimensions.
+- Syntax and patch hygiene:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(Path('dexscrew/tasks/xhand_hora.py').read_text(), 'dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml assets/screw/smoothbulb/0000_lightbulb.urdf docs/session_handoff_v2.md`
+  - Outcome: pass.
+- Resource cleanup before training:
+  - Found an old visualization container for `middle_yneg018_torque03_idxlim015_s42_2h` using about `3.1GB` GPU memory.
+  - Stopped that stale visualization container before the 8192-env training run.
+- 64-env smoke:
+  - command:
+    - `./docker-run-isaacgym.sh timeout 240 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 smooth_smoke_s42 True wandb_activate=False task.env.termination.log=True task.env.object.type=screw_smoothbulb 'task.env.asset.dofUpperLimits=[0.15,1.57,1.57,1.57,0.35,1.57,1.57,1.57,0.001,0.001,0.001,0.001,0.35,1.57,1.57,1.57]' num_envs=64 train.ppo.minibatch_size=768`
+  - Outcome: environment built, training loop entered, and timeout cleanup worked.
+  - Best smoke checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/smooth_smoke_s42/stage1_nn/best_reward_-100.83.pth`
+- 30-minute formal training:
+  - command:
+    - `./docker-run-isaacgym.sh timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 smoothbulb_yneg018_torque03_idxlim015_s42_30m True wandb_activate=True task.env.termination.log=True task.env.object.type=screw_smoothbulb 'task.env.asset.dofUpperLimits=[0.15,1.57,1.57,1.57,0.35,1.57,1.57,1.57,0.001,0.001,0.001,0.001,0.35,1.57,1.57,1.57]'`
+  - W&B run:
+    - `smoothbulb_yneg018_torque03_idxlim015_s42_30m_2026-04-27_05-09-20`
+    - run id: `v1zyalrq`
+  - Outcome: timeout ended normally at about `Collect 26.0min + Train RL 3.5min ~= 29.5min`; no OOM or segmentation fault.
+  - Best checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/smoothbulb_yneg018_torque03_idxlim015_s42_30m/stage1_nn/best_reward_2019.50.pth`
+  - TensorBoard event:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/smoothbulb_yneg018_torque03_idxlim015_s42_30m/stage1_tb/events.out.tfevents.1777266574.wbz-ubuntu22-pc`
+- Key scalar metrics:
+  - `episode_rewards/step`: last/max `2018.00`
+  - `episode_lengths/step`: last/max `670.48`
+  - `screw/angular_velocity`: last `0.4918`, max `1.1309`
+  - `screw/positive_vel_ratio`: last `0.7351`, max `0.8011`
+  - `fingertip_tangent/positive_vel`: last `0.0686`, max `0.0700`
+  - `fingertip_torque/signed_torque`: last `6.6157`, max `6.8753`
+  - `fingertip_torque/reward`: last `0.8266`, max `0.8545`
+  - `finger_torque/index/positive`: last `1.1135`, max `1.4664`
+  - `finger_torque/middle/positive`: last `6.6157`, max `6.8753`
+  - `finger_torque/thumb/positive`: last `0.0837`, max `2.2897`
+  - `finger_torque/index/ratio_positive`: last `0.1420`, max `0.1764`
+  - `finger_torque/middle/ratio_positive`: last `0.8506`, max `0.8595`
+  - `finger_torque/thumb/ratio_positive`: last `0.0074`, max `0.1774`
+  - `finger_tangent/index/positive_vel`: last `0.0166`, max `0.0300`
+  - `finger_tangent/middle/positive_vel`: last `0.0686`, max `0.0700`
+  - `finger_tangent/thumb/positive_vel`: last `0.0616`, max `0.1100`
+  - `finger_motion/middle_joint_vel_abs`: last/max `1.6011`
+  - `finger_motion/middle_joint0_sign_flip_rate`: last `0.0`, max `0.8413`
+  - `finger_motion/index_middle_tip_dist`: last `0.0346`, max `0.0403`
+  - `term/any_reset_frac`: last `0.000488`, max `0.002563`
+  - `term/no_contact_frac`: last/max `0`
+- Post-run cleanup:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - `pgrep -af 'train.py|dexh13_lightbulb_teacher_middle_scalepos|smoothbulb_yneg018_torque03_idxlim015' || true`
+  - Outcome: no training Python process remained; only the desktop/browser GPU process was listed.
+
+### Local conclusion
+- Smooth head collision did not crash and remains trainable, but it is weaker than the previous contactviz collision under the same 30-minute-style comparison:
+  - smoothbulb 30m: best `2019.50`
+  - previous no-index-limit y=-0.018 30m A1: best `2291.35`
+  - previous 2h index upper `0.15`: best `2947.48`
+- The smooth run preserved the desired diagnostic middle dominance:
+  - middle torque ratio last `0.8506`
+  - index ratio last `0.1420`
+  - thumb ratio last `0.0074`
+- The likely tradeoff is contact stability vs usable geometry:
+  - smooth collision may reduce edge-induced thumb pop-out;
+  - but it also removes faceted contact affordances and lowers reward/episode length.
+- Middle joint velocity is higher than the 2h contactviz run (`1.60` vs `0.96` last), so this asset may increase middle activity but not necessarily reduce visible jitter.
+
+### Remaining blocked/risky
+- The key hypothesis is visual: scalars cannot confirm whether the thumb still shoots out at the end of rotation.
+- Reward is below the short-run acceptance floor of about `2090`, so this should not replace `screw_contactviz` as the default unless visualization clearly improves stability.
+- The socket collision is still the old faceted `contact1.stl`; if the thumb pop-out happens near the socket/head transition, smoothing only the head may be insufficient.
+
+### Single recommended next step
+- Visualize the smoothbulb checkpoint and compare directly against the previous best contactviz checkpoint:
+  - smooth candidate:
+    - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 smoothbulb_yneg018_torque03_idxlim015_s42_30m task.env.object.type=screw_smoothbulb 'task.env.asset.dofUpperLimits=[0.15,1.57,1.57,1.57,0.35,1.57,1.57,1.57,0.001,0.001,0.001,0.001,0.35,1.57,1.57,1.57]'`
+  - contactviz comparison:
+    - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_yneg018_torque03_idxlim015_s42_2h`
+- If smoothbulb visibly fixes thumb launch, run a 2h smoothbulb continuation before deciding.
+- If thumb still launches, revert to contactviz for training and instead test a smaller local collision smoothing/chamfer around the bulb shoulder rather than a fully smooth head.
+
+---
+
+## v2-136 (2026-04-27) -- Sim2sim Readiness Codebase Survey
+
+### Target milestone/subgoal
+- Prepare for sim2sim policy validation by mapping the current teacher/student/export path, reusable runtime pieces, and DexH13 lightbulb asset/config risks.
+- No training or simulator run was started in this survey.
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - Added this survey handoff entry only.
+- No source code, task config, asset, checkpoint, or script behavior was changed.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context:
+  - Read `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+  - Outcome: latest documented execution step before this survey was still the smoothbulb/contactviz visual comparison from `v2-135`.
+- Codebase survey:
+  - Inspected `train.py`, `student_eval.py`, `instruction_docs/repo_strategy_map.md`, `xhand-deploy/xhand_deploy.py`, `configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml`, `configs/train/Dexh13HoraLightbulbMiddleScalePos.yaml`, DexH13 lightbulb scripts, and contactviz/smoothbulb URDFs.
+  - Searched for `sim2sim`, `mujoco`, `genesis`, `isaaclab`, `deploy`, `export`, `onnx`, and TorchScript-related paths.
+  - Outcome: no direct sim2sim rollout harness exists yet; repo has IsaacGym train/eval, ProprioAdapt TorchScript export, XHand deploy runtime logic, and MuJoCo/DexH13 assets/docs.
+- Subagent survey:
+  - Teacher/student/export path mapped.
+  - Sim2sim harness gaps mapped.
+  - DexH13 lightbulb contactviz/smoothbulb asset/config risks mapped.
+- Additional artifact check:
+  - Found an unlogged later smoothbulb run:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h/stage1_nn/best_reward_2849.55.pth`
+    - Its config snapshot confirms `task.env.object.type=screw_smoothbulb` and index joint0 upper limit `0.15`.
+
+### Local conclusion
+- The shortest low-risk sim2sim path is still `XHandHoraScrewDriver` + `ProprioAdapt` TorchScript:
+  - export/runtime pieces already exist;
+  - policy input is `obs`, `proprio_hist`, `point_cloud_info`;
+  - output is `mu`;
+  - external runtime must reproduce normalization, 3-frame obs history, 30-frame proprio history, joint order, action mask, and `target = prev_target + action_scale * mu`.
+- Diffusion/consistency/flow students are evaluable inside this repo, but `student_eval.py` explicitly does not support JIT export for diffusion-family students yet.
+- DexH13 lightbulb is possible for sim2sim, but it is not the first harness target:
+  - current useful policies are teacher checkpoints, not mature exported students;
+  - current best checkpoints depend on exact object type and index limit overrides;
+  - contact geometry and thumb launch still need visual confirmation.
+
+### Remaining blocked/risky
+- There is no existing MuJoCo/Genesis/IsaacLab rollout harness to run a policy end to end.
+- `scripts/convert_student_jit.sh` is hardcoded around `XHandHoraScrewDriver` and should be used with explicit `train.load_path=...`.
+- TorchScript wrapper stores normalization stats but does not normalize inside `forward`; the caller must normalize like `xhand-deploy/xhand_deploy.py`.
+- For DexH13 lightbulb, forgetting `task.env.object.type=screw_smoothbulb` or index joint0 upper `0.15` when using matching checkpoints will cause policy/env mismatch.
+- `screw_contactviz` and `screw_smoothbulb` have no `.npy` point cloud, so the current code falls back to a cylinder point cloud while `use_point_cloud_info=True`.
+
+### Single recommended next step
+- Before starting DexH13/lightbulb sim2sim, visually compare:
+  - contactviz best: `middle_yneg018_torque03_idxlim015_s42_2h`
+  - smoothbulb later candidate: `smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h`
+- Use explicit object type and index-limit overrides during visualization; only after that choose the DexH13 asset/checkpoint for sim2sim. If the immediate goal is a generic sim2sim harness instead, start with `XHandHoraScrewDriver` + `ProprioAdapt` TorchScript rather than DexH13.
+
+---
+
+## v2-137 (2026-04-27) -- Low-Reward Output Cleanup
+
+### Target milestone/subgoal
+- Organize `outputs/` by removing low-value run directories whose directory-level best checkpoint reward is below `1000`.
+- Keep current high-value DexH13 lightbulb / screwdriver artifacts intact.
+
+### What changed (files + behavior impact)
+- Deleted 51 run directories under `outputs/`.
+  - Selection rule: run directory contains `stage*_nn/best_reward_*.pth`, and the maximum parsed `best_reward` in that run directory is `< 1000`.
+  - Deletion was directory-level, not checkpoint-level, so good runs with early low intermediate checkpoints were not removed.
+- Removed empty top-level output directories left by the cleanup:
+  - `outputs/outputs_tmp`
+  - `outputs/XHandPasiniLightbulb_teacher`
+  - `outputs/Dexh13HoraLightbulbDotpg_teacher`
+- `docs/session_handoff_v2.md`
+  - Added this cleanup entry.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context:
+  - Read `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+- Pre-cleanup scan:
+  - `du -sh outputs`
+    - Outcome: `7.1G`.
+  - Python scan over `outputs/**/best_reward_*.pth`.
+    - Outcome: `total_reward_named_runs=76`.
+    - Candidate rule identified 51 directories with max best reward `< 1000`.
+    - Approximate candidate size: `209.1 MiB`.
+- Process check:
+  - `pgrep -af 'train.py|dexh13_lightbulb|screwdriver_teacher|student_|vis_' || true`
+  - Outcome: an active `smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h` training process was running; it was not a low-reward candidate and was not touched.
+- Post-cleanup verification:
+  - Python rescan over `outputs/**/best_reward_*.pth`.
+    - Outcome: `reward_named_runs=25`, `remaining_low_reward_runs=0`.
+  - `du -sh outputs`
+    - Outcome: `6.9G`.
+  - `git status --short`
+    - Outcome: source/config dirty state remains the pre-existing working tree plus this handoff edit; output deletions are untracked filesystem cleanup.
+
+### Local conclusion
+- Low-reward reward-named run directories were cleaned successfully.
+- The remaining reward-named output runs all have directory-level max best reward `>= 1000`.
+- The active smoothbulb training output was preserved.
+
+### Remaining blocked/risky
+- This cleanup only used checkpoint filename rewards. Student `.ckpt` runs without `best_reward_*.pth` were not classified or deleted.
+- Historical docs may still mention some deleted smoke/viewer/probe runs; this cleanup intentionally prioritized output disk hygiene over retaining every low-score artifact.
+- The `smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h` run was still active during cleanup and should be checked after completion before any further pruning.
+
+### Single recommended next step
+- Let the active `smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h` training finish, then summarize its final TensorBoard metrics and decide whether to visualize it against `middle_yneg018_torque03_idxlim015_s42_2h`.
+
+---
+
+## v2-137 (2026-04-27) -- Smoothbulb Visual/Collision Match And 2h Result
+
+### Target milestone/subgoal
+- Fix the smoothbulb viewer mismatch reported by the user:
+  - visual mesh and collision mesh did not match, making fingertip contact inspection misleading.
+- Test whether the observed occasional large thumb slip was mainly due to the previous smoothbulb run being only about 30 minutes.
+
+### What changed (files + behavior impact)
+- `assets/screw/smoothbulb/0000_lightbulb.urdf`
+  - Updated the `nut` visual meshes to match collision meshes exactly:
+    - visual head now uses `../../lightbulb/smooth_head_collision.stl`
+    - visual socket now uses `../../lightbulb/contact1.stl`
+    - both visual origins/rpy match the collision origins/rpy: `xyz="0 0 0.06" rpy="0 -1.57079632679 0"`
+  - Behavior impact:
+    - Physics is unchanged from the previous smoothbulb collision probe.
+    - Viewer inspection is now direct: visible bulb geometry is the same geometry PhysX collides with.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context:
+  - Read `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+- URDF validation:
+  - Parsed `assets/screw/smoothbulb/0000_lightbulb.urdf` with `xml.etree.ElementTree`.
+  - Confirmed visual and collision mesh/origin pairs for `nut` are aligned:
+    - visual/collision `smooth_head_collision.stl`
+    - visual/collision `contact1.stl`
+- Patch hygiene:
+  - `git diff --check -- assets/screw/smoothbulb/0000_lightbulb.urdf`
+  - Outcome: pass.
+- Freed GPU memory:
+  - Found the user's active smoothbulb viewer using about `3.1GB` GPU memory.
+  - Stopped that viewer container before the 8192-env long run.
+- 2h smoothbulb visual-match training:
+  - command:
+    - `./docker-run-isaacgym.sh timeout 7200 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h True wandb_activate=True task.env.termination.log=True task.env.object.type=screw_smoothbulb 'task.env.asset.dofUpperLimits=[0.15,1.57,1.57,1.57,0.35,1.57,1.57,1.57,0.001,0.001,0.001,0.001,0.35,1.57,1.57,1.57]'`
+  - W&B run:
+    - `smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h_2026-04-27_06-14-37`
+    - run id: `ytc7nx5p`
+  - Outcome: timeout ended normally after about `Collect 105.5min + Train RL 13.7min ~= 119.2min`; no OOM or segmentation fault.
+  - Best checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h/stage1_nn/best_reward_2849.55.pth`
+  - TensorBoard event:
+    - `outputs/Dexh13HoraLightbulb_teacher_middle_scalepos/smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h/stage1_tb/events.out.tfevents.1777270493.wbz-ubuntu22-pc`
+- Key scalar metrics:
+  - `episode_rewards/step`: last `2796.32`, max `2849.55`
+  - `episode_lengths/step`: last `767.88`, max `770.04`
+  - `screw/angular_velocity`: last `0.7845`, max `1.3215`
+  - `screw/positive_vel_ratio`: last `0.6931`, max `0.8011`
+  - `fingertip_tangent/positive_vel`: last `0.0877`, max `0.0894`
+  - `fingertip_torque/signed_torque`: last `6.5941`, max `6.8753`
+  - `fingertip_torque/reward`: last `0.8242`, max `0.8545`
+  - `finger_torque/index/positive`: last `1.1887`, max `1.4664`
+  - `finger_torque/middle/positive`: last `6.5931`, max `6.8753`
+  - `finger_torque/thumb/positive`: last `0.0827`, max `2.2897`
+  - `finger_torque/index/ratio_positive`: last `0.1469`, max `0.1764`
+  - `finger_torque/middle/ratio_positive`: last `0.8455`, max `0.8595`
+  - `finger_torque/thumb/ratio_positive`: last `0.0076`, max `0.1774`
+  - `finger_tangent/index/positive_vel`: last `0.0154`, max `0.0300`
+  - `finger_tangent/middle/positive_vel`: last `0.0872`, max `0.0894`
+  - `finger_tangent/thumb/positive_vel`: last `0.0608`, max `0.1100`
+  - `finger_motion/middle_joint_vel_abs`: last `1.7994`, max `1.9467`
+  - `finger_motion/middle_joint0_sign_flip_rate`: last `0.0`, max `0.8413`
+  - `finger_motion/index_middle_tip_dist`: last `0.0384`, max `0.0403`
+  - `term/any_reset_frac`: last `0.000366`, max `0.002563`
+  - `term/no_contact_frac`: last/max `0`
+- Post-run cleanup:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - `pgrep -af 'train.py|dexh13_lightbulb_teacher_middle_scalepos|smoothbulb_visualmatch' || true`
+  - Outcome: no training Python process remained; only the desktop/browser GPU process was listed.
+
+### Local conclusion
+- Issue 1 is fixed for the smoothbulb asset:
+  - visual and collision now use the same mesh geometry for both bulb head and socket.
+- Training time was a significant part of the observed instability:
+  - 30m smoothbulb best: `2019.50`
+  - 2h smoothbulb visual-match best: `2849.55`
+  - previous 2h contactviz index-upper-0.15 best: `2947.48`
+- Smoothbulb is now close to the original contactviz reward but still slightly lower.
+- The best reward appeared around the middle of the 2h run; the last reward was lower (`2796.32`), so visualization should use the best checkpoint.
+- Remaining thumb slip cannot be diagnosed from scalars alone:
+  - thumb positive torque ratio remains tiny at the end (`0.0076`);
+  - thumb tangent velocity is still nonzero (`0.0608`);
+  - if the best checkpoint still has rare large thumb ejection, the likely cause is smooth surface slip after contact loss rather than insufficient PPO time alone.
+
+### Remaining blocked/risky
+- The final behavioral decision still needs viewer confirmation on the best checkpoint.
+- If rare large thumb slip persists in the 2h best checkpoint, the next URDF direction should not be a fully smooth ellipsoid. Prefer local shoulder/chamfer smoothing or a slightly less smooth collision mesh that keeps some contact affordance.
+- Middle joint velocity is higher than the contactviz 2h run (`1.80` last vs `0.96` last), so visual inspection should also check whether middle participation became more active or simply more jittery.
+
+### Single recommended next step
+- Visualize the 2h smoothbulb best checkpoint:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 smoothbulb_visualmatch_yneg018_torque03_idxlim015_s42_2h task.env.object.type=screw_smoothbulb 'task.env.asset.dofUpperLimits=[0.15,1.57,1.57,1.57,0.35,1.57,1.57,1.57,0.001,0.001,0.001,0.001,0.35,1.57,1.57,1.57]'`
+- Compare against:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh 0 42 middle_yneg018_torque03_idxlim015_s42_2h`
+- If smoothbulb best clearly reduces thumb launch, keep it as a stability candidate; otherwise revert training to contactviz and test local collision smoothing near the bulb shoulder/socket transition.
+
+---
+
+## v2-138 (2026-04-27) -- XHandPasiniBulb Output Lookup
+
+### Target milestone/subgoal
+- Locate any existing teacher PPO checkpoint for the old `XHandPasiniBulb` task, which uses `assets/bulb/0000bulb.urdf`.
+
+### What changed (files + behavior impact)
+- `docs/session_handoff_v2.md`
+  - Added this lookup entry only.
+- No code, config, asset, checkpoint, or output file was changed.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context:
+  - Read `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+- Existing task wiring:
+  - `configs/task/XHandPasiniBulb.yaml` exists.
+  - `configs/train/XHandPasiniBulb.yaml` exists.
+  - `scripts/pasini_bulb_teacher.sh` and `scripts/vis_pasini_bulb_teacher.sh` exist.
+  - `dexscrew/tasks/xhand_pasini.py` maps `object.type: bulb` to `assets/bulb/0000bulb.urdf`.
+- Output lookup:
+  - Searched current `outputs/` and repository files for `XHandPasiniBulb`, `PasiniBulb`, `pasini_bulb`, and `XHandPasiniBulb_teacher`.
+  - Outcome: no current `outputs/XHandPasiniBulb_teacher/.../stage1_nn/best_reward_*.pth` checkpoint was found.
+  - Existing lightbulb outputs are for `XHandHoraLightbulb` or DexH13 lightbulb variants, not `XHandPasiniBulb`.
+
+### Local conclusion
+- The old task/config path exists and is wired correctly.
+- No usable teacher PPO checkpoint for `XHandPasiniBulb` is currently present under `outputs/`.
+- If such a checkpoint existed historically, it is not in the current output tree.
+
+### Remaining blocked/risky
+- There is no current `XHandPasiniBulb_teacher/<cache>` run to visualize.
+- Do not confuse `XHandPasiniBulb` (`object.type: bulb`, `assets/bulb/0000bulb.urdf`) with `XHandPasiniLightbulb` (`object.type: screw_lightbulb`, `assets/screw/lightbulb/*.urdf`).
+
+### Single recommended next step
+- If this path is needed again, rerun a bounded teacher probe with `scripts/pasini_bulb_teacher.sh`, then visualize it with `scripts/vis_pasini_bulb_teacher.sh`.
+
+---
+
+## v2-139 (2026-04-27) -- XHandPasiniBulb Middle/Ring Frozen Task YAML
+
+### Target milestone/subgoal
+- Create a new Pasini bulb task YAML based on the old `XHandPasiniBulb` config, but aligned with the latest lightbulb middle-scale-position probe style:
+  - ring action mask and near-zero DOF limits;
+  - middle gets the same near-zero DOF limits as ring;
+  - middle also gets action-masked.
+
+### What changed (files + behavior impact)
+- `configs/task/XHandPasiniBulbMiddleScalePos.yaml`
+  - New task config with `name: XHandPasiniBulb`, so it reuses the existing `XHandPasini` task class.
+  - Keeps the old `XHandPasiniBulb` object/config surface (`object.type: bulb`, `assets/bulb/0000bulb.urdf` through task code).
+  - Adds:
+    - `env.apply_action_mask: True`
+    - `env.action_mask_indices: [4, 5, 6, 7, 8, 9, 10, 11]`
+    - middle/ring near-zero `env.asset.dofLowerLimits` and `env.asset.dofUpperLimits`
+    - `env.customInitDofPos` with middle/ring reset pose at zero so the frozen fingers start inside their new limits.
+- `configs/train/XHandPasiniBulbMiddleScalePos.yaml`
+  - New matching train config copied from `XHandPasiniBulb`, allowing `task=XHandPasiniBulbMiddleScalePos` to compose without explicitly overriding `train=`.
+- `dexscrew/tasks/xhand_pasini.py`
+  - Added YAML-driven support for:
+    - `env.apply_action_mask`
+    - `env.action_mask_indices`
+    - `env.asset.dofLowerLimits`
+    - `env.asset.dofUpperLimits`
+    - optional `env.asset.dofEffortLimits`
+    - optional `env.asset.dofVelocityLimits`
+  - Default behavior remains compatible with the old Pasini bulb path: if no custom mask is given, non-screwdriver poses still mask ring actions `[8:12]`.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_pasini.py', 'exec') ... PY`
+  - Outcome: `xhand_pasini_syntax_ok`.
+- Patch hygiene:
+  - `git diff --check -- dexscrew/tasks/xhand_pasini.py configs/task/XHandPasiniBulbMiddleScalePos.yaml configs/train/XHandPasiniBulbMiddleScalePos.yaml`
+  - Outcome: pass.
+- Docker Hydra compose:
+  - `./docker-run-isaacgym.sh bash -lc "python - <<'PY' ... compose(task=XHandPasiniBulbMiddleScalePos, num_envs=4) ... PY"`
+  - Outcome:
+    - `task_name= XHandPasiniBulb`
+    - `train_algo= PPO`
+    - `customInit_middle= [0.0, 0.0, 0.0, 0.0]`
+    - `customInit_ring= [0.0, 0.0, 0.0, 0.0]`
+    - `action_mask_indices= [4, 5, 6, 7, 8, 9, 10, 11]`
+    - middle/ring lower and upper limits match.
+- Docker runtime smoke:
+  - Built a 2-env headless `XHandPasiniBulbMiddleScalePos` env and called `reset()`.
+  - Outcome:
+    - `env_smoke_ok`
+    - `apply_action_mask=True`
+    - `custom_action_mask_indices=[4, 5, 6, 7, 8, 9, 10, 11]`
+    - middle/ring lower tensors are `[-0.001, 0.0, 0.0, 0.0]`
+    - middle/ring upper tensors are `[0.001, 0.001, 0.001, 0.001]`
+    - reset middle/ring positions stay near the new zero limits.
+
+### Local conclusion
+- The new Pasini bulb task YAML is ready to train/evaluate as a fresh config.
+- Because the policy action space remains 16-D, this is not compatible with old policies unless they are evaluated under the same new mask/limit semantics intentionally.
+
+### Remaining blocked/risky
+- No teacher training has been run for this new task yet.
+- The old `scripts/pasini_bulb_teacher.sh` still points at `task=XHandPasiniBulb`; use a direct Hydra command or add a dedicated script before longer runs.
+
+### Single recommended next step
+- Run a bounded smoke teacher probe for `task=XHandPasiniBulbMiddleScalePos`, then visualize only if reward/contact behavior is promising.
+
+---
+
+## v2-140 (2026-04-27) -- XHandPasiniBulbMiddleScalePos 30m Teacher Probe
+
+### Target milestone/subgoal
+- Train the new `XHandPasiniBulbMiddleScalePos` teacher PPO probe for about 30 minutes using the default 8192-env scale, then check whether the environment/config is trainable enough to visualize.
+
+### What changed (files + behavior impact)
+- New output artifacts only:
+  - `outputs/XHandPasiniBulbMiddleScalePos_teacher/middle_ring_frozen_s42_30m/config_042708_21e8eff.yaml`
+  - `outputs/XHandPasiniBulbMiddleScalePos_teacher/middle_ring_frozen_s42_30m/gitdiff.patch`
+  - `outputs/XHandPasiniBulbMiddleScalePos_teacher/middle_ring_frozen_s42_30m/stage1_nn/best_reward_592.93.pth`
+  - `outputs/XHandPasiniBulbMiddleScalePos_teacher/middle_ring_frozen_s42_30m/stage1_tb/events.out.tfevents.1777280293.wbz-ubuntu22-pc`
+  - `outputs/XHandPasiniBulbMiddleScalePos_teacher/middle_ring_frozen_s42_30m/train_30m.log`
+- `docs/session_handoff_v2.md`
+  - Added this execution entry.
+- No source/config changes were made during this training run.
+
+### What was verified (commands + key outcomes)
+- Pre-run checks:
+  - Read latest `docs/session_handoff_v2.md`.
+  - Inspected current `configs/task/XHandPasiniBulbMiddleScalePos.yaml`.
+  - Checked GPU/process state:
+    - no active `train.py` process;
+    - only browser GPU process present.
+- Training command:
+  - `./docker-run-isaacgym.sh bash -lc 'set -o pipefail; CACHE=middle_ring_frozen_s42_30m; OUT=outputs/XHandPasiniBulbMiddleScalePos_teacher/${CACHE}; mkdir -p "${OUT}"; timeout 1800 python train.py task=XHandPasiniBulbMiddleScalePos headless=True seed=42 experiment=rl train.algo=PPO wandb_activate=True train.ppo.output_name=XHandPasiniBulbMiddleScalePos_teacher/${CACHE} 2>&1 | tee "${OUT}/train_30m.log"'`
+  - Outcome: command exited with code `124` from the intended `timeout 1800`, after about `Collect 23.6min + Train RL 5.9min ~= 29.5min`.
+- W&B:
+  - Run name: `middle_ring_frozen_s42_30m_2026-04-27_08-57-59`
+  - Run id: `52msq4m6`
+- Output/checkpoint check:
+  - Best checkpoint: `best_reward_592.93.pth`.
+  - Log and TensorBoard event were written.
+- TensorBoard scalar summary:
+  - `episode_rewards/step`: last `591.86`, max `592.93`
+  - `episode_lengths/step`: last/max `592.82`
+  - `info/best_reward`: last/max `592.93`
+  - `info/best_reward_step`: `51707904`
+  - `info/best_reward_elapsed_min`: `28.75`
+  - `screw/angular_velocity`: last `0.01946`, max `0.20146`
+  - `screw/angular_position`: last `3.0550`, max `3.1694`
+  - `screw/positive_vel_ratio`: last `0.4902`, max `0.5211`
+  - `rotation_reward`: last `0.1450`, max `0.1917`
+  - `step_all_reward`: last `1.0863`, max `1.3345`
+  - `info/kl`: last `0.02286`, max `0.18290`
+  - `info/last_lr`: last `0.000293`, max `0.002222`
+- Post-run checks:
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits`
+  - `pgrep -af 'train.py|XHandPasiniBulbMiddleScalePos|middle_ring_frozen_s42_30m' || true`
+  - Outcome: no training Python process remained; only browser GPU process was listed.
+
+### Local conclusion
+- The new `XHandPasiniBulbMiddleScalePos` config is trainable at 8192 env scale.
+- Early PPO was very unstable:
+  - reward first climbed to about `69.58`,
+  - fell back to the `20-30` range,
+  - then escaped and rose steadily to `592.93`.
+- The 30m result is not strong compared with mature teacher runs, but it is good enough for a quick viewer check of whether the learned behavior and frozen middle/ring mechanics look sane.
+- Scalar behavior suggests low rotation speed/positive velocity ratio, so the policy may be making slow or partial progress rather than a strong twisting behavior.
+
+### Remaining blocked/risky
+- The run ended by timeout, not by a clean trainer shutdown; this is expected for the 30m probe, but W&B final sync may be partial.
+- No visual check has been done yet.
+- There is no dedicated `scripts/vis_*` wrapper for `XHandPasiniBulbMiddleScalePos`; use a direct `train.py test=True` command.
+
+### Single recommended next step
+- Visualize the best checkpoint:
+  - `./docker-run-isaacgym.sh python train.py task=XHandPasiniBulbMiddleScalePos headless=False seed=42 sim_device=cuda:0 rl_device=cuda:0 graphics_device_id=7 task.env.numEnvs=6 test=True train.algo=PPO wandb_activate=False train.ppo.output_name=XHandPasiniBulbMiddleScalePos_teacher/middle_ring_frozen_s42_30m "checkpoint=outputs/XHandPasiniBulbMiddleScalePos_teacher/middle_ring_frozen_s42_30m/stage1_nn/best_reward_*.pth"`
+
+---
+
+## v2-141 (2026-04-27) -- DexH13 Lightbulb Thesis Two-Finger Config
+
+### Target milestone/subgoal
+- Stop the middle-finger collaboration branch for thesis closure.
+- Create a clean DexH13 lightbulb teacher PPO config that uses only index + thumb as active fingers, while middle and ring are frozen near zero.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - New task config based on the current scaled/positioned DexH13 lightbulb setup.
+  - Active actions/DOFs are index `0:3` and thumb `12:15`.
+  - Middle `4:7` and ring `8:11` are action-masked.
+  - Middle/ring init pose values are all `0.0`.
+  - Middle/ring DOF limits are locked near zero:
+    - lower `[-0.001, 0.0, 0.0, 0.0]`
+    - upper `[0.001, 0.001, 0.001, 0.001]`
+  - Finger contact, two-finger gate, fingertip tangent reward, and fingertip torque reward now target index + thumb instead of middle/three-finger collaboration.
+- `configs/train/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Added matching PPO train config.
+- `scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - Added training wrapper writing to `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/<cache>`.
+- `scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - Added visualization wrapper loading the best checkpoint from the thesis two-finger output path.
+
+### What was verified (commands + key outcomes)
+- Script syntax:
+  - `bash -n scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - `bash -n scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - Outcome: pass.
+- Config structure in Docker:
+  - `./docker-run-isaacgym.sh python -c "... OmegaConf.load('configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml') ..."`
+  - Outcome: `docker_omegaconf_thesis_twofinger_ok`.
+- Hydra composition:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbThesisTwoFinger train.algo=PPO num_envs=1 headless=True --cfg job`
+  - Outcome: task/train config composes successfully and includes `eval_cache_name: thesis_twofinger`, action mask, index-only gate, and locked DOF limits.
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml configs/train/Dexh13HoraLightbulbThesisTwoFinger.yaml scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - Outcome: pass.
+
+### Local conclusion
+- The new thesis two-finger configuration is ready for a fresh teacher PPO run.
+- This config intentionally abandons middle participation; middle/ring should remain physically near zero and policy-inactive.
+- Because the action space is still 16-D but masked/limited, policies trained under previous middle configs should not be compared as if they used the same action semantics.
+
+### Remaining blocked/risky
+- No PPO training has been run yet for this new thesis two-finger config.
+- Thumb ejection/stability risk may still exist because this config does not yet alter the global thumb pose penalty mask or controller gains.
+- If final visualization still shows thumb instability, the next thesis-safe fix should be controller damping/torque reduction or a small thumb stability penalty, not reintroducing middle collaboration.
+
+### Single recommended next step
+- Run a 30-minute thesis two-finger teacher probe:
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_s42_30m True wandb_activate=True task.env.termination.log=True`
+
+---
+
+## v2-142 (2026-04-27) -- Thesis Thumb Pose Penalty
+
+### Target milestone/subgoal
+- Add the previously identified thumb posture constraint for the final DexH13 lightbulb thesis two-finger branch.
+- Reduce the risk that the policy learns a high-force thumb shortcut that rotates the bulb briefly, loses friction, and sends the thumb far away from its comfortable pose.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Replaced the hardcoded thumb pose-diff mask behavior with a configurable value:
+    - `env.pose_diff_penalty.thumb_weight`
+    - default remains `0.0`, preserving legacy Hora configs unless they opt in.
+  - Added thumb pose deviation diagnostics:
+    - `pose_diff_penalty/thumb_raw`
+    - `pose_diff_penalty/thumb_weighted`
+- `configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Enabled the final branch thumb posture penalty:
+    - `env.pose_diff_penalty.thumb_weight: 1.0`
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - Outcome: `xhand_hora_compile_ok`.
+- Patch hygiene:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Outcome: pass.
+- Hydra composition:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbThesisTwoFinger train.algo=PPO num_envs=1 headless=True --cfg job`
+  - Outcome: composed config includes `pose_diff_penalty.thumb_weight: 1.0`.
+- Runtime smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulbThesisTwoFinger headless=True seed=42 num_envs=4 train.algo=PPO train.ppo.minibatch_size=12 train.ppo.max_agent_steps=48 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher_thesis_twofinger/smoke_posepenalty_tmp`
+  - Outcome: environment built, reward path executed, and trainer ended with `max steps achieved`.
+  - Temporary smoke output was removed afterward.
+
+### Local conclusion
+- The final thesis two-finger task now penalizes thumb deviation from the configured initial pose.
+- This is the right first stabilization step before lowering controller authority, because it targets the exact bad behavior while keeping the learned two-finger twisting objective intact.
+- Smoothbulb vs original contactviz decision:
+  - current evidence favors original `screw_contactviz` for the final branch.
+  - previous 2h contactviz best: `2947.48`.
+  - previous 2h smooth visual-match best: `2849.55`.
+  - smooth helped some small contact artifacts but still showed larger occasional thumb slip; the original faceted/contactviz geometry provides more contact affordance and better reward.
+
+### Remaining blocked/risky
+- Thumb pose penalty may reduce reward at first; this is expected if it removes the old high-force shortcut.
+- If thumb still ejects after training this version, the next thesis-safe fixes are:
+  - lower `controller.torque_limit` and `action_scale`;
+  - increase `controller.dgain`;
+  - add a small thumb tip velocity / contact-continuity penalty.
+- Do not switch the final thesis branch to smoothbulb without an apples-to-apples two-finger run showing better visual stability and comparable reward.
+
+### Single recommended next step
+- Run the 30-minute thesis two-finger probe with thumb pose penalty enabled:
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_posepen_s42_30m True wandb_activate=True task.env.termination.log=True`
+
+---
+
+## v2-143 (2026-04-27) -- Thesis Thumb Pose Penalty Relaxed
+
+### Target milestone/subgoal
+- Relax the thesis two-finger thumb pose penalty after reconsidering that the original Hora path intentionally left thumb unpenalized because thumb motion amplitude is naturally large.
+
+### What changed (files + behavior impact)
+- `configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Changed `env.pose_diff_penalty.thumb_weight` from `1.0` to `0.1`.
+  - Behavior impact:
+    - index remains fully covered by the base pose-diff penalty;
+    - thumb now receives only a light pose-diff penalty, intended to discourage extreme ejection without suppressing normal large thumb motion.
+
+### What was verified (commands + key outcomes)
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Outcome: pass.
+- Hydra composition:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbThesisTwoFinger train.algo=PPO num_envs=1 headless=True --cfg job`
+  - Outcome: composed config includes `pose_diff_penalty.thumb_weight: 0.1`.
+
+### Local conclusion
+- `thumb_weight=0.1` is a better first thesis setting than `1.0`: it keeps a stabilizing signal while respecting the thumb's larger natural workspace.
+- If thumb still ejects after short training, the next adjustment should be controller-side damping/authority rather than immediately increasing thumb pose penalty sharply.
+
+### Remaining blocked/risky
+- No training run has been completed with the relaxed `0.1` value yet.
+- The init pose should be visually checked before the next 30-minute run.
+
+### Single recommended next step
+- Open a viewer training run to inspect the thesis two-finger init pose:
+  - `./docker-run-isaacgym.sh bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_initpose_vis False wandb_activate=False task.env.randomization.randomizePDGains=False task.env.randomization.action_noise_e_scale=0.0 task.env.randomization.action_noise_t_scale=0.0 task.env.randomization.obs_noise_e_scale=0.0 task.env.randomization.obs_noise_t_scale=0.0 task.env.randomization.noisy_rpy_scale=0.0 task.env.randomization.noisy_pos_scale=0.0 task.env.forceScale=0.0 task.env.randomForceProbScalar=0.0`
+
+---
+
+## v2-144 (2026-04-27) -- Thesis Contact Material Stabilization Probe
+
+### Target milestone/subgoal
+- Improve final DexH13 lightbulb thesis two-finger stability after visualization showed occasional thumb slip/ejection.
+- Test a contact/material-side fix before changing reward more aggressively or reducing controller authority.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Made object restitution randomization configurable through:
+    - `env.randomization.randomizeRestitutionLower`
+    - `env.randomization.randomizeRestitutionUpper`
+  - Default remains `[0.0, 1.0]`, preserving legacy behavior for configs that do not opt in.
+- `configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Increased object friction randomization range to `[1.0, 5.0]`.
+  - Restricted restitution to `[0.0, 0.05]` to reduce bounce-like contact response.
+  - Set `max_depenetration_velocity: 10.0` to reduce hard contact correction impulses.
+  - Kept `pose_diff_penalty.thumb_weight: 0.1`.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - Outcome: `xhand_hora_compile_ok`.
+- Patch hygiene:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Outcome: pass.
+- Hydra composition:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbThesisTwoFinger train.algo=PPO num_envs=1 headless=True --cfg job`
+  - Outcome: composed config includes `thumb_weight: 0.1`, friction `[1.0, 5.0]`, restitution `[0.0, 0.05]`, and `max_depenetration_velocity: 10.0`.
+- Runtime smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulbThesisTwoFinger headless=True seed=42 num_envs=4 train.algo=PPO train.ppo.minibatch_size=12 train.ppo.max_agent_steps=48 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher_thesis_twofinger/smoke_matstable_tmp`
+  - Outcome: environment built and trainer ended with `max steps achieved`; temporary smoke output was removed.
+- 30-minute PPO probe:
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_matstable_s42_30m True wandb_activate=True task.env.termination.log=True`
+  - Outcome: timeout ended cleanly, no training process remained afterward.
+  - Checkpoint: `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_matstable_s42_30m/stage1_nn/best_reward_2845.32.pth`.
+
+### Training metrics
+- `episode_rewards/step`: last/max `2844.83`.
+- `episode_lengths/step`: last/max `722.43`.
+- `screw/angular_velocity`: last `0.8560`, max `2.0802`.
+- `screw/positive_vel_ratio`: last `0.8412`, max `0.9104`.
+- `two_finger/gate`: last `0.99898`.
+- `two_finger/thumb_contact_w`: last `0.99926`.
+- `two_finger/other_contact_w`: last `0.99972`.
+- `term/any_reset_frac`: last `0.000366`, max `0.002319`.
+- `term/no_contact_frac`: last/max `0`.
+- `pose_diff_penalty/thumb_raw`: last `0.0441`, max `0.0517`.
+- `fingertip_torque/positive_torque`: last `1.1963`, max `1.5904`.
+
+### Local conclusion
+- The contact/material-stable version kept reward essentially equal to the previous relaxed thumb-pose run (`2845.32` vs about `2847.96`), so it did not break the learned two-finger behavior.
+- Contact diagnostics remained very strong and no-contact resets stayed at zero.
+- This is a good candidate to visualize immediately; scalar logs alone cannot prove whether the rare thumb ejection improved.
+
+### Remaining blocked/risky
+- Visual confirmation is still required. The key question is whether the lower restitution and depenetration limit reduced the large thumb slip/ejection events.
+- If ejection persists, the next thesis-safe step should be controller-side damping/authority tuning, for example testing lower `torque_limit` or higher `dgain`, rather than switching back to middle collaboration.
+
+### Single recommended next step
+- Visualize the material-stable 30-minute checkpoint:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_matstable_s42_30m`
+
+---
+
+## v2-145 (2026-04-27) -- Thesis Smooth Geometry A/B Probe
+
+### Target milestone/subgoal
+- Test whether replacing the current faceted/contactviz lightbulb collision with the smooth visual=collision bulb reduces thumb slip/ejection without changing the thesis two-finger reward, controller, or material stabilization settings.
+
+### What changed (files + behavior impact)
+- New output artifacts only:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_smooth_matstable_s42_30m/config_042715_21e8eff.yaml`
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_smooth_matstable_s42_30m/gitdiff.patch`
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_smooth_matstable_s42_30m/stage1_nn/best_reward_2067.97.pth`
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_smooth_matstable_s42_30m/stage1_tb/events.out.tfevents.1777305240.wbz-ubuntu22-pc`
+- No source/config edits were made during this A/B run.
+- The run used override `task.env.object.type=screw_smoothbulb`, keeping the current thesis two-finger config otherwise unchanged.
+
+### What was verified (commands + key outcomes)
+- Pre-run bootstrap:
+  - Read `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+  - Confirmed `assets/screw/smoothbulb/0000_lightbulb.urdf`, `assets/lightbulb/smooth_head_collision.stl`, and thesis train/vis scripts exist.
+  - Confirmed the output cache did not already exist.
+  - Confirmed no active training process was running.
+- Training command:
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_smooth_matstable_s42_30m True wandb_activate=True task.env.termination.log=True task.env.object.type=screw_smoothbulb`
+  - Outcome: command exited with code `124` from the intended 30-minute timeout; cleanup completed and no training process remained.
+- W&B:
+  - Run id: `87py0g6g`
+  - Run name: `thesis_twofinger_smooth_matstable_s42_30m_2026-04-27_15-53-41`
+- Post-run checks:
+  - Checkpoint exists: `best_reward_2067.97.pth`.
+  - GPU process check showed no training Python process, only browser/ToDesk processes.
+
+### Training metrics
+- `episode_rewards/step`: TensorBoard last/max `2065.62`; checkpoint best `2067.97`.
+- `episode_lengths/step`: last/max `670.99`.
+- `screw/angular_velocity`: last `0.7393`, max `1.5490`.
+- `screw/positive_vel_ratio`: last `0.8147`, max `0.8635`.
+- `two_finger/gate`: last `0.99766`, max `0.99907`.
+- `two_finger/thumb_contact_w`: last `0.99768`.
+- `two_finger/other_contact_w`: last `0.99997`.
+- `term/any_reset_frac`: last `0.000977`, max `0.003052`.
+- `term/no_contact_frac`: last/max `0`.
+- `pose_diff_penalty/thumb_raw`: last `0.01036`, max `0.02446`.
+- `fingertip_torque/positive_torque`: last `1.1306`, max `1.7340`.
+
+### Local conclusion
+- Smooth geometry is trainable and stable, but it does not meet the short-run scalar acceptance threshold:
+  - target `episode_rewards/step >= 2700`;
+  - observed checkpoint best `2067.97`.
+- Compared with `thesis_twofinger_matstable_s42_30m` on contactviz:
+  - reward is much lower (`2067.97` vs `2845.32`);
+  - angular velocity is lower (`0.7393` last vs `0.8560` last; `1.5490` max vs `2.0802` max);
+  - two-finger contact remains strong and no-contact reset remains zero.
+- Current interpretation:
+  - the smoother bulb likely removes some edge/patch discontinuity, but also removes useful contact affordance for fast twisting;
+  - do not switch the thesis final default to `screw_smoothbulb` based on scalar evidence alone.
+
+### Remaining blocked/risky
+- Visual confirmation is still needed. The scalar result says smooth is slower, but only viewer inspection can answer whether thumb ejection is actually reduced.
+- If smooth visually removes thumb ejection but is too slow, the next experiment should combine the better visual/contact geometry idea with controller tuning rather than simply replacing the final asset.
+
+### Single recommended next step
+- Visualize the smooth A/B checkpoint:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_smooth_matstable_s42_30m task.env.object.type=screw_smoothbulb`
+- Then compare against current contactviz candidate:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_matstable_s42_30m`
+
+---
+
+## v2-146 (2026-04-28) -- Thesis Two-Finger Thumb Slip Diagnostics And Controller/Pose Ablation
+
+### Target milestone/subgoal
+- Keep the thesis final path on the original contactviz bulb (`task.env.object.type=screw_contactviz`) and identify the main lever behind occasional thumb slip/ejection.
+- Compare torque limit, damping, and thumb pose regularization without changing the reward formula or URDF.
+
+### What changed (files + behavior impact)
+- `dexscrew/tasks/xhand_hora.py`
+  - Added TensorBoard/W&B-only thumb slip diagnostics:
+    - `thumb_slip/contact_drop_frac`
+    - `thumb_slip/far_frac`
+    - `thumb_slip/active_detach_frac`
+    - `thumb_slip/active_far_frac`
+    - `thumb_slip/ejection_frac`
+    - `thumb_slip/tip_speed_mean`
+    - `thumb_slip/tip_speed_p95`
+    - `thumb_slip/joint_vel_abs_mean`
+    - `thumb_slip/joint_vel_abs_p95`
+    - `thumb_slip/dist_p95`
+    - `thumb_slip/contact_w_p05`
+    - `thumb_slip/active_screw_frac`
+    - `thumb_slip/score`
+  - These metrics are diagnostic only and do not participate in reward.
+- `configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Added `env.thumb_slip_diagnostics` thresholds:
+    - `contact_drop_w: 0.2`
+    - `far_dist: 0.09`
+    - `high_tip_speed: 0.25`
+    - `active_screw_vel: 0.2`
+- `scripts/summarize_thesis_twofinger_runs.py`
+  - Added a small TensorBoard summary helper for thesis two-finger ablations.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+  - Outcome: `xhand_hora_compile_ok`.
+- Patch hygiene:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - Outcome: pass.
+  - `PYTHONDONTWRITEBYTECODE=1 python -m py_compile scripts/summarize_thesis_twofinger_runs.py`
+  - Outcome: pass.
+- Hydra composition:
+  - Confirmed `env.thumb_slip_diagnostics`, default `task.env.object.type=screw_contactviz`, default `torque_limit: 300.0`, and default `dgain: 0.01`.
+- Runtime smoke:
+  - `./docker-run-isaacgym.sh timeout 300 python train.py task=Dexh13HoraLightbulbThesisTwoFinger headless=True seed=42 num_envs=64 train.algo=PPO train.ppo.minibatch_size=128 train.ppo.max_agent_steps=2048 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher_thesis_twofinger/smoke_thumbslip_diag_tmp task.env.termination.log=True`
+  - Outcome: smoke completed and TensorBoard contained the new `thumb_slip/*` tags.
+- Process hygiene:
+  - After each 1-hour run, checkpoint existence was checked.
+  - `pgrep` showed no residual `train.py` process.
+  - `nvidia-smi` showed no residual training Python process.
+
+### Training metrics
+| run | best ckpt | reward | vel | gate | slip score | active far | active detach | ejection | tip p95 | dist p95 | contact p05 | reset | no contact |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `thesis_twofinger_tlim200_diag_s42_1h` | 3488.70 | 3488.70 | 0.9002 | 0.9990 | 0.00470 | 0.00300 | 0.00000 | 0.00171 | 0.4321 | 0.0638 | 1.0000 | 0.00037 | 0.00000 |
+| `thesis_twofinger_tlim180_diag_s42_1h` | 3525.85 | 3525.67 | 1.1236 | 0.9990 | 0.00544 | 0.00262 | 0.00000 | 0.00171 | 0.4553 | 0.0636 | 1.0000 | 0.00037 | 0.00000 |
+| `thesis_twofinger_dgain015_diag_s42_1h` | 3695.92 | 3695.76 | 1.1292 | 0.9985 | 0.00626 | 0.00569 | 0.00000 | 0.00366 | 0.3933 | 0.0624 | 1.0000 | 0.00085 | 0.00000 |
+| `thesis_twofinger_thumbpose02_diag_s42_1h` | 3171.29 | 3171.25 | 0.6086 | 0.9989 | 0.00183 | 0.00134 | 0.00000 | 0.00049 | 0.2725 | 0.0625 | 1.0000 | 0.00012 | 0.00000 |
+| `thesis_twofinger_thumbpose02_tlim200_diag_s42_1h` | 3171.29 | 3171.25 | 0.6086 | 0.9989 | 0.00183 | 0.00134 | 0.00000 | 0.00049 | 0.2725 | 0.0625 | 1.0000 | 0.00012 | 0.00000 |
+| `thesis_twofinger_thumbpose02_dgain015_diag_s42_1h` | 3558.70 | 3555.97 | 0.8850 | 0.9988 | 0.00425 | 0.00482 | 0.00000 | 0.00269 | 0.3500 | 0.0620 | 1.0000 | 0.00037 | 0.00000 |
+
+### Local conclusion
+- The strongest single lever for reducing thumb ejection is `pose_diff_penalty.thumb_weight=0.2`.
+  - It reduced slip score from `0.00470-0.00626` down to `0.00183`.
+  - It reduced ejection from `0.00171-0.00366` down to `0.00049`.
+  - It also reduced thumb tip speed p95 to `0.2725`, but slowed screw angular velocity to `0.6086`.
+- `dgain=0.015` alone produced the highest reward (`3695.92`) and high angular velocity, but it also had the worst slip score and ejection rate.
+- `torque_limit=180/200` did not solve the slip issue by itself.
+- `thumb_weight=0.2 + torque_limit=200` matched pure `thumb_weight=0.2` almost exactly, suggesting `torque_limit=200` is not binding in this trained policy.
+- `thumb_weight=0.2 + dgain=0.015` is the best balanced follow-up candidate:
+  - reward improved to `3558.70`;
+  - angular velocity recovered to `0.8850`;
+  - slip score stayed below the raw controller-only runs, but is not as clean as pure `thumb_weight=0.2`.
+
+### Remaining blocked/risky
+- Visual confirmation is still required. The scalar winner by reward (`dgain015`) and the scalar winner by slip (`thumbpose02`) are different.
+- The balanced candidate (`thumbpose02_dgain015`) may still show visible late-rotation thumb ejection because its `active_far` and `ejection` are higher than pure `thumbpose02`.
+- The current diagnostics show thumb contact weight p05 remains `1.0`; the observed visual "脱手" is better captured by distance/speed/ejection than by contact-drop alone.
+
+### Single recommended next step
+- Visualize the balanced candidate first:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_thumbpose02_dgain015_diag_s42_1h`
+- Then visualize the lowest-slip stable candidate:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_thumbpose02_diag_s42_1h`
+- If the balanced candidate still visibly throws the thumb out, use pure `thumbpose02` as thesis-stable default and consider a smaller damping step (`dgain=0.0125`) rather than further reducing torque limit.
+
+---
+
+## v2-147 (2026-04-28) -- Thesis Two-Finger Teacher PPO Selection For Student Distillation
+
+### Target milestone/subgoal
+- Lock the final thesis two-finger teacher PPO checkpoint for subsequent student imitation/distillation.
+
+### What changed (files + behavior impact)
+- Documentation only.
+- User visually compared:
+  - `thesis_twofinger_thumbpose02_dgain015_diag_s42_1h`
+  - `thesis_twofinger_thumbpose02_diag_s42_1h`
+- Decision: use the slower but visibly more stable pure `thumbpose02` run as the teacher PPO checkpoint for student distillation.
+
+### What was verified (commands + key outcomes)
+- Confirmed selected checkpoint exists:
+  - `ls -lh outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/stage1_nn/best_reward_3171.29.pth`
+  - Outcome: file exists, about `1.2M`.
+- Confirmed the faster comparison checkpoint also exists:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_dgain015_diag_s42_1h/stage1_nn/best_reward_3558.70.pth`
+
+### Local conclusion
+- Selected teacher PPO checkpoint:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/stage1_nn/best_reward_3171.29.pth`
+- Rationale:
+  - `thumbpose02_dgain015` is faster, but visual slip/ejection is larger.
+  - pure `thumbpose02` rotates slower, but is the more thesis-safe stable teacher for distillation.
+- Do not use the higher-reward `dgain015` or `thumbpose02_dgain015` as the default distillation teacher unless the goal changes from stable final behavior to speed-first behavior.
+
+### Remaining blocked/risky
+- Existing generic DexH13 lightbulb student scripts default to:
+  - `task=Dexh13HoraLightbulb`
+  - `checkpoint=outputs/Dexh13HoraLightbulb_teacher/${CACHE}/stage1_nn/best_reward_*.pth`
+- For thesis two-finger student distillation, override both task and checkpoint explicitly, or add thesis-specific student scripts before long runs.
+
+### Single recommended next step
+- Start student distillation with the explicit selected teacher checkpoint:
+  - `task=Dexh13HoraLightbulbThesisTwoFinger`
+  - `checkpoint=outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/stage1_nn/best_reward_3171.29.pth`
+
+---
+
+## v2-148 (2026-04-28) -- Thesis Two-Finger ProprioAdapt Student Script
+
+### Target milestone/subgoal
+- Provide a dedicated project-native ProprioAdapt script for distilling the selected thesis two-finger PPO teacher.
+
+### What changed (files + behavior impact)
+- `scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - New executable script.
+  - Uses `task=Dexh13HoraLightbulbThesisTwoFinger`.
+  - Uses `train.algo=ProprioAdapt` and `train.ppo.proprio_adapt=True`.
+  - Writes to `outputs/Dexh13HoraLightbulb_student_padapt_thesis_twofinger/${CACHE}`.
+  - Defaults checkpoint to the selected stable teacher:
+    - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/stage1_nn/best_reward_3171.29.pth`
+  - Keeps the existing DexH13 student defaults:
+    - `task.env.numEnvs=48`
+    - `train.ppo.minibatch_size=576`
+    - observation noise `obs_noise_t_scale=0.01`, `obs_noise_e_scale=0.02`
+    - thesis termination checks enabled with `grace_steps=0`
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `chmod +x scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - `bash -n scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - `git diff --check -- scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - Outcome: pass.
+- Checkpoint:
+  - `ls -lh outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/stage1_nn/best_reward_3171.29.pth`
+  - Outcome: selected teacher checkpoint exists.
+- Runtime smoke:
+  - `./docker-run-isaacgym.sh timeout 240 bash scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh 0 42 smoke_padapt_thesis_tmp task.env.numEnvs=4 train.ppo.minibatch_size=48 train.ppo.max_agent_steps=48 wandb_activate=False`
+  - Outcome:
+    - Hydra composed `task=Dexh13HoraLightbulbThesisTwoFinger`.
+    - `train.algo=ProprioAdapt`.
+    - `train.load_path` resolved to the selected teacher checkpoint.
+    - environment built successfully with the thesis two-finger config.
+    - teacher checkpoint loaded successfully.
+    - `ProprioAdapt trainable patterns: ['adapt_tconv'] | trainable params: 25544`.
+    - no tensor/action/observation dimension mismatch occurred.
+    - smoke was stopped by timeout code `124` after proving the path; temporary smoke output was removed.
+- Process hygiene:
+  - No residual student smoke training process remained.
+  - An unrelated existing viewer process was still running:
+    - PID `2998181`, `test=True`, visualizing `thesis_twofinger_thumbpose02_dgain015_diag_s42_1h`.
+
+### Local conclusion
+- The built-in `ProprioAdapt` path is compatible with the thesis two-finger PPO teacher.
+- The correct production command should use the new thesis-specific script rather than the older generic `dexh13_lightbulb_student_padapt.sh`, because the older script defaults to `task=Dexh13HoraLightbulb` and the old teacher output root.
+
+### Remaining blocked/risky
+- The smoke used only 4 envs and was timeout-bounded. It confirms wiring/compatibility, not final distillation quality.
+- The user should stop unrelated viewer processes before launching a long student run if GPU memory becomes tight.
+
+### Single recommended next step
+- Start a first bounded ProprioAdapt thesis student run:
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh 0 42 thesis_twofinger_padapt_s42_30m wandb_activate=True`
+
+---
+
+## v2-149 (2026-04-28) -- Thesis Two-Finger ProprioAdapt Student Visualization Script
+
+### Target milestone/subgoal
+- Visualize the first 30-minute ProprioAdapt thesis two-finger student checkpoint.
+
+### What changed (files + behavior impact)
+- `scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - New executable visualization script for the thesis two-finger ProprioAdapt student.
+  - Uses:
+    - `task=Dexh13HoraLightbulbThesisTwoFinger`
+    - `train.algo=ProprioAdapt`
+    - `train.ppo.proprio_adapt=True`
+    - `test=True`
+    - deterministic visual settings with action/obs noise and force disturbance disabled.
+  - Loads:
+    - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_twofinger/${CACHE}/stage2_nn/model_best.ckpt`
+
+### What was verified (commands + key outcomes)
+- Confirmed the 30-minute student checkpoint exists:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_twofinger/thesis_twofinger_padapt_s42_30m/stage2_nn/model_best.ckpt`
+- Static checks:
+  - `chmod +x scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - `bash -n scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - `git diff --check -- scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - Outcome: pass.
+- Process check:
+  - No active Isaac Gym `test=True` viewer process was found.
+
+### Local conclusion
+- The 30-minute ProprioAdapt student can now be visualized with a short cache-based command.
+
+### Remaining blocked/risky
+- Visual quality has not yet been inspected by the user.
+- If the student visually lags the teacher but keeps stable two-finger contact, continue distillation from the same teacher with a longer run.
+
+### Single recommended next step
+- Visualize the 30-minute ProprioAdapt thesis student:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh 0 42 thesis_twofinger_padapt_s42_30m`
+
+---
+
+## v2-150 (2026-04-28) -- Thesis Two-Finger ProprioAdapt Sim2Real Handoff Package
+
+### Target milestone/subgoal
+- Preserve the first usable 30-minute ProprioAdapt thesis two-finger student for a teammate's sim2real deployment work.
+
+### What changed (files + behavior impact)
+- Created `sim2real/thesis_twofinger_padapt_s42_30m/`.
+- Added deployment/handoff artifacts:
+  - `teacher_ppo_best_reward_3171.29.pth`
+    - Stable thesis two-finger PPO teacher selected for reproduction and distillation.
+  - `student_policy.pt`
+    - TorchScript export from the ProprioAdapt student.
+  - `model_best.ckpt`
+    - Original project checkpoint copied from the run output.
+  - `train_config.yaml`
+    - Full Hydra config from the student training run.
+  - `task_config_Dexh13HoraLightbulbThesisTwoFinger.yaml`
+    - Task YAML snapshot.
+  - `vis_student.sh`
+    - Convenience visualization script snapshot.
+  - `README.md`
+    - Source paths, checksums, interface notes, and deployment caveat.
+
+### What was verified (commands + key outcomes)
+- Source checkpoint inspection:
+  - `torch.load(.../model_best.ckpt, map_location='cpu')`
+  - Outcome: checkpoint keys include `model`, `running_mean_std`, `sa_mean_std`, `priv_mean_std`, and `point_cloud_mean_std`.
+- TorchScript export:
+  - `JIT_OUTPUT_NAME=../sim2real/thesis_twofinger_padapt_s42_30m/student_policy.pt python student_eval.py task=Dexh13HoraLightbulbThesisTwoFinger ... train.algo=ProprioAdapt train.load_path=sim2real/thesis_twofinger_padapt_s42_30m/model_best.ckpt`
+  - Outcome: export completed and wrote `student_policy.pt`.
+- TorchScript load check:
+  - `torch.jit.load('sim2real/thesis_twofinger_padapt_s42_30m/student_policy.pt', map_location='cpu')`
+  - Outcome: load succeeded; normalization buffers are present.
+- File checks:
+  - `teacher_ppo_best_reward_3171.29.pth`: SHA1 `9a3b8d587dc2aecec6d0cdb8dcf98f0199c1cbdd`
+  - `model_best.ckpt`: SHA1 `a92dd01eaf90302b68a1008129d36023cde1373d`
+  - `student_policy.pt`: SHA1 `e0dd6a2f6b6d91256ba4ea5bed4947d9b4345b06`
+  - `train_config.yaml`: SHA1 `9b28596ac4dd540cbec0f87e5d32c84e33dc4f25`
+  - `task_config_Dexh13HoraLightbulbThesisTwoFinger.yaml`: SHA1 `50616aa953ec7841760ee44e2c29f93975554b53`
+- Patch hygiene:
+  - `git diff --check -- sim2real/thesis_twofinger_padapt_s42_30m/README.md`
+  - Outcome: pass.
+- Process hygiene:
+  - No residual `student_eval.py` or thesis training process remained.
+
+### Local conclusion
+- The primary file to keep for exact repo reproduction and continued distillation is:
+  - `sim2real/thesis_twofinger_padapt_s42_30m/model_best.ckpt`
+- The primary teacher PPO file to keep for reproducing teacher visualization is:
+  - `sim2real/thesis_twofinger_padapt_s42_30m/teacher_ppo_best_reward_3171.29.pth`
+- The primary lightweight deployment candidate is:
+  - `sim2real/thesis_twofinger_padapt_s42_30m/student_policy.pt`
+- The package is intentionally small and does not include TensorBoard logs.
+
+### Remaining blocked/risky
+- The current TorchScript export path stores normalization buffers but follows the repo's existing traced forward convention. A real-robot runtime must confirm input schema and normalization before hardware execution.
+- The user observed the policy is usable but still has occasional thumb slip/ejection, so this should be treated as a deploy candidate rather than a final safety-certified controller.
+
+### Single recommended next step
+- Hand the directory `sim2real/thesis_twofinger_padapt_s42_30m/` to the sim2real teammate, and have them first validate `student_policy.pt` in an offline replay or dry-run runtime before commanding the real hand.
+
+---
+
+## v2-151 (2026-04-28) -- Rounded-Contact Lightbulb Geometry Probe
+
+### Target milestone/subgoal
+- Create a conservative rounded-contact bulb URDF variant for visual inspection, without changing the thesis two-finger task config, reward, controller, or selected teacher/student checkpoints.
+
+### What changed (files + behavior impact)
+- Added `assets/lightbulb/rounded_contact_head.stl`.
+  - Smooth lathed bulb-head mesh intended to reduce local faceted contact-normal changes.
+  - Keeps the original `contact0.stl` x length/bounds and only slightly increases y/z radius.
+- Added `assets/screw/roundedcontact/0000_lightbulb.urdf`.
+  - New object type: `screw_roundedcontact`.
+  - Visual and collision both use `../../lightbulb/rounded_contact_head.stl` for the head.
+  - Socket visual/collision remains `../../lightbulb/contact1.stl`.
+  - Main thesis default remains `screw_contactviz`; this is an override-only probe.
+
+### What was verified (commands + key outcomes)
+- XML and mesh dimension check:
+  - `python - <<'PY' ... ET.parse('assets/screw/roundedcontact/0000_lightbulb.urdf') ... PY`
+  - Outcome: URDF XML parse succeeded.
+  - `contact0.stl`: `tris=124`, bbox size `[0.069184, 0.063119, 0.063119]`.
+  - `rounded_contact_head.stl`: `tris=5904`, bbox size `[0.069184, 0.0644956, 0.0644956]`.
+- Patch hygiene:
+  - `git diff --check -- assets/screw/roundedcontact/0000_lightbulb.urdf docs/session_handoff_v2.md`
+  - Outcome: pass.
+- Isaac Gym asset smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulbThesisTwoFinger task.env.object.type=screw_roundedcontact headless=True seed=42 num_envs=1 train.algo=PPO train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher_thesis_twofinger/smoke_roundedcontact_tmp`
+  - Outcome: task printed `Primitive List ['screw_roundedcontact']`, `using 1 training objects`, and `env 0 object_asset id: 0`; the asset loads and builds.
+  - Tiny one-env smoke produced `mean_rewards: nan`, which is expected to be non-diagnostic for this short asset-load probe.
+- Cleanup:
+  - Removed `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/smoke_roundedcontact_tmp`.
+  - No `screw_roundedcontact` smoke training process remains.
+
+### Local conclusion
+- The rounded-contact geometry is available as a safe A/B asset via `task.env.object.type=screw_roundedcontact`.
+- Because this keeps the old placement and nearly the old scale, it is a cleaner geometry probe than the previous smoothbulb attempt.
+
+### Remaining blocked/risky
+- User visual inspection is still needed.
+- If the thumb still contacts with the side rather than fingertip, the next fix should likely be hand/object pose tuning (`handRootPos` or bulb y/z), not further mesh smoothing alone.
+- Two unrelated one-env ProprioAdapt visualization/test processes were present on GPU during the check; they were not killed.
+
+### Single recommended next step
+- Visualize the selected thesis teacher checkpoint with the rounded-contact asset override:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_thumbpose02_diag_s42_1h task.env.object.type=screw_roundedcontact`
+
+---
+
+## v2-152 (2026-04-28) -- Viewer Process Cleanup For Geometry A/B
+
+### Target milestone/subgoal
+- Clear stale one-env visualization/test processes before comparing `screw_contactviz` and `screw_roundedcontact` under the same thesis PPO checkpoint.
+
+### What changed (files + behavior impact)
+- No code/config behavior changed.
+- Stopped stale `test=True` viewer/test processes:
+  - `3032424`
+  - `3035450`
+  - `3102342`
+
+### What was verified (commands + key outcomes)
+- Process/GPU check:
+  - `pgrep -af 'train.py task=Dexh13HoraLightbulbThesisTwoFinger.*test=True' || true`
+  - `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits || true`
+  - Outcome: no remaining thesis `train.py ... test=True` process; only the Chrome GPU process remained visible.
+
+### Local conclusion
+- The GPU is clear of the stale Isaac Gym visualization/test runs.
+
+### Remaining blocked/risky
+- The rounded-contact visual/collision gap still needs manual side-by-side inspection against `screw_contactviz`.
+
+### Single recommended next step
+- Run the same PPO viewer once with `task.env.object.type=screw_contactviz`, then once with `task.env.object.type=screw_roundedcontact`, and compare the apparent finger-to-bulb visual gap.
+
+---
+
+## v2-153 (2026-04-28) -- Cloud Conda/IsaacGym Bootstrap For Thesis Two-Finger PPO Teacher
+
+### Target milestone/subgoal
+- User-directed remote execution setup:
+  - configure a feasible conda/IsaacGym environment on `cloud-training`,
+  - prepare to run the stable thesis two-finger PPO teacher training with default training parameters and no time limit.
+
+### What changed (files + behavior impact)
+- Remote system/environment changes on `cloud-training`:
+  - Synced local Isaac Gym Preview 4 to `/root/Codefield/third_party/isaacgym_preview4`.
+  - Installed NVIDIA user-space packages matching the visible kernel module version:
+    - `libnvidia-compute-535=535.154.05-0ubuntu1`
+    - `nvidia-utils-535=535.154.05-0ubuntu1`
+  - Created conda env `dexscrew-ig` by cloning remote `base`.
+  - Installed project Python requirements into `dexscrew-ig`.
+  - Installed Isaac Gym Python package editable from `/root/Codefield/third_party/isaacgym_preview4/isaacgym/python`.
+  - Set conda env vars for `dexscrew-ig`:
+    - `ISAACGYM_DIR=/root/Codefield/third_party/isaacgym_preview4`
+    - `ISAACGYM_PATH=/root/Codefield/third_party/isaacgym_preview4`
+    - `PYTHONPATH=/root/Codefield/third_party/isaacgym_preview4/isaacgym/python`
+    - `LD_LIBRARY_PATH=/usr/local/cuda/compat:/usr/local/cuda/lib64:/usr/local/nvidia/lib:/usr/local/nvidia/lib64`
+- No local training code behavior changed.
+
+### What was verified (commands + key outcomes)
+- Remote GPU/driver discovery:
+  - `/proc/driver/nvidia/gpus/0000:65:01.0/information`
+  - Outcome: GPU exists at host level: `NVIDIA GeForce RTX 4090 D`, kernel module `535.154.05`.
+- Device access probe:
+  - `dd if=/dev/nvidiactl of=/dev/null bs=1 count=0`
+  - `dd if=/dev/nvidia0 of=/dev/null bs=1 count=0`
+  - `dd if=/dev/nvidia-uvm of=/dev/null bs=1 count=0`
+  - Outcome: all fail with `Operation not permitted`.
+- Python import probe in `dexscrew-ig`:
+  - `import isaacgym`
+  - `from isaacgym import gymapi`
+  - `import torch`
+  - `import hydra, omegaconf, gym, trimesh, wandb`
+  - Outcome: imports pass in IsaacGym-first order; `torch.cuda.is_available()` remains `False`.
+- Minimal thesis PPO teacher startup probe:
+  - `HYDRA_FULL_ERROR=1 timeout 180 python train.py task=Dexh13HoraLightbulbThesisTwoFinger ... task.env.numEnvs=1 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 ...`
+  - Log: `outputs/cloud_smoke/thesis_twofinger_teacher_env_probe.log` on remote.
+  - Outcome: Isaac Gym binding loads, Hydra config resolves, task starts building, then fails at CUDA allocation with `RuntimeError: No CUDA GPUs are available`.
+
+### Local conclusion
+- The remote conda/IsaacGym environment is prepared enough for imports and task startup.
+- Formal PPO teacher training was not started because the cloud runtime's Kubernetes/cgroup device policy denies access to `/dev/nvidia*`, despite the host-level 4090D being visible in `/proc`.
+
+### Remaining blocked/risky
+- This blocker cannot be fixed from conda or repo code. The cloud platform must expose GPU device access to the user container/session.
+- Until `nvidia-smi` and `torch.cuda.is_available()` work inside the SSH session, Isaac Gym PPO training cannot run.
+
+### Single recommended next step
+- Fix cloud GPU device exposure from the platform side, then verify:
+  - `nvidia-smi`
+  - `python - <<'PY' ... torch.cuda.is_available() ... PY`
+  - `dd if=/dev/nvidia0 of=/dev/null bs=1 count=0`
+- Once those pass, start the real no-time-limit teacher run in `tmux`:
+  - `source ~/miniconda3/etc/profile.d/conda.sh && conda activate dexscrew-ig && cd /root/code/dexscrew-repro && bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_cloud_s42_unlimited True`
+
+---
+
+## v2-154 (2026-04-28) -- Cloud Training Readiness Recheck
+
+### Target milestone/subgoal
+- Ensure the remote thesis two-finger PPO teacher training environment is complete and confirm whether the current no-time-limit teacher training task is running stably.
+
+### What changed (files + behavior impact)
+- No training code/config behavior changed.
+- No formal PPO teacher training process was launched because GPU access still fails before CUDA allocation.
+
+### What was verified (commands + key outcomes)
+- Remote process/session check:
+  - `tmux ls`
+  - `pgrep -af "train.py|dexh13_lightbulb_teacher_thesis_twofinger"`
+  - Outcome: no active thesis teacher training tmux session or training process.
+- Remote GPU access check:
+  - `nvidia-smi`
+  - Outcome: `Failed to initialize NVML: Unknown Error`.
+  - `dd if=/dev/nvidiactl of=/dev/null bs=1 count=0`
+  - `dd if=/dev/nvidia0 of=/dev/null bs=1 count=0`
+  - `dd if=/dev/nvidia-uvm of=/dev/null bs=1 count=0`
+  - Outcome: all fail with `Operation not permitted`.
+- Remote conda/IsaacGym environment check:
+  - `conda activate dexscrew-ig`
+  - IsaacGym-first import order:
+    - `import isaacgym`
+    - `from isaacgym import gymapi, gymtorch`
+    - `import torch`
+    - `import hydra, omegaconf, gym, trimesh, wandb, tensorboardX`
+  - Outcome: imports pass; `gymtorch` extension loads from cache; `torch.cuda.is_available()` remains `False`, `torch.cuda.device_count()` remains `0`.
+- Remote training script check:
+  - `bash -n scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - Outcome: pass.
+- Docker/GPU runtime check:
+  - `docker info --format 'Runtimes={{json .Runtimes}} Default={{.DefaultRuntime}}'`
+  - Outcome: only `runc` runtimes are available; no NVIDIA runtime is configured, so Docker cannot bypass the current GPU device-access blocker.
+- Disk check:
+  - Project: `93M`
+  - Isaac Gym: `847M`
+  - conda env `dexscrew-ig`: `4.7G`
+  - Root filesystem: `20G` total, `13G` available.
+
+### Local conclusion
+- Training environment is complete at the Python/IsaacGym/project dependency layer.
+- Current PPO teacher training is not running and cannot be made stable until the cloud platform exposes GPU device access to this SSH session/container.
+- Starting the no-time-limit training now would immediately fail with the same CUDA error seen in the smoke probe.
+
+### Remaining blocked/risky
+- Hard platform blocker: cgroup/device policy denies opening `/dev/nvidia*`.
+- The cloud UI/instance configuration must enable GPU device access for the current development container/session.
+
+### Single recommended next step
+- Fix GPU device exposure in the cloud platform, then re-run:
+  - `nvidia-smi`
+  - `dd if=/dev/nvidia0 of=/dev/null bs=1 count=0`
+  - `source ~/miniconda3/etc/profile.d/conda.sh && conda activate dexscrew-ig && python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"`
+- Once all pass, launch:
+  - `tmux new -s thesis_teacher`
+  - `source ~/miniconda3/etc/profile.d/conda.sh && conda activate dexscrew-ig && cd /root/code/dexscrew-repro && bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_cloud_s42_unlimited True`
+
+---
+
+## v2-155 (2026-04-28) -- GPU Cloud Thesis Two-Finger PPO Teacher 1h Run
+
+### Target milestone/subgoal
+- Re-run cloud setup on the new SSH target `root@180.184.47.96:22222` and train the stable thesis two-finger PPO teacher for one hour.
+
+### What changed (files + behavior impact)
+- Remote-only execution/environment changes on `cloud-training`:
+  - Accepted the new host key for the reused SSH endpoint after the cloud host changed to `di-20260428205452-zqhv8`.
+  - Installed remote tools: `rsync`, `tmux`, `git`, `build-essential`, `ninja-build`.
+  - Synced the current repo to `/root/code/dexscrew-repro`, excluding large local `outputs/`, `wandb/`, `.config/`, `.claude/`, caches, while keeping `.git`, code, configs, scripts, assets, docs, and sim2real files.
+  - Synced Isaac Gym Preview 4 to `/root/Codefield/third_party/isaacgym_preview4`.
+  - Created `dexscrew-ig` by cloning the remote `base` env so it inherits working `torch 2.1.0+cu121`.
+  - Installed project requirements and Isaac Gym editable into `dexscrew-ig`.
+  - Set conda env vars:
+    - `ISAACGYM_DIR=/root/Codefield/third_party/isaacgym_preview4`
+    - `ISAACGYM_PATH=/root/Codefield/third_party/isaacgym_preview4`
+    - `PYTHONPATH=/root/Codefield/third_party/isaacgym_preview4/isaacgym/python`
+    - `LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib:/usr/local/nvidia/lib64`
+  - Intentionally removed `/usr/local/cuda/compat` from `LD_LIBRARY_PATH` because that path contained old `libcuda.so.530.30.02` and caused Torch CUDA error 803 against driver `535.154.05`.
+- Synced the completed 1h run artifacts back to local:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_cloud_s42_1h/`.
+- No local training code/config behavior changed.
+
+### What was verified (commands + key outcomes)
+- New remote GPU access:
+  - `nvidia-smi`
+  - Outcome: `NVIDIA GeForce RTX 4090 D`, driver `535.154.05`, CUDA `12.2`, GPU idle before training.
+  - `dd if=/dev/nvidiactl of=/dev/null bs=1 count=0`
+  - `dd if=/dev/nvidia0 of=/dev/null bs=1 count=0`
+  - `dd if=/dev/nvidia-uvm of=/dev/null bs=1 count=0`
+  - Outcome: all succeeded.
+- Conda/IsaacGym import probe in `dexscrew-ig`:
+  - `import isaacgym`
+  - `from isaacgym import gymapi, gymtorch`
+  - `import torch, hydra, omegaconf, gym, trimesh, wandb, tensorboardX`
+  - Outcome: pass; `torch.cuda.is_available() == True`, `torch.cuda.device_count() == 1`, device `NVIDIA GeForce RTX 4090 D`.
+- Short thesis PPO smoke:
+  - `HYDRA_FULL_ERROR=1 timeout 300 python train.py task=Dexh13HoraLightbulbThesisTwoFinger ... task.env.numEnvs=64 train.ppo.minibatch_size=768 train.ppo.max_agent_steps=1536 ...`
+  - Outcome: environment built, PPO path ran, and exited with `max steps achieved`.
+- 1h teacher launch:
+  - `timeout 3600s bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_cloud_s42_1h True`
+  - Run dir: `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_cloud_s42_1h/`.
+  - Outcome: completed by timeout with expected `EXIT_STATUS=124`; no training process remained afterward; GPU returned to idle.
+- Final TensorBoard scalar snapshot:
+  - `performance/RLTrainFPS`: `228120.828125` at step `95649792`
+  - `performance/EnvStepFPS`: `30359.53125` at step `95649792`
+  - `episode_rewards/step`: `3656.80126953125` at step `95551488`
+  - `episode_lengths/step`: `798.2957763671875` at step `95551488`
+  - `info/best_reward`: `3656.80126953125` at step `95551488`
+  - `info/kl`: `0.021039489656686783`
+  - `losses/actor_loss`: `0.0008476140792481601`
+  - `losses/critic_loss`: `0.005827922839671373`
+- Final artifacts:
+  - `stage1_nn/best_reward_3656.80.pth`
+  - `stage1_tb/events.out.tfevents.1777381431.di-20260428205452-zqhv8`
+  - `config_042813_21e8eff.yaml`
+  - `gitdiff.patch`
+  - `train_1h.log`
+  - `train_1h.exit`
+
+### Local conclusion
+- The new cloud machine has valid GPU access and a complete working `dexscrew-ig` Isaac Gym environment.
+- The thesis two-finger PPO teacher 1h run completed cleanly under the requested stable script/default training config.
+- Final checkpoint:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_cloud_s42_1h/stage1_nn/best_reward_3656.80.pth`
+- This run outperformed the earlier selected local stable teacher reward numerically, but visual stability has not yet been inspected. Do not replace the thesis-stable default teacher for distillation until visual comparison confirms it is not a speed-first/slippy behavior.
+
+### Remaining blocked/risky
+- The 1h cloud teacher has not been visually inspected.
+- The run log includes a large git diff because the repo is dirty; this is expected but noisy.
+- Remote environment depends on avoiding `/usr/local/cuda/compat` in `LD_LIBRARY_PATH` on this cloud image.
+
+### Single recommended next step
+- Visualize the cloud 1h teacher and compare it against the selected stable local teacher:
+  - `ssh cloud-training`
+  - `source ~/miniconda3/etc/profile.d/conda.sh && conda activate dexscrew-ig`
+  - `cd /root/code/dexscrew-repro`
+  - `bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_cloud_s42_1h`
+
+---
+
+## v2-156 (2026-04-29) -- Cloud 1h Teacher Visual Rejection
+
+### Target milestone/subgoal
+- Interpret the user's visual inspection of `thesis_twofinger_cloud_s42_1h` and compare its actual config against the previously selected stable teacher.
+
+### What changed (files + behavior impact)
+- No code/config behavior changed.
+- Updated this handoff with the visual rejection and config comparison.
+
+### What was verified (commands + key outcomes)
+- Compared saved Hydra configs:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/config_042719_21e8eff.yaml`
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_cloud_s42_1h/config_042813_21e8eff.yaml`
+- Key difference:
+  - Stable selected teacher: `pose_diff_penalty.thumb_weight: 0.2`
+  - Cloud 1h teacher: `pose_diff_penalty.thumb_weight: 0.1`
+- Matching core controller/reward parameters:
+  - `torque_limit: 300.0`
+  - `pgain: 3`
+  - `dgain: 0.01`
+  - `action_scale: 0.05`
+  - `rotate_reward_scale: 2.5`
+  - `torque_penalty_scale: -30.0`
+  - `work_penalty_scale: -0.15`
+  - termination gates enabled by the training script with `grace_steps: 150`.
+- User visual finding:
+  - `thesis_twofinger_cloud_s42_1h` is very unstable.
+  - Index shakes during rotation.
+  - Thumb still slips/ejects.
+  - Behavior looks force/velocity driven despite high scalar reward.
+
+### Local conclusion
+- Reject `thesis_twofinger_cloud_s42_1h` as the default distillation teacher despite its higher reward.
+- The most likely cause is under-constrained stability: the cloud run used weaker thumb pose penalty (`0.1`) than the selected stable teacher (`0.2`), while the slip diagnostics are logging-only and do not directly penalize the unstable behavior.
+- High reward is still dominated by rotation progress; it is not a reliable proxy for thesis-safe visual stability.
+
+### Remaining blocked/risky
+- Index jitter is not currently targeted by a dedicated smoothness/contact-continuity penalty.
+- Thumb slip/ejection diagnostics remain diagnostic-only; adding them to reward would need a controlled ablation.
+
+### Single recommended next step
+- Keep `thesis_twofinger_thumbpose02_diag_s42_1h` as the stable distillation teacher for now. If rerunning on cloud, reproduce the stable setting explicitly:
+  - `bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_cloud_thumbpose02_s42_1h True wandb_activate=True task.env.termination.log=True task.env.pose_diff_penalty.thumb_weight=0.2`
+
+---
+
+## v2-157 (2026-04-29) -- Dexscrew Codebase Rescan for Cloud Development
+
+### Target milestone/subgoal
+- Rebuild the current project map for cloud-side development without changing code behavior.
+- Confirm the latest single recommended next step before further cloud training/eval work.
+
+### What changed (files + behavior impact)
+- No training code/config behavior changed.
+- Updated this handoff with a compact codebase map for the current thesis two-finger cloud workflow.
+
+### What was verified (commands + key outcomes)
+- Read the required bootstrap docs:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+  - Outcome: latest recommendation remains to keep `thesis_twofinger_thumbpose02_diag_s42_1h` as the stable distillation teacher and only rerun cloud teacher with `task.env.pose_diff_penalty.thumb_weight=0.2`.
+- Parallel read-only scans covered:
+  - `train.py`
+  - `student_eval.py`
+  - `configs/config.yaml`
+  - `configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - `configs/train/Dexh13HoraLightbulbThesisTwoFinger.yaml`
+  - `dexscrew/tasks/__init__.py`
+  - `dexscrew/tasks/dexh13_hora.py`
+  - `dexscrew/tasks/xhand_hora.py`
+  - `dexscrew/algo/ppo/ppo.py`
+  - `dexscrew/algo/ppo/padapt.py`
+  - `scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - `scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+  - `scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh`
+  - `scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh`
+- Key mapping verified:
+  - `task=Dexh13HoraLightbulbThesisTwoFinger` selects the Hydra task yaml.
+  - That yaml sets `name: Dexh13HoraLightbulb`.
+  - `train.py` resolves `task_name: ${task.name}` and maps `Dexh13HoraLightbulb` to `Dexh13Hora`.
+  - Runtime class chain is `Dexh13Hora -> XHandHora -> VecTask`.
+- Key thesis two-finger mechanics verified:
+  - PPO teacher entrypoint is `scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh`.
+  - ProprioAdapt student entrypoint is `scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh`.
+  - The student path is imitation/distillation, not second-stage RL.
+  - Two-finger behavior is mostly config-driven: 16 actions, index/thumb active, middle/ring action mask, two-finger gate, fingertip tangent/torque rewards, and thumb slip diagnostics.
+  - Thumb slip diagnostics are logging-only and do not directly change reward/termination.
+
+### Local conclusion
+- The active canonical path remains valid:
+  - `Dexh13HoraLightbulbThesisTwoFinger -> PPO teacher -> ProprioAdapt student -> visualization/eval/export`.
+- The selected stable teacher remains:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/stage1_nn/best_reward_3171.29.pth`
+- The cloud 1h high-reward teacher remains rejected for default distillation:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_cloud_s42_1h/stage1_nn/best_reward_3656.80.pth`
+- For cloud reruns, the most important override is still:
+  - `task.env.pose_diff_penalty.thumb_weight=0.2`
+
+### Remaining blocked/risky
+- High scalar PPO reward is not sufficient for selecting a teacher; visual stability still gates teacher acceptance.
+- Index jitter and thumb slip/ejection are not fully controlled by the current reward.
+- Remote cloud runs must preserve the working Isaac Gym/CUDA environment and avoid `/usr/local/cuda/compat` in `LD_LIBRARY_PATH` on the current image.
+
+### Single recommended next step
+- If continuing cloud training, rerun the stable teacher setting explicitly and visually inspect it before any student distillation:
+  - `bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_cloud_thumbpose02_s42_1h True wandb_activate=True task.env.termination.log=True task.env.pose_diff_penalty.thumb_weight=0.2`
+
+---
+
+## v2-158 (2026-04-29) -- Thesis Sim2Real Joint0 Limit Config
+
+### Target milestone/subgoal
+- Add a local sim2real-oriented thesis two-finger task yaml based on the current stable setting.
+
+### What changed (files + behavior impact)
+- Added `configs/task/Dexh13HoraLightbulbThesisSim2Real.yaml`.
+  - Based on `Dexh13HoraLightbulbThesisTwoFinger.yaml`.
+  - Sets `eval_cache_name: thesis_sim2real`.
+  - Sets `task.env.pose_diff_penalty.thumb_weight: 0.2`.
+  - Narrows index joint0 limits from `[-0.35, 0.35]` to `[-0.2, 0.2]`.
+  - Narrows thumb joint0 limits from `[-0.35, 0.35]` to `[-0.2, 0.2]`.
+  - Adjusts initial index/thumb joint0 values to `0.2` and `-0.2` so the init pose is inside the new limits.
+- Added `configs/train/Dexh13HoraLightbulbThesisSim2Real.yaml`.
+  - Copied from the thesis two-finger PPO train config so Hydra `train: ${task}` resolves cleanly.
+
+### What was verified (commands + key outcomes)
+- Docker/Hydra compose probe:
+  - `./docker-run-isaacgym.sh python -c "... compose(... task=Dexh13HoraLightbulbThesisSim2Real) ..."`
+  - Outcome: `eval_cache_name=thesis_sim2real`, `train_algo=PPO`, `thumb_weight=0.2`, index/thumb joint0 limits both `[-0.2, 0.2]`.
+- Headless 1-step PPO checkpoint load smoke:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbThesisSim2Real headless=True ... checkpoint=outputs/Dexh13HoraLightbulb_teacher_thesis_twofinger/thesis_twofinger_thumbpose02_diag_s42_1h/stage1_nn/best_reward_3171.29.pth +test_num_steps=1`
+  - Outcome: environment built, checkpoint loaded, and `EvalSummary steps=1 avg_reward=0.084007 avg_done_rate=0.000000`.
+
+### Local conclusion
+- `Dexh13HoraLightbulbThesisSim2Real` is available locally for visualization/eval with the stable `thumb_weight=0.2` and tighter index/thumb joint0 limits.
+- The existing stable teacher checkpoint can be loaded under this new task yaml for visual inspection.
+
+### Remaining blocked/risky
+- This is only a config-level sim2real limit test; no PPO teacher has been retrained with the narrower limits yet.
+- A policy trained under the wider joint0 limits may behave differently when visually tested under the narrower limits.
+
+### Single recommended next step
+- Visualize the stable teacher under the new sim2real task yaml:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_twofinger_thumbpose02_diag_s42_1h task=Dexh13HoraLightbulbThesisSim2Real graphics_device_id=0`
+
+---
+
+## v2-159 (2026-04-29) -- Thesis Sim2Real Joint0 Limit Relaxation
+
+### Target milestone/subgoal
+- Adjust the local sim2real thesis task yaml joint0 range after visual/config iteration.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbThesisSim2Real.yaml`.
+  - Index joint0 lower/upper limits changed from `[-0.2, 0.2]` to `[-0.34, 0.34]`.
+  - Thumb joint0 lower/upper limits changed from `[-0.2, 0.2]` to `[-0.34, 0.34]`.
+  - Did not change the current sim2real init pose values; index/thumb joint0 remain `0.195` and `-0.195`, which are inside the relaxed limits.
+
+### What was verified (commands + key outcomes)
+- Docker/Hydra compose probe:
+  - `./docker-run-isaacgym.sh python -c "... compose(... task=Dexh13HoraLightbulbThesisSim2Real) ..."`
+  - Outcome: `thumb_weight=0.2`, index joint0 limits `[-0.34, 0.34]`, thumb joint0 limits `[-0.34, 0.34]`, init joint0 values `0.195` and `-0.195`.
+
+### Local conclusion
+- `Dexh13HoraLightbulbThesisSim2Real` now keeps the stable thumb pose penalty while allowing almost the original joint0 lateral range, slightly narrower than the thesis source `[-0.35, 0.35]`.
+
+### Remaining blocked/risky
+- This is still a config-only sim2real visualization/training probe.
+- A policy trained under one joint range may not transfer cleanly if evaluated or retrained under another joint range without visual checking.
+
+### Single recommended next step
+- Re-run local visualization/training visualization with `task=Dexh13HoraLightbulbThesisSim2Real` and compare thumb/index contact behavior against the previous `[-0.2, 0.2]` setting.
+
+---
+
+## v2-160 (2026-04-29) -- Cloud Thesis Sim2Real PPO-to-PAdapt Pipeline Launch
+
+### Target milestone/subgoal
+- Sync the current `Dexh13HoraLightbulbThesisSim2Real` task to the GPU cloud machine.
+- Run a 1h PPO teacher on the sim2real yaml, then automatically launch ProprioAdapt distillation from that teacher checkpoint.
+
+### What changed (files + behavior impact)
+- Synced the sim2real task/train config and required local code/script/asset files to `cloud-training:/root/code/dexscrew-repro/`:
+  - `configs/task/Dexh13HoraLightbulbThesisSim2Real.yaml`
+  - `configs/train/Dexh13HoraLightbulbThesisSim2Real.yaml`
+  - thesis two-finger task/train configs
+  - thesis teacher/student scripts
+  - active task/algo Python files
+  - relevant lightbulb/contactviz assets
+- Created a remote pipeline script:
+  - `outputs/cloud_pipeline_thesis_sim2real/run_pipeline.sh`
+- Launched remote tmux session:
+  - `thesis_sim2real_pipeline`
+
+### What was verified (commands + key outcomes)
+- Remote GPU/env/config check:
+  - `nvidia-smi --query-gpu=name,driver_version,memory.used,memory.total --format=csv,noheader`
+  - Outcome: `NVIDIA GeForce RTX 4090 D`, driver `535.154.05`, GPU available.
+  - IsaacGym-first import probe with Torch:
+    - Outcome: `torch_cuda True 1 NVIDIA GeForce RTX 4090 D`.
+  - Hydra compose for `task=Dexh13HoraLightbulbThesisSim2Real`:
+    - `eval_cache_name thesis_sim2real`
+    - `train_algo PPO`
+    - `thumb_weight 0.2`
+    - index joint0 limits `[-0.34, 0.34]`
+    - thumb joint0 limits `[-0.34, 0.34]`
+- Remote teacher process startup:
+  - tmux session exists: `thesis_sim2real_pipeline`.
+  - Active command:
+    - `timeout 3600s bash scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_sim2real_joint034_s42_1h True task=Dexh13HoraLightbulbThesisSim2Real ...`
+  - GPU compute process exists and uses about `10524 MiB`.
+  - Log confirms environment build reached:
+    - `Start Building the Environment`
+    - `Generated 5000 random initial poses for XHand at scale 1.2`
+
+### Local conclusion
+- The cloud pipeline is launched and currently in the PPO teacher phase.
+- The teacher run name is:
+  - `thesis_sim2real_joint034_s42_1h`
+- The teacher output root is:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_sim2real/thesis_sim2real_joint034_s42_1h/`
+- After the 1h `timeout 3600s` teacher command exits with `0` or expected `124`, the remote script will select the newest:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_sim2real/thesis_sim2real_joint034_s42_1h/stage1_nn/best_reward_*.pth`
+- Then it will launch ProprioAdapt with:
+  - `task=Dexh13HoraLightbulbThesisSim2Real`
+  - `checkpoint=<teacher best_reward ckpt>`
+  - output root `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/`
+
+### Remaining blocked/risky
+- The teacher has not finished its 1h run yet.
+- The student distillation has not started yet; it is queued inside the pipeline script after teacher checkpoint selection.
+- `train.py` is printing a large dirty git diff at startup, so `latest.log` is noisy before normal `Agent Steps` lines appear.
+- The resulting teacher still needs visual inspection before treating it as a stable sim2real distillation source.
+
+### Single recommended next step
+- Monitor the cloud pipeline until teacher timeout and ProprioAdapt launch:
+  - `ssh cloud-training`
+  - `cd /root/code/dexscrew-repro`
+  - `tmux attach -t thesis_sim2real_pipeline`
+  - or `tail -f outputs/cloud_pipeline_thesis_sim2real/latest.log`
+
+---
+
+## v2-161 (2026-04-29) -- Cloud Thesis Sim2Real Pipeline Status and Randomization Check
+
+### Target milestone/subgoal
+- Check whether the cloud PPO-to-ProprioAdapt pipeline has finished.
+- Clarify the active domain randomization in `Dexh13HoraLightbulbThesisSim2Real.yaml`.
+
+### What changed (files + behavior impact)
+- No code/config behavior changed.
+- Updated this handoff with cloud run status and domain-randomization interpretation.
+
+### What was verified (commands + key outcomes)
+- Remote process/log check:
+  - `tmux ls | grep thesis_sim2real_pipeline`
+  - `pgrep -af "run_pipeline|train.py|dexh13_lightbulb"`
+  - `grep -E "\\[pipeline\\]|teacher_exit_status|teacher_ckpt|Current Best" outputs/cloud_pipeline_thesis_sim2real/latest.log`
+- PPO teacher status:
+  - Finished the intended 1h timeout with expected `teacher_exit_status=124`.
+  - Selected checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_thesis_sim2real/thesis_sim2real_joint034_s42_1h/stage1_nn/best_reward_3316.34.pth`
+- ProprioAdapt status:
+  - Started automatically from the teacher checkpoint and is still running.
+  - Active output root:
+    - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/`
+  - `stage2_nn/model_best.ckpt` already exists, but final student exit status has not appeared yet.
+- Randomization code/config check:
+  - `randomizeScale: False`, `randomizeScaleList: [1.20]`, and `baseObjScale: 1.20`, so object/URDF scale is fixed at `1.20` and not randomized.
+  - `randomizeMass: True`, with mass sampled in `[0.04, 0.06]` at runtime for object rigid bodies.
+  - `randomizeCOM: True`, with COM offsets sampled around the configured millimeter-scale range.
+  - `randomizeFriction: True`, with friction sampled in `[1.0, 5.0]` and restitution sampled in `[0.0, 0.05]`; the sampled values are applied to hand and object rigid shapes.
+  - `randomizePDGains: True`, with P gain in `[2.7, 3.3]` and D gain in `[0.009, 0.011]`.
+  - Observation/action noise and random object forces are enabled in the task yaml.
+
+### Local conclusion
+- The full pipeline is not finished yet: teacher is done, ProprioAdapt distillation is in progress.
+- The current task does not randomize URDF/object size; it uses a fixed scaled size.
+- The current task does randomize object mass, COM, friction/restitution, PD gains, observation/action noise, and external forces.
+
+### Remaining blocked/risky
+- The newly trained teacher has not been visually inspected.
+- ProprioAdapt is still running, so the final student checkpoint/exit status is not yet known.
+- The teacher reward `3316.34` is scalar-only and should not be treated as stable until visual inspection.
+
+### Single recommended next step
+- Continue monitoring until ProprioAdapt exits:
+  - `ssh cloud-training`
+  - `cd /root/code/dexscrew-repro`
+  - `tail -f outputs/cloud_pipeline_thesis_sim2real/latest.log`
+
+---
+
+## v2-162 (2026-04-29) -- Dexh13HoraLightbulb YAML Rebased From ThesisSim2Real With NutBolt-Style Reward
+
+### Target milestone/subgoal
+- Rework `configs/task/Dexh13HoraLightbulb.yaml` as a comparison/training config based on `Dexh13HoraLightbulbThesisSim2Real.yaml`, while reverting selected randomization and reward terms toward `Dexh13HoraLightbulb2.yaml` / original `XHandHoraNutBolt.yaml`.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+- Kept ThesisSim2Real-style two-finger structure:
+  - `apply_action_mask: True`
+  - `action_mask_indices: [4, 5, 6, 7, 8, 9, 10, 11]`
+  - `object.type: screw_contactviz`
+  - hand/root/init pose and middle/ring DOF locking from the Sim2Real line.
+- Changed object scale randomization to match `Dexh13HoraLightbulb2.yaml`:
+  - `baseObjScale: 1.0`
+  - `randomizeScale: True`
+  - `randomizeScaleList: [1.0, 1.05, 1.10, 1.15]`
+  - scale min/max/lower/upper set to `[1.0, 1.15]`.
+- Added object init noise:
+  - kept Sim2Real object center `init_pos: [0.012, -0.018, 0.0]`
+  - set `init_pos_noise: [0.005, 0.005, 0.0]`.
+- Changed friction randomization to match `Dexh13HoraLightbulb2.yaml` / NutBolt:
+  - `randomizeFrictionLower: 0.5`
+  - `randomizeFrictionUpper: 8.0`
+  - removed explicit restitution bounds.
+- Changed reward/penalty scales to original NutBolt-style values:
+  - `angvelPenaltyThres: 10.0`
+  - `rotate_reward_scale: 6.0`
+  - `pose_diff_penalty_scale: -0.5`
+  - `torque_penalty_scale: -0.1`
+  - `work_penalty_scale: -0.01`
+  - `rotate_penalty_scale: -0.3`
+  - `pc_z_dist_penalty_scale: -1.0`
+  - `proximity_reward_scale: 2.0`
+  - `normalize_penalties_by_num_actions: False`.
+- Disabled thesis extra rewards and thumb-specific pose penalty:
+  - `pose_diff_penalty.thumb_weight: 0.0`
+  - `fingertip_tangent_reward_scale: 0.0`, `fingertip_tangent_reward.enable: False`
+  - `fingertip_torque_reward_scale: 0.0`, `fingertip_torque_reward.enable: False`.
+
+### What was verified (commands + key outcomes)
+- Patch hygiene:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+- OmegaConf load/key placement check inside Docker:
+  - `./docker-run-isaacgym.sh bash -lc "python - <<'PY' ... OmegaConf.load('configs/task/Dexh13HoraLightbulb.yaml') ... PY"`
+  - Outcome:
+    - `normalize penalties False`
+    - reward tuple `6.0 -0.5 -0.1 -0.01`
+    - `thumb_weight 0.0`
+    - extra reward scales `0.0 0.0`, extra enables `False False`
+    - object scale randomization `1.0 True [1.0, 1.05, 1.1, 1.15]`
+    - friction range `0.5 8.0`
+    - no explicit `randomizeRestitutionLower`
+    - object `screw_contactviz [0.012, -0.018, 0.0] [0.005, 0.005, 0.0]`.
+
+### Local conclusion
+- `Dexh13HoraLightbulb.yaml` is now a hybrid comparison config:
+  - Sim2Real two-finger geometry/action mask/DOF lock.
+  - Lightbulb2-style object scale and friction randomization.
+  - NutBolt-style reward/penalty magnitudes and no thesis extra index/thumb rewards.
+- In `xhand_hora.py`, if restitution bounds are not explicit and `randomizeFriction=True`, restitution is sampled uniformly from `[0.0, 1.0]`.
+
+### Remaining blocked/risky
+- This config has not been smoke-trained after the edit.
+- The broader friction/restitution range may reintroduce contact instability relative to the more conservative Sim2Real range `[friction 1.0-5.0, restitution 0.0-0.05]`.
+- Turning off extra index rewards and thumb pose weight may make behavior less thesis-stable even if it is closer to original NutBolt reward form.
+
+### Single recommended next step
+- Run a short 64-env smoke before any long training:
+  - `./docker-run-isaacgym.sh timeout 300 python train.py task=Dexh13HoraLightbulb headless=True seed=42 num_envs=64 train.algo=PPO train.ppo.minibatch_size=768 train.ppo.max_agent_steps=1536 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher/smoke_nutbolt_reward_hybrid`
+
+---
+
+## v2-163 (2026-04-29) -- Cloud Thesis Sim2Real Artifacts Pulled For Local Visualization
+
+### Target milestone/subgoal
+- Retrieve the latest cloud-trained ThesisSim2Real teacher/student artifacts so the user can locally visualize the learned lightbulb policy.
+
+### What changed (files + behavior impact)
+- Pulled remote output artifacts from `cloud-training:/root/code/dexscrew-repro/` into local `outputs/`:
+  - `outputs/Dexh13HoraLightbulb_teacher_thesis_sim2real/thesis_sim2real_joint034_s42_1h/`
+  - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/`
+  - `outputs/cloud_pipeline_thesis_sim2real/`
+- No source/config behavior was changed.
+
+### What was verified (commands + key outcomes)
+- Remote pipeline status check:
+  - Teacher completed the intended 1h timeout with selected checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_thesis_sim2real/thesis_sim2real_joint034_s42_1h/stage1_nn/best_reward_3316.34.pth`
+  - ProprioAdapt student was still running at check time, with current best around `2785.x`.
+  - Student checkpoint already exists:
+    - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/stage2_nn/model_best.ckpt`
+- Local artifact check:
+  - Teacher `.pth`: `1179649 bytes`
+  - Student `.ckpt`: `1301474 bytes`
+  - Local run dirs:
+    - teacher dir `6.9M`
+    - student dir `577M`
+    - pipeline log dir `8.3M`
+
+### Local conclusion
+- Local visualization can be run immediately against the teacher checkpoint and the current student best checkpoint.
+- The student checkpoint is a live snapshot because the cloud distillation process had not reached a `student_exit_status` marker yet.
+
+### Remaining blocked/risky
+- The cloud student may continue improving after this pull; a final re-sync is recommended once the tmux pipeline exits.
+- The teacher/student policies have not yet been visually inspected locally after artifact transfer.
+
+### Single recommended next step
+- Run local visualization first on the teacher, then on the current student snapshot:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh 0 42 thesis_sim2real_joint034_s42_1h task=Dexh13HoraLightbulbThesisSim2Real train.ppo.output_name=Dexh13HoraLightbulb_teacher_thesis_sim2real/thesis_sim2real_joint034_s42_1h checkpoint=outputs/Dexh13HoraLightbulb_teacher_thesis_sim2real/thesis_sim2real_joint034_s42_1h/stage1_nn/best_reward_3316.34.pth graphics_device_id=0`
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh 0 42 thesis_sim2real_padapt_from_joint034_ppo1h_s42 task=Dexh13HoraLightbulbThesisSim2Real train.ppo.output_name=Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42 checkpoint=outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/stage2_nn/model_best.ckpt graphics_device_id=0`
+
+---
+
+## v2-164 (2026-04-29) -- Lightbulb Gate Target Moved To Bulb Maximum Circumference
+
+### Target milestone/subgoal
+- Align the two-finger target/contact gate in `Dexh13HoraLightbulb.yaml` with the actual widest bulb-head cross-section so index/thumb are encouraged to contact the useful bulb surface rather than the lower neck/socket region.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`:
+  - `two_finger_gate.target_offset: [0.0, 0.0, 0.084]`
+  - `fingertip_tangent_reward.target_offset: [0.0, 0.0, 0.084]`
+  - `fingertip_torque_reward.target_offset: [0.0, 0.0, 0.084]`
+- The tangent/torque fingertip rewards remain disabled in this config; their offsets were synchronized only for diagnostic/future consistency.
+
+### What was verified (commands + key outcomes)
+- Geometry check:
+  - Parsed `assets/lightbulb/contact0.stl` under the URDF transform used by `assets/screw/contactviz/0000_lightbulb.urdf`.
+  - The maximum-radius head cross-section is around world/nut-link target offset `z ~= 0.0843 m` for `baseObjScale=1.0`.
+- Isaac Gym one-env pose check:
+  - `nut_pos = object_pos + [0, 0, 0.005]`, confirming the gate offset is relative to the task's `nut_pos` rigid-body state, not raw object root.
+- Config checks:
+  - `rg -n "target_offset" configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: all three relevant offsets are `[0.0, 0.0, 0.084]`.
+  - `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+
+### Local conclusion
+- For the current `Dexh13HoraLightbulb.yaml` with `baseObjScale: 1.0`, `target_offset z=0.084` is the right first target for making both active fingers aim at the bulb's largest useful circumference.
+- If returning to a `baseObjScale: 1.20` thesis config, the equivalent unscaled physical target would be about `0.101`.
+
+### Remaining blocked/risky
+- This offset change has not yet been smoke-trained or visually checked.
+- Moving the gate upward may require a small hand/root/init pose adjustment if the fingertips now undershoot the target band.
+
+### Single recommended next step
+- Run the existing visual training/init check for `Dexh13HoraLightbulb` and inspect whether index/thumb now aim at the bulb head's widest cross-section before launching a long PPO run.
+
+---
+
+## v2-165 (2026-04-29) -- Interactive DexH13 Init-Pose Tuning Viewer
+
+### Target milestone/subgoal
+- Provide a temporary visual interface for adjusting DexH13 lightbulb initial hand pose before committing values into YAML.
+
+### What changed (files + behavior impact)
+- Added `scripts/tune_dexh13_lightbulb_initpose.py`.
+- The script starts a single Isaac Gym viewer env for a chosen task and lets the user interactively tune:
+  - hand root 6D pose via `handRootPos` and `handRootRPY`,
+  - all 16 hand DOF values under `handInitPose`.
+- It disables training/randomization disturbances for the tuning session:
+  - one env,
+  - no mass/COM/friction/scale/PD randomization,
+  - no object init noise,
+  - no random force perturbation.
+- Pressing `O` or closing/quitting saves a paste-ready YAML snippet to `outputs/initpose_tuning/`.
+
+### What was verified (commands + key outcomes)
+- Syntax/hygiene:
+  - `PYTHONDONTWRITEBYTECODE=1 python -m py_compile scripts/tune_dexh13_lightbulb_initpose.py`
+  - `git diff --check -- scripts/tune_dexh13_lightbulb_initpose.py`
+  - Outcome: pass.
+- Isaac Gym smoke:
+  - `./docker-run-isaacgym.sh timeout 20 python scripts/tune_dexh13_lightbulb_initpose.py --task Dexh13HoraLightbulb --gpu 0 --out outputs/initpose_tuning/smoke.yaml`
+  - Outcome: env/viewer bootstrapped, printed interactive controls and accepted viewer keyboard events before the expected timeout killed the smoke process.
+
+### Local conclusion
+- The user can now tune root pose and 16DOF init pose visually without running PPO.
+- The output YAML snippet is intended to be pasted under `env.asset` in the selected task YAML.
+
+### Remaining blocked/risky
+- Because this is viewer-driven, actual usability depends on the host X11/Vulkan viewer working in the Docker session.
+- The smoke command used `timeout`, so it intentionally did not test the final save-on-quit path through a normal manual close.
+
+### Single recommended next step
+- Run the tuner without `timeout`, adjust the pose visually, press `O`, then paste/send the generated `outputs/initpose_tuning/*.yaml` snippet so the task YAML can be updated.
+
+---
+
+## v2-166 (2026-04-29) -- Diffusion Student Algorithm Summary Drafted
+
+### Target milestone/subgoal
+- Summarize the current four diffusion / generative student algorithms in the same detailed style as `output_docs/algo_adapt.md`.
+
+### What changed (files + behavior impact)
+- Wrote `output_docs/algo_diffusion.md`.
+- The document now covers:
+  - `DiffusionLatentStudent` / latent DDPM,
+  - `ConsistencyLatentStudent`,
+  - `FlowMatchingLatentStudent`,
+  - `DiffusionActionChunkStudent`,
+  - common teacher/student tensors and normalization,
+  - mathematical objectives,
+  - train-loop implementation,
+  - inference/deployment paths,
+  - checkpoint contents,
+  - key config fields and practical differences.
+- No training or source behavior was changed.
+
+### What was verified (commands + key outcomes)
+- Source inspection:
+  - `output_docs/algo_adapt.md`
+  - `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - `dexscrew/algo/ppo/consistency_latent_student.py`
+  - `dexscrew/algo/ppo/flow_matching_latent_student.py`
+  - `dexscrew/algo/ppo/diffusion_action_chunk_student.py`
+  - relevant train config / algorithm registration files.
+- Markdown hygiene:
+  - `git diff --check -- output_docs/algo_diffusion.md`
+  - Outcome: pass.
+- Content spot checks:
+  - `wc -l output_docs/algo_diffusion.md`
+  - Outcome: `1830` lines.
+  - `rg -n "DiffusionLatentStudent|ConsistencyLatentStudent|FlowMatchingLatentStudent|DiffusionActionChunkStudent|L_diff|L_cons|L_flow|Action Chunk|Checkpoint" output_docs/algo_diffusion.md`
+  - Outcome: all four algorithms and core losses/checkpoint sections present.
+
+### Local conclusion
+- `output_docs/algo_diffusion.md` is now a standalone systematic algorithm note for the four diffusion/generative student branches, suitable for review and later condensation into thesis/report sections.
+
+### Remaining blocked/risky
+- The document is detailed and implementation-oriented; if used in a thesis, it should be condensed into method and ablation-analysis subsections rather than copied wholesale.
+- It describes current code behavior, including historical exploratory branches; it does not assert that all four algorithms are accepted final baselines.
+
+### Single recommended next step
+- Review `output_docs/algo_diffusion.md` for wording/level-of-detail, then decide which parts should be compressed into the formal thesis algorithm section.
+
+---
+
+## v2-166 (2026-04-29) -- Thesis Sim2Real Student Snapshot Re-Synced
+
+### Target milestone/subgoal
+- Check whether the cloud ThesisSim2Real ProprioAdapt distillation finished and pull the latest available local visualization artifacts.
+
+### What changed (files + behavior impact)
+- Re-synced the live student output directory from cloud to local:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/`
+- Re-synced pipeline logs:
+  - `outputs/cloud_pipeline_thesis_sim2real/`
+- No source/config behavior was changed.
+
+### What was verified (commands + key outcomes)
+- Remote status check:
+  - `tmux` session `thesis_sim2real_pipeline` still exists.
+  - `train.py` ProprioAdapt process is still active.
+  - No `student_exit_status` marker was present in `outputs/cloud_pipeline_thesis_sim2real/latest.log`.
+  - Latest parsed `Current Best` was around `2808.04`.
+- Local artifact check after rsync:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/stage2_nn/model_best.ckpt`
+  - size `1301474 bytes`
+  - local mtime `2026-04-29 15:59:18 Asia/Shanghai`
+  - local student run dir size `886M`
+  - local pipeline log dir size `13M`
+
+### Local conclusion
+- Student distillation is not finished yet; the local `model_best.ckpt` is the latest pulled live snapshot.
+- This snapshot is valid for local visual inspection, but it may be superseded if the cloud run continues improving.
+
+### Remaining blocked/risky
+- A final sync is still needed after the cloud pipeline exits if a final checkpoint is required.
+- Visual behavior has not yet been inspected from this newer student snapshot.
+
+### Single recommended next step
+- Visualize the latest pulled student snapshot locally:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh 0 42 thesis_sim2real_padapt_from_joint034_ppo1h_s42 task=Dexh13HoraLightbulbThesisSim2Real train.ppo.output_name=Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42 checkpoint=outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/stage2_nn/model_best.ckpt graphics_device_id=0`
+
+---
+
+## v2-167 (2026-04-29) -- Thesis Sim2Real Student Stopped And Final Snapshot Synced
+
+### Target milestone/subgoal
+- Stop the overlong cloud ProprioAdapt distillation, preserve the best checkpoint, and sync the final available snapshot locally.
+
+### What changed (files + behavior impact)
+- Stopped the cloud ThesisSim2Real student run:
+  - killed the active ProprioAdapt `train.py` process,
+  - killed remaining wrapper/tmux pipeline processes,
+  - verified no matching `tmux`, wrapper, or `train.py` processes remain.
+- Preserved the cloud best checkpoint before termination:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/stage2_nn/model_best_userstop_20260429_080630.ckpt`
+- Re-synced local artifacts:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/`
+  - `outputs/cloud_pipeline_thesis_sim2real/`
+
+### What was verified (commands + key outcomes)
+- Remote process check after stop:
+  - no `thesis_sim2real_pipeline` tmux session,
+  - no matching pipeline wrapper,
+  - no matching ProprioAdapt `train.py` process.
+- Local checkpoint check:
+  - `model_best.ckpt`: `1301474 bytes`, mtime `2026-04-29 16:06:07 Asia/Shanghai`
+  - `model_best_userstop_20260429_080630.ckpt`: `1301474 bytes`, same mtime.
+- Latest parsed training line before termination:
+  - `Agent Steps: 0007M ... Current Best: 2808.35`
+- Local directory sizes after rsync:
+  - student run dir `912M`
+  - pipeline log dir `13M`
+
+### Local conclusion
+- The student run is stopped and the best checkpoint is available locally.
+- Because the script lacked a student-side `timeout 3600s`, the run exceeded the intended 1h distillation limit and was manually stopped.
+
+### Remaining blocked/risky
+- `latest.log` ends with `Terminated` rather than a clean `student_exit_status` marker because the process was manually stopped.
+- Future cloud pipeline scripts should wrap the student command with `timeout 3600s` when the intended protocol is 1h distillation.
+
+### Single recommended next step
+- Visualize the stopped-run best checkpoint locally:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh 0 42 thesis_sim2real_padapt_from_joint034_ppo1h_s42 task=Dexh13HoraLightbulbThesisSim2Real train.ppo.output_name=Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42 checkpoint=outputs/Dexh13HoraLightbulb_student_padapt_thesis_sim2real/thesis_sim2real_padapt_from_joint034_ppo1h_s42/stage2_nn/model_best.ckpt graphics_device_id=0`
+
+---
+
+## v2-168 (2026-04-29) -- Cloud Training Execution Rule Added
+
+### Target milestone/subgoal
+- Add stable execution guidance so future cloud PPO-to-student runs honor explicit wall-clock limits and use stronger cloud resources deliberately.
+
+### What changed (files + behavior impact)
+- Updated `AGENTS.md`.
+- Added a new `Cloud training execution` section requiring future cloud runs to:
+  - detect cloud/remote context from user wording, SSH aliases, remote paths, or `nvidia-smi`;
+  - implement requested sequential PPO teacher and student/distillation phases with exact commands or a remote script;
+  - wrap each time-limited phase in its own `timeout`;
+  - log start/end timestamps, exact command lines, selected checkpoints, and teacher/student exit statuses;
+  - preserve and sync the best student checkpoint after completion or manual stop;
+  - avoid treating large `max_agent_steps` as a substitute for wall-clock limits.
+- Added cloud resource guidance:
+  - prefer higher `numEnvs` and compatible minibatch sizes on the 24GB GPU/cloud CPU/RAM when the user has not pinned exact settings;
+  - verify GPU/memory/FPS before committing to long runs;
+  - back off on OOM risk or degraded startup performance.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- AGENTS.md`
+  - Outcome: pass.
+- `git diff -- AGENTS.md`
+  - Outcome: reviewed the inserted section and confirmed it is stable workflow guidance rather than stage-specific experiment detail.
+
+### Local conclusion
+- Future agents should not repeat the previous failure mode where teacher had `timeout 3600s` but student ran open-ended.
+- Cloud runs can now be intentionally more aggressive while still keeping launch settings explicit and reproducible.
+
+### Remaining blocked/risky
+- Existing cloud pipeline scripts are not automatically rewritten by this governance update.
+- Any new cloud run still needs a per-run script/command generated from the user's requested task, duration, and checkpoint policy.
+
+### Single recommended next step
+- For the next cloud PPO-to-student run, generate an `outputs/cloud_pipeline_*` script with `timeout` around both teacher and student phases before launching `tmux`.
+
+---
+
+## v2-169 (2026-04-29) -- Cloud DexH13 Lightbulb PPO Aggressive 1h Launch
+
+### Target milestone/subgoal
+- Use the current local `configs/task/Dexh13HoraLightbulb.yaml` as the baseline and launch a cloud PPO teacher run for 1 hour.
+- Probe a more aggressive cloud resource setting before the 1h run and record the selected setting.
+
+### What changed (files + behavior impact)
+- Added cloud pipeline script:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_ppo_aggressive/run_ppo1h_aggressive.sh`
+- Synced current local training inputs to `cloud-training:/root/code/dexscrew-repro/`:
+  - `configs/task/Dexh13HoraLightbulb.yaml`
+  - `configs/train/Dexh13HoraLightbulb.yaml`
+  - `scripts/dexh13_lightbulb_teacher.sh`
+  - cloud pipeline script above.
+- Launched remote tmux session:
+  - `dexh13_lightbulb_ppo_aggressive`
+
+### What was verified (commands + key outcomes)
+- Local script syntax:
+  - `bash -n outputs/cloud_pipeline_dexh13_lightbulb_ppo_aggressive/run_ppo1h_aggressive.sh`
+  - Outcome: pass.
+- Remote sync/path check:
+  - Confirmed cloud `configs/task/Dexh13HoraLightbulb.yaml` contains current local settings:
+    - `numEnvs: ${resolve_default:8192,${...num_envs}}`
+    - `two_finger_gate.target_offset: [0.0, 0.0, 0.084]`
+    - `object.type: screw_contactviz`
+    - `handRootPos: [0.064000, 0.014000, 0.229000]`
+    - `enable_nut_dof_vel: Truecc` preserved exactly as local YAML.
+- Cloud resource probe:
+  - Candidate order: `12288/24576`, `8192/16384`, `6144/12288` for `task.env.numEnvs/train.ppo.minibatch_size`.
+  - First candidate `12288 envs / minibatch 24576` allocated and ran to the 180s probe timeout without OOM.
+  - Selected setting: `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`, `num_threads=22`.
+- Formal PPO run:
+  - Started at `2026-04-29T08:28:04+00:00` with `timeout 3600s`.
+  - Output root:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h/`
+  - Active command includes:
+    - `task=Dexh13HoraLightbulb`
+    - `train.algo=PPO`
+    - `task.env.numEnvs=12288`
+    - `train.ppo.minibatch_size=24576`
+    - `num_threads=22`
+  - Training entered effective execution and created:
+    - `stage1_tb/events.out.tfevents...`
+    - `stage1_nn/best_reward_160.93.pth`
+  - Observed resource use after startup:
+    - GPU memory about `14.5GB / 24.6GB`
+    - GPU utilization up to about `90%`.
+
+### Local conclusion
+- The aggressive 12288-env cloud setting is viable on the 24GB 4090D for this task and leaves about 10GB memory headroom.
+- Startup is heavier than the previous 8192/default setting, but the run is now producing checkpoints and TensorBoard events.
+- The run is still active and should stop automatically via `timeout 3600s` around `2026-04-29T09:28:04+00:00`.
+
+### Remaining blocked/risky
+- The run has not reached the 1h timeout yet.
+- `latest.log` is noisy because `train.py` prints the dirty git diff at startup.
+- The local YAML contains `enable_nut_dof_vel: Truecc`, which is preserved by request but is a string rather than a boolean.
+- The final teacher checkpoint still needs to be synced back after the 1h timeout.
+
+### Single recommended next step
+- After `2026-04-29T09:28:04+00:00`, check the cloud tmux/log for `ppo_exit_status=124`, then rsync:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h/`
+  - `outputs/cloud_pipeline_dexh13_lightbulb_ppo_aggressive/`
+
+---
+
+## v2-170 (2026-04-29) -- AGENTS Cloud Resource Probe Order Recorded
+
+### Target milestone/subgoal
+- Preserve the resource-choice lesson from the active cloud DexH13 Lightbulb PPO run in stable agent instructions.
+
+### What changed (files + behavior impact)
+- Updated `AGENTS.md` cloud training guidance with a preferred aggressive probe order for IsaacGym Hora PPO teacher runs on the current 24GB cloud GPU:
+  - `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`
+  - `task.env.numEnvs=8192`, `train.ppo.minibatch_size=16384`
+  - `task.env.numEnvs=6144`, `train.ppo.minibatch_size=12288`
+- Added the condition that the selected probe should allocate, reach stable startup, and still leave meaningful training time inside the requested wall-clock budget.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- AGENTS.md docs/session_handoff_v2.md`
+  - Outcome: pass.
+
+### Local conclusion
+- Future cloud PPO runs should start from the measured 12288/24576 aggressive profile when the user asks to utilize cloud resources and has not pinned exact values, then fallback in the recorded order.
+
+### Remaining blocked/risky
+- The active `dexh13_lightbulb_yaml_current_aggressive_s42_1h` run is still in progress and has not reached its 1h timeout yet.
+- The recorded profile is based on this cloud class and IsaacGym Hora PPO teacher workload; other algorithms/tasks still require a probe.
+
+### Single recommended next step
+- Let the active cloud PPO run reach `timeout 3600s`, then sync the teacher output and pipeline log locally.
+
+---
+
+## v2-171 (2026-04-29) -- Cloud DexH13 Lightbulb PPO 1h Synced Locally
+
+### Target milestone/subgoal
+- Check completion of the aggressive cloud DexH13 Lightbulb PPO teacher run and sync artifacts locally for visualization.
+
+### What changed (files + behavior impact)
+- Synced cloud teacher output to local:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h/`
+- Synced cloud pipeline logs to local:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_ppo_aggressive/`
+- No source/config behavior was changed.
+
+### What was verified (commands + key outcomes)
+- Remote completion check:
+  - `ppo_exit_status=124` at `2026-04-29T09:28:04+00:00`, expected because PPO was wrapped in `timeout 3600s`.
+  - `tmux` session no longer exists and no matching PPO process remains.
+  - Selected cloud setting:
+    - `task.env.numEnvs=12288`
+    - `train.ppo.minibatch_size=24576`
+- Remote/log best checkpoint:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h/stage1_nn/best_reward_948.07.pth`
+- Last parsed training line:
+  - `Agent Steps: 0099M | FPS: 28832.5 | Last FPS: 29012.6 | Collect Time: 51.7 min | Train RL Time: 5.9 min | Current Best: 938.85`
+- Local artifact check:
+  - `best_reward_948.07.pth`: `1179610 bytes`
+  - `ep_500_step_0073m_reward_810.79.pth`: `1180181 bytes`
+  - `last.pth`: `1177400 bytes`
+  - teacher run dir size `7.2M`
+  - pipeline log dir size `1.6M`
+
+### Local conclusion
+- The requested 1h cloud PPO teacher run completed and is synced locally.
+- The visualization checkpoint to use is:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h/stage1_nn/best_reward_948.07.pth`
+
+### Remaining blocked/risky
+- Policy behavior has not yet been visually inspected.
+- The task YAML used for this run still contains `enable_nut_dof_vel: Truecc`; this did not crash training but remains a config-quality concern.
+
+### Single recommended next step
+- Visualize the synced teacher checkpoint locally:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher.sh 0 42 dexh13_lightbulb_yaml_current_aggressive_s42_1h test=True train.ppo.output_name=Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h checkpoint=outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h/stage1_nn/best_reward_948.07.pth graphics_device_id=0`
+
+---
+
+## v2-171 (2026-04-29) -- Output Diffusion Algorithm Notes Completed
+
+### Target milestone/subgoal
+- Produce an `output_docs`-level systematic summary of the four current diffusion / generative student algorithms, matching the detail level of `output_docs/algo_adapt.md`.
+
+### What changed (files + behavior impact)
+- Wrote `output_docs/algo_diffusion.md`.
+- Covered:
+  - `DiffusionLatentStudent` / latent DDPM,
+  - `ConsistencyLatentStudent`,
+  - `FlowMatchingLatentStudent`,
+  - `DiffusionActionChunkStudent`,
+  - shared teacher-student tensor definitions,
+  - mathematical objectives,
+  - train/eval/deploy logic,
+  - checkpoint contents and key config fields.
+- No source behavior or training config was changed.
+
+### What was verified (commands + key outcomes)
+- Inspected implementation files:
+  - `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - `dexscrew/algo/ppo/consistency_latent_student.py`
+  - `dexscrew/algo/ppo/flow_matching_latent_student.py`
+  - `dexscrew/algo/ppo/diffusion_action_chunk_student.py`
+  - relevant train config / algorithm registration files.
+- Markdown hygiene:
+  - `git diff --check -- output_docs/algo_diffusion.md`
+  - Outcome: pass.
+- Content spot checks:
+  - `wc -l output_docs/algo_diffusion.md`
+  - Outcome: `1830` lines.
+  - `rg -n "DiffusionLatentStudent|ConsistencyLatentStudent|FlowMatchingLatentStudent|DiffusionActionChunkStudent|L_diff|L_cons|L_flow|Action Chunk|Checkpoint" output_docs/algo_diffusion.md`
+  - Outcome: all four algorithms and core loss/checkpoint sections present.
+
+### Local conclusion
+- `output_docs/algo_diffusion.md` is now a standalone implementation-oriented reference for the repository's four diffusion/generative student branches.
+
+### Remaining blocked/risky
+- This is a detailed engineering note; it should be condensed before being used as thesis prose.
+- It summarizes implementation and algorithm mechanics, not final experimental acceptance status for each branch.
+
+### Single recommended next step
+- Review `output_docs/algo_diffusion.md`, then extract a shorter thesis-ready method section from it.
+
+---
+
+## v2-173 (2026-04-29) -- Sim2Real Strong Two-Finger Cooperative YAML Added
+
+### Target milestone/subgoal
+- Create a new DexH13 lightbulb sim2real two-finger task variant based on the stable `ThesisTwoFinger + thumbpose02` line, but with a stronger simultaneous-contact gate for real-world stability.
+
+### What changed (files + behavior impact)
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - Based on `configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml`.
+  - Sets `eval_cache_name: sim2real_twofinger`.
+  - Keeps the stable thumbpose02 setting: `task.env.pose_diff_penalty.thumb_weight=0.2`.
+  - Enables reset/termination checks in YAML:
+    - `enable_finger_dist=True`
+    - `enable_nut_stagnation=True`
+    - `enable_no_contact=True`
+    - `enable_screw_limit=True`
+    - `log=True`
+  - Strengthens the positive-rotation two-finger gate:
+    - `min_mult=0.0`
+    - `power=3.0`
+    - `contact_force_min=0.5`
+    - `no_grasp_penalty_scale=-1.5`
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - Copied from the thesis two-finger PPO train config so Hydra `train: ${task}` resolves.
+- Added `scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh`.
+  - PPO teacher wrapper writing to `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/<cache>`.
+  - In headed mode (`HEADLESS=False`), forces `task.env.numEnvs=1` and `train.ppo.minibatch_size=12`.
+
+### What was verified (commands + key outcomes)
+- Script/hygiene:
+  - `bash -n scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh`
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFinger.yaml scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh`
+  - Outcome: pass.
+- Hydra compose:
+  - `./docker-run-isaacgym.sh python -c "... compose(... task=Dexh13HoraLightbulbSim2RealTwoFinger) ..."`
+  - Outcome:
+    - `eval_cache_name=sim2real_twofinger`
+    - `train_algo=PPO`
+    - `thumb_weight=0.2`
+    - `enable_finger_dist=True`
+    - `gate_min_mult=0.0`
+    - `gate_power=3.0`
+    - `contact_force_min=0.5`
+    - `no_grasp_penalty=-1.5`
+- Isaac Gym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulbSim2RealTwoFinger headless=True seed=42 num_envs=4 train.algo=PPO train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher_sim2real_twofinger/smoke_tmp`
+  - Outcome: environment built with `using 1 training objects`, generated random initial poses at scale `1.2`, and exited cleanly after `max steps achieved`.
+
+### Local conclusion
+- The new strong two-finger sim2real task is ready for headed init-pose inspection and short PPO probing.
+- This variant intentionally makes single-finger positive-rotation flicking much less rewarding than the earlier thesis two-finger yaml.
+
+### Remaining blocked/risky
+- This is a config-level stronger gate; it does not yet add a separate single-finger XOR penalty or a free/compliant base.
+- Stronger gate may reduce early learning speed and reward; visual stability should be prioritized over raw reward for this branch.
+
+### Single recommended next step
+- Run headed training to inspect init/contact:
+  - `./docker-run-isaacgym.sh bash scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh 0 42 sim2real_twofinger_initpose_vis False wandb_activate=False task.env.randomization.randomizePDGains=False task.env.randomization.action_noise_e_scale=0.0 task.env.randomization.action_noise_t_scale=0.0 task.env.randomization.obs_noise_e_scale=0.0 task.env.randomization.obs_noise_t_scale=0.0 task.env.randomization.noisy_rpy_scale=0.0 task.env.randomization.noisy_pos_scale=0.0 task.env.forceScale=0.0 task.env.randomForceProbScalar=0.0 graphics_device_id=0`
+
+---
+
+## v2-172 (2026-04-29) -- Local Headed DexH13 Lightbulb YAML Train Check
+
+### Target milestone/subgoal
+- Run a local headed PPO training check on the current `Dexh13HoraLightbulb.yaml` so the user can inspect the live viewer behavior and confirm the YAML init relationship.
+
+### What changed (files + behavior impact)
+- No source/config files were changed.
+- Created a local PPO teacher check output:
+  - `outputs/Dexh13HoraLightbulb_teacher/local_headed_lightbulb_yaml_initcheck/`
+
+### What was verified (commands + key outcomes)
+- Command:
+  - `./docker-run-isaacgym.sh timeout 600 bash scripts/dexh13_lightbulb_teacher.sh 0 42 local_headed_lightbulb_yaml_initcheck False wandb_activate=False task.env.object.init_pos_noise=[0.0,0.0,0.0] task.env.randomization.randomizeScale=False task.env.randomization.randomizeScaleList=[1.0] task.env.randomization.randomizePDGains=False task.env.randomization.action_noise_e_scale=0.0 task.env.randomization.action_noise_t_scale=0.0 task.env.randomization.obs_noise_e_scale=0.0 task.env.randomization.obs_noise_t_scale=0.0 task.env.randomization.noisy_rpy_scale=0.0 task.env.randomization.noisy_pos_scale=0.0 task.env.forceScale=0.0 task.env.randomForceProbScalar=0.0 graphics_device_id=0`
+- Runtime config confirmed:
+  - `task=Dexh13HoraLightbulb`
+  - `headless=False`
+  - `task.env.numEnvs=1`
+  - `object.init_pos=[0.012,-0.018,0.0]`
+  - `object.init_pos_noise=[0.0,0.0,0.0]`
+  - `handRootPos=[0.064,0.014,0.229]`
+  - `handRootRPY=[3.1415,0.526893,3.1415]`
+  - `randomizeScale=False`, `randomizeScaleList=[1.0]`
+  - `forceScale=0.0`, `randomForceProbScalar=0.0`
+- Outcome:
+  - Command exited cleanly with status `0`.
+  - Saved `outputs/Dexh13HoraLightbulb_teacher/local_headed_lightbulb_yaml_initcheck/stage1_nn/best_reward_-776.96.pth`.
+  - Early headed-training reward improved from about `-1440.49` to `-776.96`; this is a startup sanity check, not a performance result.
+
+### Local conclusion
+- Local headed PPO training starts successfully on the current `Dexh13HoraLightbulb.yaml`.
+- With init noise, scale randomization, PD randomization, action/obs noise, and random external force disabled, the viewer uses the intended deterministic object/hand root init settings.
+
+### Remaining blocked/risky
+- This was a short headed sanity check with `numEnvs=1`; it is not comparable to the cloud 1h PPO result.
+- Current local `Dexh13HoraLightbulb.yaml` has `reset_dist_threshold=0.14`, while the previous cloud 1h run used `0.10`.
+- The YAML still contains `enable_nut_dof_vel: Truecc`, which remains a config-quality issue even though it has not crashed.
+
+### Single recommended next step
+- If the visual init/contact is still not acceptable, tune `env.asset.handRootPos/handRootRPY` and `env.object.init_pos` directly with deterministic viewer overrides before launching another cloud PPO run.
+
+---
+
+## v2-173 (2026-04-29) -- Frozen Initpose Viewer Added For DexH13 Lightbulb
+
+### Target milestone/subgoal
+- Separate three visual states that were being conflated:
+  - static task reset init pose,
+  - interactive initpose tuner pose,
+  - PPO checkpoint rollout after policy actions.
+
+### What changed (files + behavior impact)
+- Added `scripts/view_dexh13_lightbulb_initpose_freeze.py`.
+- The script composes the normal Hydra task config and opens a headed IsaacGym viewer, but does not execute PPO actions.
+- It disables init position noise, mass/COM/friction/scale/PD randomization, action/obs/noisy pose terms, and random external forces.
+- It prints the exact `object.init_pos`, `object.init_pos_noise`, `handRootPos`, and `handRootRPY` used by the viewer.
+
+### What was verified (commands + key outcomes)
+- Syntax checks:
+  - `python3 -m py_compile scripts/view_dexh13_lightbulb_initpose_freeze.py`
+  - `git diff --check -- scripts/view_dexh13_lightbulb_initpose_freeze.py`
+  - Outcome: pass.
+- Frozen viewer launch:
+  - `./docker-run-isaacgym.sh python scripts/view_dexh13_lightbulb_initpose_freeze.py --task Dexh13HoraLightbulb --gpu 0 --num-envs 1`
+  - Outcome: viewer launched and printed:
+    - `object.init_pos: [0.012, -0.018, 0.0]`
+    - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+    - `handRootPos: [0.064, 0.014, 0.229]`
+    - `handRootRPY: [3.1415, 0.526893, 3.1415]`
+- PPO visualization launch:
+  - Visualized `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_yaml_current_aggressive_s42_1h/stage1_nn/best_reward_948.07.pth`.
+  - Used deterministic init overrides plus training-matched `task.env.reset_dist_threshold=0.10` and termination flags.
+
+### Local conclusion
+- Config inspection shows no evidence that PPO visualization is using a different `handRootPos`, `handRootRPY`, `handInitPose`, or `object.init_pos` than the trained task config.
+- The visible difference between frozen/tuner screenshots and the PPO screenshot is most likely from the loaded PPO policy moving the active index/thumb after reset, not from an initpose override.
+- Training-time `object.init_pos_noise=[0.005,0.005,0.0]` is positive-only in the task code and `randomizeScale=True` was active, but those changes are too small to explain the large index-fingertip separation by themselves.
+
+### Remaining blocked/risky
+- The `Dexh13HoraLightbulb.yaml` PPO checkpoint only reached `Current Best` around `948`, much lower than the earlier stable ThesisSim2Real teacher around `3316`, so poor visual grasp behavior is expected.
+- The current reward/gate setup has `min_mult=0.05` and disabled fingertip tangent/torque rewards, so the policy can still receive some rotation reward even with weak or transient index contact.
+
+### Single recommended next step
+- If the goal is stable two-finger bulb grasp, do not treat this PPO checkpoint as a good policy; first retune init/contact target or restore stronger contact shaping, then rerun a short PPO probe and visualize early.
+
+---
+
+## v2-174 (2026-04-29) -- Sim2Real Two-Finger Rotate Reward Raised
+
+### Target milestone/subgoal
+- Make the new strong two-finger cooperative sim2real task less sparse by increasing the gated rotation reward while keeping the finger-distance reset threshold at the requested value.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - `task.env.reward.rotate_reward_scale`: `2.5 -> 6.0`.
+  - Confirmed `task.env.reset_dist_threshold` is already `0.15`, so no reset-threshold edit was needed.
+- No other task, train, or source files were changed for this adjustment.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`
+  - Outcome: pass.
+- Hydra compose probe:
+  - `./docker-run-isaacgym.sh python -c "... task=Dexh13HoraLightbulbSim2RealTwoFinger ..."`
+  - Outcome:
+    - `reset_dist_threshold=0.15`
+    - `rotate_reward_scale=6.0`
+    - `enable_finger_dist=True`
+    - `gate_min_mult=0.0`
+    - `gate_power=3.0`
+
+### Local conclusion
+- The strong two-finger sim2real branch now has a larger rotation incentive while preserving the strict simultaneous-contact gate and finger-distance reset.
+
+### Remaining blocked/risky
+- Higher rotation reward can speed up learning, but may also reintroduce aggressive contact or slip if the gate is insufficient; visual inspection after short training remains necessary.
+
+### Single recommended next step
+- Run a short headed or 30min headless probe on `Dexh13HoraLightbulbSim2RealTwoFinger` and compare whether thumb/index now learn simultaneous contact instead of returning to single-finger flicking.
+
+---
+
+## v2-175 (2026-04-29) -- DexH13 Lightbulb Finger Reset Target Aligned To Bulb Head
+
+### Target milestone/subgoal
+- Fix the mismatch where `Dexh13HoraLightbulb.yaml` rewarded/gated index+thumb contact near the bulb head but terminated/proximity-shaped finger distance against raw `nut_pos`.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/tasks/xhand_hora.py`.
+  - `env.finger_object_contact` now supports:
+    - `target: nut_pos | object_pos`
+    - `target_offset: [x, y, z]`
+    - `scale_with_object`
+    - `threshold_scale_with_object`
+  - Proximity reward now measures thumb/other fingertip distances to this configured finger-contact target.
+  - Finger-distance termination now uses the same configured target and can scale the threshold with object scale.
+  - Defaults preserve previous behavior for tasks that do not set the new keys.
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+  - `reset_dist_threshold: 0.15`.
+  - `finger_object_contact.target_offset: [0.0, 0.0, 0.084]`.
+  - `finger_object_contact.scale_with_object: True`.
+  - `finger_object_contact.threshold_scale_with_object: True`.
+  - `termination.grace_steps: 150`.
+  - `two_finger_gate.min_mult: 0.02`.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY' ... compile(...) ... PY`
+  - Outcome: `syntax_ok`.
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulb.yaml scripts/view_dexh13_lightbulb_initpose_freeze.py docs/session_handoff_v2.md`
+  - Outcome: pass.
+- IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulb headless=True seed=42 num_envs=2 task.env.numEnvs=2 train.algo=PPO train.ppo.minibatch_size=24 train.ppo.max_agent_steps=24 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher/smoke_finger_contact_target_align_tmp`
+  - Outcome: environment built and exited cleanly with `max steps achieved`.
+  - Runtime config confirmed:
+    - `finger_object_contact.target_offset=[0.0,0.0,0.084]`
+    - `finger_object_contact.scale_with_object=True`
+    - `finger_object_contact.threshold_scale_with_object=True`
+    - `reset_dist_threshold=0.15`
+    - `two_finger_gate.min_mult=0.02`
+
+### Local conclusion
+- The current `Dexh13HoraLightbulb.yaml` no longer has the direct contradiction where gate/reward targets the bulb head but finger-distance reset measures from raw `nut_pos`.
+- This should make index/thumb exploration toward the useful bulb-head contact region less likely to be killed by reset, especially when object scale randomization samples larger bulbs.
+
+### Remaining blocked/risky
+- Existing PPO checkpoints were trained under the old mismatch; they must not be used to judge the new reset target behavior.
+- `enable_nut_dof_vel: Truecc` remains in the YAML and is still a config-quality issue even though smoke training tolerates it.
+
+### Single recommended next step
+- Launch a fresh short PPO probe on the updated `Dexh13HoraLightbulb.yaml`, then visualize the best checkpoint before committing to a full cloud run.
+
+---
+
+## v2-176 (2026-04-29) -- Cloud DexH13 Lightbulb Target-Aligned PPO Unlimited Launch
+
+### Target milestone/subgoal
+- Start a cloud PPO teacher run using the updated `Dexh13HoraLightbulb.yaml` where finger reset/proximity targets are aligned to the bulb-head gate target.
+- User explicitly requested no wall-clock limit.
+
+### What changed (files + behavior impact)
+- Added cloud pipeline script:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_targetalign_ppo_unlimited/run_ppo_unlimited_aggressive.sh`
+- Synced current local training inputs to `cloud-training:/root/code/dexscrew-repro/`:
+  - `configs/task/Dexh13HoraLightbulb.yaml`
+  - `configs/train/Dexh13HoraLightbulb.yaml`
+  - `dexscrew/tasks/xhand_hora.py`
+  - `scripts/dexh13_lightbulb_teacher.sh`
+  - pipeline script above.
+- Launched remote tmux session:
+  - `dexh13_lightbulb_targetalign_ppo_unlimited`
+
+### What was verified (commands + key outcomes)
+- Local script checks:
+  - `bash -n outputs/cloud_pipeline_dexh13_lightbulb_targetalign_ppo_unlimited/run_ppo_unlimited_aggressive.sh`
+  - `git diff --check -- outputs/cloud_pipeline_dexh13_lightbulb_targetalign_ppo_unlimited/run_ppo_unlimited_aggressive.sh`
+  - Outcome: pass.
+- Remote sync/config check:
+  - Cloud `configs/task/Dexh13HoraLightbulb.yaml` contains:
+    - `reset_dist_threshold: 0.15`
+    - `finger_object_contact.target_offset: [0.0, 0.0, 0.084]`
+    - `finger_object_contact.threshold_scale_with_object: True`
+    - `termination.grace_steps: 150`
+    - `two_finger_gate.min_mult: 0.02`
+  - Cloud `dexscrew/tasks/xhand_hora.py` contains the new finger-contact target helper path.
+- Cloud resource probe:
+  - Candidate order: `12288/24576`, `8192/16384`, `6144/12288`.
+  - `12288 envs / minibatch 24576` ran to the 180s probe timeout without OOM.
+  - Selected setting:
+    - `task.env.numEnvs=12288`
+    - `train.ppo.minibatch_size=24576`
+    - `num_threads=22`
+- Formal PPO run:
+  - Started at `2026-04-29T10:34:13+00:00`.
+  - No formal `timeout` is applied, matching the user request.
+  - Output root:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_targetalign_ppo_unlimited_s42/`
+  - Active process:
+    - tmux session `dexh13_lightbulb_targetalign_ppo_unlimited`
+    - `python train.py task=Dexh13HoraLightbulb ... train.ppo.output_name=Dexh13HoraLightbulb_teacher/dexh13_lightbulb_targetalign_ppo_unlimited_s42 task.env.numEnvs=12288 train.ppo.minibatch_size=24576`
+  - Runtime config file confirms:
+    - `reset_dist_threshold=0.15`
+    - `finger_object_contact.threshold_scale_with_object=true`
+    - `two_finger_gate.min_mult=0.02`
+  - Initial checkpoint saved:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_targetalign_ppo_unlimited_s42/stage1_nn/best_reward_361.88.pth`
+  - GPU at status check:
+    - `NVIDIA GeForce RTX 4090 D`, about `14309 MiB / 24564 MiB`, utilization around `61%`.
+
+### Local conclusion
+- The requested no-time-limit PPO teacher training is running on the cloud with the updated target-aligned YAML/code.
+- The run has entered effective PPO training and is already saving `best_reward_*.pth` checkpoints.
+
+### Remaining blocked/risky
+- Because there is no wall-clock timeout, this run must be stopped manually when the user wants to inspect/sync.
+- `latest.log` is noisy because `train.py` prints a large dirty git diff before normal training lines.
+- The YAML still contains `enable_nut_dof_vel: Truecc`, which has not crashed but remains a config-quality issue.
+
+### Single recommended next step
+- Let the cloud PPO run continue until the user wants inspection, then stop/sync:
+  - `ssh cloud-training`
+  - `cd /root/code/dexscrew-repro`
+  - `tmux attach -t dexh13_lightbulb_targetalign_ppo_unlimited`
+  - monitor `outputs/cloud_pipeline_dexh13_lightbulb_targetalign_ppo_unlimited/latest.log`
+
+---
+
+## v2-177 (2026-04-29) -- Sim2Real Two-Finger Coactive Contribution Reward Added
+
+### Target milestone/subgoal
+- Respond to visual evidence that the strong contact gate still produced two-stage thumb/index behavior instead of true two-finger cooperation.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/tasks/xhand_hora.py`.
+  - Added `aggregation` support for `env.fingertip_tangent_reward`:
+    - `mean` preserves previous behavior.
+    - `min` uses the weakest tracked fingertip's reward, so one active finger cannot hide the other inactive finger.
+  - Added the same `aggregation` support for `env.fingertip_torque_reward`.
+  - Added TensorBoard/W&B diagnostics:
+    - `fingertip_tangent/reward_min`
+    - `fingertip_torque/reward_min`
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - `fingertip_tangent_reward.fingertip_indices: [0, 3]`.
+  - `fingertip_tangent_reward.aggregation: min`.
+  - `fingertip_tangent_reward.contact_force_min: 0.5`.
+  - `fingertip_torque_reward.fingertip_indices: [0, 3]`.
+  - `fingertip_torque_reward.aggregation: min`.
+  - `fingertip_torque_reward.contact_force_min: 0.5`.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`
+  - Outcome: pass.
+  - `python - <<'PY' ... compile(Path('dexscrew/tasks/xhand_hora.py').read_text(), ...) ... PY`
+  - Outcome: `compile_ok`.
+  - Note: direct `py_compile` on the host hit a root-owned `__pycache__` permission error; the no-write compile path passed.
+- Hydra compose probe:
+  - `./docker-run-isaacgym.sh python -c "... task=Dexh13HoraLightbulbSim2RealTwoFinger ..."`
+  - Outcome:
+    - `tangent_indices=[0,3]`
+    - `tangent_aggregation=min`
+    - `torque_indices=[0,3]`
+    - `torque_aggregation=min`
+    - `rotate_reward_scale=6.0`
+- IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulbSim2RealTwoFinger headless=True seed=42 num_envs=4 train.algo=PPO train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 wandb_activate=False train.ppo.output_name=Dexh13HoraLightbulb_teacher_sim2real_twofinger/smoke_coactive_tmp`
+  - Outcome: env built, runtime config showed coactive `[0,3]` min aggregation, and run exited cleanly after `max steps achieved`.
+
+### Local conclusion
+- The sim2real two-finger branch now distinguishes passive simultaneous contact from real coactive tangent/torque contribution.
+- Previous strong-gate checkpoints should not be used to judge this new behavior because they were trained before the coactive reward change.
+
+### Remaining blocked/risky
+- This still does not force a free/compliant bulb base; it only shapes two-finger coactive behavior under the fixed-base simulator.
+- `min` aggregation is stricter and may slow learning or lower reward; visual behavior should be prioritized over reward scale.
+
+### Single recommended next step
+- Train a fresh short probe on `Dexh13HoraLightbulbSim2RealTwoFinger` and visualize the new best checkpoint; check `fingertip_tangent/reward_min`, `fingertip_torque/reward_min`, and per-finger torque logs before deciding if a separate single-finger penalty is needed.
+
+---
+
+## v2-178 (2026-04-29) -- DexH13 Lightbulb PPO Stopped, Synced, And Initpose Retreated
+
+### Target milestone/subgoal
+- Stop the cloud `Dexh13HoraLightbulb` PPO teacher run on user request, sync the best model locally, and inspect the visual behavior.
+
+### What changed (files + behavior impact)
+- Stopped remote tmux run:
+  - `dexh13_lightbulb_targetalign_ppo_unlimited`
+- Synced cloud artifacts to local:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_targetalign_ppo_unlimited_s42/`
+  - `outputs/cloud_pipeline_dexh13_lightbulb_targetalign_ppo_unlimited/`
+- Updated `configs/task/Dexh13HoraLightbulb.yaml` after visual inspection showed the trained policy was using an over-forward hand init pose:
+  - `finger_object_contact.target_offset: [0.0, 0.0, 0.04]`
+  - `two_finger_gate.target_offset: [0.0, 0.0, 0.04]`
+  - disabled fingertip reward target offsets also aligned to `0.04`
+  - `handRootPos: [0.11, 0.020, 0.217]`
+  - `handRootRPY: [3.1415, 0.3, 3.1415]`
+  - restored stable two-finger index/thumb initial joint angles from the sim2real/twofinger branch
+  - fixed config typo `enable_nut_dof_vel: Truecc -> True`
+
+### What was verified (commands + key outcomes)
+- Remote stop/sync:
+  - `tmux send-keys -t dexh13_lightbulb_targetalign_ppo_unlimited C-c`
+  - Outcome: tmux exited, no remote PPO process remained.
+  - Best synced checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_targetalign_ppo_unlimited_s42/stage1_nn/best_reward_7281.51.pth`
+  - Last periodic checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_targetalign_ppo_unlimited_s42/stage1_nn/ep_2000_step_0295m_reward_7213.14.pth`
+- Local config checks:
+  - text check confirmed `target_offset=0.04`, `handRootPos=[0.11,0.020,0.217]`, and `enable_nut_dof_vel=True`
+  - `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+- Local freeze viewer:
+  - First headed attempt failed because two leftover Docker/IsaacGym containers were consuming most GPU memory.
+  - Stopped containers `316ef324c97f` and `ff8bb809183d`.
+  - GPU freed from about `14.8GB/16.4GB` to about `1.2GB/16.4GB`.
+  - Relaunched freeze viewer:
+    - `./docker-run-isaacgym.sh timeout 25 python scripts/view_dexh13_lightbulb_initpose_freeze.py --task Dexh13HoraLightbulb --gpu 0 --num-envs 1`
+    - Outcome: environment built and printed corrected pose:
+      - `handRootPos: [0.11, 0.02, 0.217]`
+      - `handRootRPY: [3.1415, 0.3, 3.1415]`
+
+### Local conclusion
+- The high-reward `best_reward_7281.51.pth` run should not be treated as a valid final teacher because it was trained with the over-forward `[0.064, 0.014, 0.229] + pitch 0.526893` hand root pose.
+- The corrected YAML is now closer to the stable two-finger/sim2real geometry and gives the index finger more usable tangent-rotation workspace.
+
+### Remaining blocked/risky
+- The synced checkpoint is useful for recordkeeping only; it is geometrically mismatched with the corrected YAML.
+- A fresh PPO run is needed before judging whether reward and visual behavior now agree.
+
+### Single recommended next step
+- Run a fresh short PPO probe on corrected `Dexh13HoraLightbulb.yaml`, visualize the best checkpoint, and only then launch another no-limit/full cloud PPO run.
+
+---
+
+## v2-179 (2026-04-29) -- DexH13 Lightbulb Scale Range Moved To 1.15-1.25
+
+### Target milestone/subgoal
+- Adjust only the object scale distribution for `Dexh13HoraLightbulb.yaml` after visual inspection suggested mismatch between fixed-scale initpose tuning and scale-randomized training.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+  - `baseObjScale: 1.0 -> 1.20`.
+  - `randomizeScaleList: [1.0, 1.05, 1.10, 1.15] -> [1.175, 1.225]`.
+  - `randomizeScaleMin/Max` and `randomizeScaleLower/Upper`: `1.15 / 1.25`.
+  - Added a short comment that task code samples each listed scale with `+/-0.025`.
+- Did not modify `handRootPos`, `handRootRPY`, or `handInitPose` in this update.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe:
+  - `baseObjScale=1.2`
+  - `randomizeScale=True`
+  - `randomizeScaleList=[1.175, 1.225]`
+  - `randomizeScaleMinMax=1.15 1.25`
+  - initpose fields still resolve to:
+    - `handRootPos=[0.11, 0.02, 0.217]`
+    - `handRootRPY=[3.1415, 0.3, 3.1415]`
+    - `right_thumb_joint_0=-0.33`
+    - `right_index_joint_1=0.925279522`
+
+### Local conclusion
+- Future `Dexh13HoraLightbulb` runs will train near the stable 1.20 bulb scale while still covering approximately `1.15-1.25`.
+- The already-running local headed 10-env PPO process was launched before this edit and still uses its originally parsed scale config.
+
+### Remaining blocked/risky
+- The task code currently ignores `randomizeScaleMin/Max` for actual sampling and uses `randomizeScaleList[i] +/- 0.025`; the chosen centers therefore implement the intended approximate range.
+
+### Single recommended next step
+- Restart the local headed 10-env PPO if the user wants to inspect the new 1.15-1.25 scale distribution.
+
+---
+
+## v2-180 (2026-04-29) -- Cloud DexH13 Thesis Initpose Scale115125 PPO 1h Launch
+
+### Target milestone/subgoal
+- Restore `Dexh13HoraLightbulb.yaml` init pose to the thesis stable keyboard-tuned pose and launch a 1h cloud PPO teacher run.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+  - Restored thesis stable initpose from `outputs/initpose_tuning/lightbulb_initpose.yaml`:
+    - `handRootPos: [0.064000, 0.014000, 0.229000]`
+    - `handRootRPY: [3.141500, 0.526893, 3.141500]`
+    - `right_index_joint_1: 1.1252793074`
+    - `right_index_joint_2: 0.3028971255`
+    - `right_index_joint_3: 0.3092995286`
+    - `right_thumb_joint_0: 0.0`
+    - `right_thumb_joint_2: 0.0599999987`
+    - `right_thumb_joint_3: 1.0319659710`
+  - Kept the previous scale update:
+    - `baseObjScale: 1.20`
+    - `randomizeScaleList: [1.175, 1.225]`
+    - approximate runtime scale range `1.15-1.25`.
+- Added cloud launch script:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_thesis_initpose_scale115125_ppo1h/run_ppo_1h_aggressive.sh`
+  - Uses `timeout 3600`, `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`.
+- Synced to `cloud-training:/root/code/dexscrew-repro/`:
+  - `configs/task/Dexh13HoraLightbulb.yaml`
+  - `configs/train/Dexh13HoraLightbulb.yaml`
+  - `dexscrew/tasks/xhand_hora.py`
+  - launch script above.
+
+### What was verified (commands + key outcomes)
+- Local checks:
+  - `bash -n outputs/cloud_pipeline_dexh13_lightbulb_thesis_initpose_scale115125_ppo1h/run_ppo_1h_aggressive.sh`
+  - `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml outputs/cloud_pipeline_dexh13_lightbulb_thesis_initpose_scale115125_ppo1h/run_ppo_1h_aggressive.sh`
+  - Outcome: pass.
+- Local Docker/Hydra compose probe confirmed:
+  - `baseObjScale=1.2`
+  - `randomizeScaleList=[1.175, 1.225]`
+  - `handRootPos=[0.064, 0.014, 0.229]`
+  - `handRootRPY=[3.1415, 0.526893, 3.1415]`
+  - index/thumb initial joints match the thesis stable snippet.
+- Remote preflight:
+  - No existing `Dexh13HoraLightbulb` tmux/process.
+  - GPU idle before launch: `NVIDIA GeForce RTX 4090 D`, `1 MiB / 24564 MiB`.
+- Remote launch:
+  - tmux session:
+    - `dexh13_lightbulb_thesis_initpose_scale115125_ppo1h`
+  - run output:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thesis_initpose_scale115125_s42_1h/`
+  - pipeline log:
+    - `outputs/cloud_pipeline_dexh13_lightbulb_thesis_initpose_scale115125_ppo1h/latest.log`
+  - Runtime config markers in remote log confirm:
+    - `numEnvs: 12288`
+    - `baseObjScale: 1.2`
+    - `randomizeScaleList: [1.175, 1.225]`
+    - `handRootPos: [0.064, 0.014, 0.229]`
+    - `handRootRPY: [3.1415, 0.526893, 3.1415]`
+    - `right_index_joint_1: 1.1252793074`
+    - `right_thumb_joint_3: 1.031965971`
+  - First status check:
+    - process alive under `timeout 3600`
+    - GPU about `14389 MiB / 24564 MiB`, util about `52%`
+    - first best checkpoint saved:
+      - `stage1_nn/best_reward_222.58.pth`
+
+### Local conclusion
+- The requested 1h cloud PPO run is active and has entered training with the thesis stable initpose plus scale range approximately `1.15-1.25`.
+
+### Remaining blocked/risky
+- The run is still in progress and should finish by timeout status `124`; this is expected for the requested 1h wall-clock limit.
+- Visual quality still needs inspection after sync because reward alone may not capture index-finger usefulness.
+
+### Single recommended next step
+- After the 1h timeout finishes, sync `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thesis_initpose_scale115125_s42_1h/` locally and visualize the best checkpoint.
+
+---
+
+## v2-181 (2026-04-30) -- Sim2Real Coactive Reward Scale Restored
+
+### Target milestone/subgoal
+- Keep the visually acceptable coactive two-finger behavior, but restore the main rotation reward scale to the earlier thesis-twofinger value for future training comparability.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - `task.env.reward.rotate_reward_scale`: `6.0 -> 2.5`.
+- Preserved the coactive behavior-shaping settings:
+  - `fingertip_tangent_reward.fingertip_indices: [0, 3]`.
+  - `fingertip_tangent_reward.aggregation: min`.
+  - `fingertip_torque_reward.fingertip_indices: [0, 3]`.
+  - `fingertip_torque_reward.aggregation: min`.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe:
+  - `rotate_reward_scale=2.5`
+  - `tangent_indices=[0,3]`
+  - `tangent_aggregation=min`
+  - `torque_indices=[0,3]`
+  - `torque_aggregation=min`
+  - `gate_power=3.0`
+
+### Local conclusion
+- Future `Dexh13HoraLightbulbSim2RealTwoFinger` runs use the original rotation-reward magnitude while retaining the coactive two-finger contribution requirement.
+- Existing checkpoint `sim2real_twofinger_coactive_r6_s42_30m/best_reward_6083.13.pth` was trained with `rotate_reward_scale=6.0`; it remains useful as a visual behavior reference but is not reward-scale comparable to future 2.5 runs.
+
+### Remaining blocked/risky
+- Lowering the main rotate reward may slow learning under the strict coactive min aggregation; if fresh training collapses or does not learn, compare behavior rather than raw reward first.
+
+### Single recommended next step
+- If retraining this branch, use a fresh cache name such as `sim2real_twofinger_coactive_r25_s42_30m` to avoid mixing reward-scale regimes.
+
+---
+
+## v2-182 (2026-04-30) -- Cloud DexH13 Thesis Initpose PPO 1h Synced And Visualized
+
+### Target milestone/subgoal
+- Confirm the cloud 1h PPO teacher run finished, sync the checkpoint locally, and inspect the headed viewer.
+
+### What changed (files + behavior impact)
+- Synced cloud artifacts locally:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thesis_initpose_scale115125_s42_1h/`
+  - `outputs/cloud_pipeline_dexh13_lightbulb_thesis_initpose_scale115125_ppo1h/`
+- Added local visual check captures:
+  - `outputs/visual_checks/dexh13_lightbulb_thesis_initpose_scale115125_best.png`
+  - `outputs/visual_checks/dexh13_lightbulb_thesis_initpose_scale115125_best_now.png`
+
+### What was verified (commands + key outcomes)
+- Remote completion check:
+  - tmux session ended.
+  - no `python train.py task=Dexh13HoraLightbulb` process remained.
+  - pipeline ended at `2026-04-29T16:43:11+00:00`.
+  - `train_exit_status=124`, expected for `timeout 3600`.
+  - remote GPU returned idle.
+- Best synced checkpoint:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thesis_initpose_scale115125_s42_1h/stage1_nn/best_reward_5352.78.pth`
+- Local headed viewer command used:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher.sh 0 42 dexh13_lightbulb_thesis_initpose_scale115125_s42_1h test=True checkpoint=outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thesis_initpose_scale115125_s42_1h/stage1_nn/best_reward_5352.78.pth graphics_device_id=0 task.env.randomization.randomizeScale=False task.env.randomization.randomizeMass=False task.env.randomization.randomizeCOM=False task.env.randomization.randomizeFriction=False task.env.randomization.randomizePDGains=False task.env.object.init_pos_noise=[0.0,0.0,0.0] task.env.forceScale=0.0 task.env.randomForceProbScalar=0.0`
+- Runtime config printed by the viewer confirmed:
+  - `test: True`
+  - checkpoint path above
+  - `baseObjScale: 1.2`
+  - domain randomization/noise disabled for visual inspection
+  - thesis stable `handRootPos`, `handRootRPY`, index/thumb initial joints.
+
+### Local conclusion
+- The requested 1h cloud PPO run completed and the best checkpoint is available locally.
+- Initial visual inspection shows the policy starts from the intended thesis stable pose and does not show the earlier gross initpose mismatch. The index still appears relatively low/left of the bulb and the behavior remains conservative, so visual quality should be judged from the live viewer rather than reward alone.
+
+### Remaining blocked/risky
+- The current 1h policy may still underuse the index finger even with the corrected initpose and scale range.
+- Viewer was launched with randomization disabled to isolate policy behavior at the nominal 1.20 bulb scale.
+
+### Single recommended next step
+- Inspect the live viewer; if index contact is still weak, run the next ablation by adding explicit index contact/tangent shaping rather than changing initpose again.
+
+---
+
+## v2-183 (2026-04-30) -- DexH13 Lightbulb Fixed Scale No-Randomization Config
+
+### Target milestone/subgoal
+- Remove scale/domain-randomization as a confounder between keyboard init-pose tuning and PPO training.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+  - Fixed object scale to the keyboard tuning value:
+    - `baseObjScale: 1.20`
+    - `randomizeScale: False`
+    - `randomizeScaleList: [1.20]`
+    - `randomizeScaleMin/Max/Lower/Upper: 1.20`
+  - Disabled training perturbations:
+    - `randomizeMass: False`
+    - `randomizeCOM: False`
+    - `randomizeFriction: False`
+    - `randomizePDGains: False`
+    - obs/action/noisy pose scales all `0.0`
+    - `forceScale: 0.0`
+    - `randomForceProbScalar: 0.0`
+    - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+- Synced the updated task YAML to:
+  - `cloud-training:/root/code/dexscrew-repro/configs/task/Dexh13HoraLightbulb.yaml`
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe confirmed the training entrypoint resolves:
+  - `baseObjScale=1.2`
+  - `randomizeScale=False`
+  - `randomizeScaleList=[1.2]`
+  - `scaleLowerUpper=1.2 1.2`
+  - `mass/com/friction/pd=False False False False`
+  - obs/action/noisy scales all `0.0`
+  - `object_init_pos_noise=[0.0, 0.0, 0.0]`
+  - thesis stable hand root and thumb/index init joints unchanged.
+- Remote grep check confirmed the cloud YAML has the same fixed-scale/no-randomization values.
+
+### Local conclusion
+- A fresh PPO run from this YAML should now match the keyboard init-pose tuning setup for scale and remove domain-randomization effects.
+- Existing checkpoints remain trained under their original configs and should not be used to judge this fixed-scale change.
+
+### Remaining blocked/risky
+- If thumb/index still look wrong after retraining from this fixed-scale config, the likely causes move to geometry/contact/reward/action behavior rather than scale randomization.
+
+### Single recommended next step
+- Sync this config to the cloud and launch a fresh PPO teacher run with a new cache name, e.g. `dexh13_lightbulb_fixed120_nodr_s42_1h`.
+
+---
+
+## v2-184 (2026-04-30) -- Cloud DexH13 Fixed120 NoDR PPO 20m Launch
+
+### Target milestone/subgoal
+- Launch a short cloud PPO teacher run from the current fixed-scale/no-randomization `Dexh13HoraLightbulb.yaml` so the user can later visualize whether the pose is correct.
+
+### What changed (files + behavior impact)
+- Added cloud launch script:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_fixed120_nodr_ppo20m/run_ppo_20m_aggressive.sh`
+- Script behavior:
+  - `timeout 1200`
+  - task `Dexh13HoraLightbulb`
+  - `headless=True`
+  - seed `42`
+  - `task.env.numEnvs=12288`
+  - `train.ppo.minibatch_size=24576`
+  - output run:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_fixed120_nodr_s42_20m/`
+  - pipeline log:
+    - `outputs/cloud_pipeline_dexh13_lightbulb_fixed120_nodr_ppo20m/latest.log`
+- Synced to cloud:
+  - `configs/task/Dexh13HoraLightbulb.yaml`
+  - `configs/train/Dexh13HoraLightbulb.yaml`
+  - `dexscrew/tasks/xhand_hora.py`
+  - launch script above.
+
+### What was verified (commands + key outcomes)
+- Local checks:
+  - `bash -n outputs/cloud_pipeline_dexh13_lightbulb_fixed120_nodr_ppo20m/run_ppo_20m_aggressive.sh`
+  - `git diff --check -- ...`
+  - Outcome: pass.
+- Remote preflight:
+  - no existing tmux session
+  - no matching `Dexh13HoraLightbulb` training process
+  - GPU idle: `NVIDIA GeForce RTX 4090 D`, `1 MiB / 24564 MiB`, `0%`
+- Remote YAML/script checks:
+  - script syntax pass
+  - remote YAML confirms:
+    - `baseObjScale: 1.20`
+    - `randomizeScale: False`
+    - `randomizeScaleList: [1.20]`
+    - mass/COM/friction/PD randomization disabled
+    - obs/action/noisy/object init noise disabled
+    - thesis stable `handRootPos`, `handRootRPY`, index/thumb init joints.
+- Remote launch:
+  - tmux session:
+    - `dexh13_lightbulb_fixed120_nodr_ppo20m`
+  - running command:
+    - `timeout 1200 python train.py task=Dexh13HoraLightbulb ...`
+  - after about 2m14s:
+    - GPU `14339 MiB / 24564 MiB`, util about `89%`
+    - first checkpoint saved:
+      - `stage1_nn/best_reward_104.19.pth`
+    - startup log includes:
+      - `Generated 5000 random initial poses for XHand at scale 1.2`
+
+### Local conclusion
+- The requested 20m cloud PPO run is active and is using the fixed 1.20/no-domain-randomization configuration.
+- This run is the correct one to visualize for the pose sanity check; older checkpoints should not be used for this comparison.
+
+### Remaining blocked/risky
+- The 20m run is still in progress and should naturally exit with timeout status `124`.
+- It is a short training run, so behavior quality may be rough; the main purpose is pose sanity rather than final policy quality.
+
+### Single recommended next step
+- After the 20m timeout completes, sync `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_fixed120_nodr_s42_20m/` and visualize its best checkpoint locally.
+
+---
+
+## v2-183 (2026-04-30) -- Sim2Real Coactive Rotate Reward Set To 3.5
+
+### Target milestone/subgoal
+- Restore a moderate rotation reward scale for the coactive sim2real two-finger task: stronger than the original `2.5`, but less aggressive than the temporary `6.0`.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - `task.env.reward.rotate_reward_scale`: `2.5 -> 3.5`.
+- Preserved the coactive two-finger settings:
+  - `fingertip_tangent_reward.fingertip_indices: [0, 3]`.
+  - `fingertip_tangent_reward.aggregation: min`.
+  - `fingertip_torque_reward.fingertip_indices: [0, 3]`.
+  - `fingertip_torque_reward.aggregation: min`.
+  - `termination.enable_finger_dist: True`.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe confirmed:
+  - `rotate_reward_scale=3.5`.
+  - `tangent_indices=[0,3]`.
+  - `tangent_aggregation=min`.
+  - `torque_indices=[0,3]`.
+  - `torque_aggregation=min`.
+  - `enable_finger_dist=True`.
+
+### Local conclusion
+- Future coactive sim2real two-finger training now uses the intended moderate rotation reward scale.
+- The existing `sim2real_twofinger_coactive_r6_s42_30m` checkpoint was trained with `rotate_reward_scale=6.0`; use a fresh cache for any 3.5 run.
+
+### Remaining blocked/risky
+- Because reward scale changed again, raw reward values are not directly comparable between `r6` and future `r35` runs.
+
+### Single recommended next step
+- If retraining, use a new cache name such as `sim2real_twofinger_coactive_r35_s42_30m`.
+
+---
+
+## v2-185 (2026-04-30) -- Fixed120 NoDR PPO20m Synced And Visualized
+
+### Target milestone/subgoal
+- Sync the completed fixed-scale/no-randomization 20m PPO teacher checkpoint and open local headed visualization.
+
+### What changed (files + behavior impact)
+- Synced cloud artifacts locally:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_fixed120_nodr_s42_20m/`
+  - `outputs/cloud_pipeline_dexh13_lightbulb_fixed120_nodr_ppo20m/`
+- Added local visual captures:
+  - `outputs/visual_checks/dexh13_lightbulb_fixed120_nodr_best3461.png`
+  - `outputs/visual_checks/dexh13_lightbulb_fixed120_nodr_best3461_t2.png`
+  - `outputs/visual_checks/dexh13_lightbulb_fixed120_nodr_best3461_zoom.png`
+  - `outputs/visual_checks/dexh13_lightbulb_fixed120_nodr_best3461_rotated.png`
+  - `outputs/visual_checks/dexh13_lightbulb_fixed120_nodr_best3461_focus.png`
+
+### What was verified (commands + key outcomes)
+- Remote completion check:
+  - no tmux session and no remote training process remained.
+  - remote GPU idle.
+  - `train_exit_status=124`, expected for `timeout 1200`.
+  - best checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_fixed120_nodr_s42_20m/stage1_nn/best_reward_3461.19.pth`
+- Local headed viewer command:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher.sh 0 42 dexh13_lightbulb_fixed120_nodr_s42_20m test=True checkpoint=outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_fixed120_nodr_s42_20m/stage1_nn/best_reward_3461.19.pth graphics_device_id=0`
+- Viewer runtime config confirmed:
+  - checkpoint path above
+  - `baseObjScale: 1.2`
+  - `randomizeScale: False`
+  - `randomizeScaleList: [1.2]`
+  - mass/COM/friction/PD/noise/force/object init noise disabled
+  - `Generated 5000 random initial poses for XHand at scale 1.2`
+
+### Local conclusion
+- The checkpoint is synced and the local viewer is open.
+- The viewer confirms the correct fixed-scale/no-randomization config is loaded.
+- The captured policy view is not visually good: the hand is visible but the bulb is not clearly in frame after rollout, suggesting the policy may separate from or lose the object quickly. This needs direct interactive inspection before deciding whether the underlying init pose is still wrong.
+
+### Remaining blocked/risky
+- A separate local `Dexh13HoraLightbulbSim2RealTwoFinger` training process was already running and was left untouched.
+- The current 20m PPO is short and should be treated as pose/behavior sanity evidence, not a final policy.
+
+### Single recommended next step
+- Inspect the live viewer interactively; if the bulb is already gone immediately after reset, run a paused/zero-action init-pose viewer for this exact YAML to isolate initial pose from policy action.
+
+---
+
+## v2-186 (2026-04-30) -- DexH13 Current YAML Initpose Tuner Opened
+
+### Target milestone/subgoal
+- Open the keyboard-controlled init-pose tuner using the current `Dexh13HoraLightbulb.yaml`.
+
+### What changed (files + behavior impact)
+- No source/config behavior changed.
+- Closed the previous local PPO teacher viewer process to avoid viewer/window confusion.
+- Left the unrelated local `Dexh13HoraLightbulbSim2RealTwoFinger` training process untouched.
+
+### What was verified (commands + key outcomes)
+- Launched:
+  - `./docker-run-isaacgym.sh python scripts/tune_dexh13_lightbulb_initpose.py --task Dexh13HoraLightbulb --gpu 0 --seed 42 --out outputs/initpose_tuning/Dexh13HoraLightbulb_current_fixed120.yaml`
+- Tuner startup log confirms:
+  - object type `screw_contactviz`
+  - `Generated 5000 random initial poses for XHand at scale 1.2`
+  - mode `hand`
+  - `pos=[0.064000, 0.014000, 0.229000]`
+  - `rpy=[3.141500, 0.526893, 3.141500]`
+  - first joint `right_index_joint_0:0.000000`
+- Captured current viewer image:
+  - `outputs/visual_checks/dexh13_lightbulb_initpose_tuner_current_fixed120.png`
+
+### Local conclusion
+- The keyboard tuner is open and reading the current `Dexh13HoraLightbulb.yaml` fixed-1.20 settings.
+
+### Remaining blocked/risky
+- Current captured camera view still mainly shows the hand, so direct interactive camera adjustment may be needed to inspect the bulb-hand relation clearly.
+
+### Single recommended next step
+- Use the live tuner to inspect/adjust the pose; press `O` to save the YAML snippet to `outputs/initpose_tuning/Dexh13HoraLightbulb_current_fixed120.yaml`.
+
+---
+
+## v2-187 (2026-04-30) -- Sim2Real TwoFinger Scale115125 PPO30m Probe
+
+### Target milestone/subgoal
+- Test whether enabling bulb scale randomization around the nominal 1.20 size hurts the coactive sim2real two-finger PPO behavior.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - `randomizeScale: True`
+  - `randomizeScaleList: [1.175, 1.225]`
+  - `randomizeScaleMin/Max/Lower/Upper: 1.15 / 1.25`
+  - Restored the intended moderate rotation reward:
+    - `rotate_reward_scale: 3.5`
+- An accidental short launch with cache `sim2real_twofinger_coactive_r25_scale115125_s42_30m` was stopped before the final run because it used `rotate_reward_scale=2.5`.
+
+### What was verified (commands + key outcomes)
+- Docker/Hydra compose probe confirmed:
+  - `rotate_reward_scale=3.5`
+  - `randomizeScale=True`
+  - `randomizeScaleList=[1.175, 1.225]`
+  - `randomizeScaleMin/Max/Lower/Upper=1.15/1.25`
+  - `fingertip_tangent_reward.aggregation=min`
+  - `fingertip_torque_reward.aggregation=min`
+  - `termination.enable_finger_dist=True`
+- Training command:
+  - `./docker-run-isaacgym.sh timeout 1800 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh 0 42 sim2real_twofinger_coactive_r35_scale115125_s42_30m True wandb_activate=True task.env.termination.log=True task.env.numEnvs=4096 train.ppo.minibatch_size=8192`
+- Outcome:
+  - process exited with status `124`, expected for the 30-minute timeout wrapper.
+  - final stdout best:
+    - `Current Best: 3101.83`
+  - checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_coactive_r35_scale115125_s42_30m/stage1_nn/best_reward_3101.83.pth`
+  - TensorBoard event:
+    - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_coactive_r35_scale115125_s42_30m/stage1_tb/events.out.tfevents.1777482697.wbz-ubuntu22-pc`
+- Post-run process check:
+  - no matching `Dexh13HoraLightbulbSim2RealTwoFinger` / `train.py` training process remained.
+  - GPU still had the unrelated `scripts/tune_dexh13_lightbulb_initpose.py` process open; it was left untouched.
+- `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml docs/session_handoff_v2.md`
+  - Outcome before this handoff append: pass.
+
+### Local conclusion
+- Scale randomization `1.15-1.25` did not collapse short PPO training under the coactive two-finger reward.
+- The 30-minute wall-clock run reached `best_reward_3101.83`, which is strong enough to justify visual inspection before deciding whether to keep this domain randomization range.
+
+### Remaining blocked/risky
+- The actual IsaacGym collect time was about 26 minutes because environment startup consumes part of the `timeout 1800` wall clock.
+- Reward alone cannot confirm whether the two fingers remain visually cooperative across the randomized scale range.
+
+### Single recommended next step
+- Visualize `best_reward_3101.83.pth` from `sim2real_twofinger_coactive_r35_scale115125_s42_30m` and compare against the previous fixed-scale/coactive viewer behavior.
+
+---
+
+## v2-188 (2026-04-30) -- Sim2Real Scale115125 PPO Best Viewer Opened
+
+### Target milestone/subgoal
+- Open headed visualization for the `Sim2RealTwoFinger` scale-randomized PPO best checkpoint so the user can inspect behavior.
+
+### What changed (files + behavior impact)
+- No source/config behavior changed.
+- Closed the old local initpose tuner process before opening the PPO viewer to avoid window/GPU confusion.
+
+### What was verified (commands + key outcomes)
+- Checkpoint exists:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_coactive_r35_scale115125_s42_30m/stage1_nn/best_reward_3101.83.pth`
+- Viewer command launched:
+  - `./docker-run-isaacgym.sh bash scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh 0 42 sim2real_twofinger_coactive_r35_scale115125_s42_30m False test=True checkpoint=outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_coactive_r35_scale115125_s42_30m/stage1_nn/best_reward_3101.83.pth graphics_device_id=0`
+- Runtime config confirmed:
+  - `test=True`
+  - `headless=False`
+  - `numEnvs=1`
+  - checkpoint path above
+  - `rotate_reward_scale=3.5`
+  - `randomizeScale=True`
+  - `randomizeScaleList=[1.175, 1.225]`
+  - generated random initial poses for both scale centers `1.175` and `1.225`
+
+### Local conclusion
+- The correct scale-randomized PPO best viewer is open for direct visual inspection.
+
+### Remaining blocked/risky
+- Visual quality has not yet been judged in this handoff entry; user inspection is the source of truth for whether scale randomization improved sim2real behavior.
+
+### Single recommended next step
+- Inspect whether index/thumb stay coactive and stable across resets; if visual behavior is acceptable, keep `randomizeScale=1.15-1.25` for the next PPO/student-distillation branch.
+
+---
+
+## v2-189 (2026-04-30) -- Initpose Tuner Command Documented
+
+### Target milestone/subgoal
+- Give the user the local keyboard init-pose tuner command and document the key controls.
+
+### What changed (files + behavior impact)
+- Added `tele_readme.md`.
+  - Documents the local command for `scripts/tune_dexh13_lightbulb_initpose.py`.
+  - Lists keyboard controls and print/save behavior.
+  - Notes the clean one-env no-randomization overrides used by the tuner.
+- Closed existing local Isaac Gym tuner/viewer processes so the user can run the command and see terminal print output directly.
+
+### What was verified (commands + key outcomes)
+- Inspected `scripts/tune_dexh13_lightbulb_initpose.py` for exact key bindings.
+- Process/window check after cleanup:
+  - no active `tune_dexh13_lightbulb_initpose.py`.
+  - no active Isaac Gym window.
+  - no active Isaac Gym Python compute process besides normal desktop GPU users.
+
+### Local conclusion
+- The user can now run the documented command locally and view all `print()` output in their own terminal.
+
+### Remaining blocked/risky
+- None for documentation; actual pose adjustment remains manual/interactive.
+
+### Single recommended next step
+- Run the command in `tele_readme.md`, adjust the pose, press `C` to print values or `O` to save the YAML snippet.
+
+---
+
+## v2-190 (2026-04-30) -- DexH13 Lightbulb Initpose Updated And Freeze Viewer Opened
+
+### Target milestone/subgoal
+- Apply the user's newly tuned keyboard initpose to `Dexh13HoraLightbulb.yaml` and open a local no-policy frozen initpose viewer.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+  - `handRootPos: [0.086000, 0.014000, 0.243000]`
+  - `handRootRPY: [3.141500, 0.422173, 3.141500]`
+  - `right_index_joint_1: 0.9852794409`
+  - `right_index_joint_2: 0.2828971148`
+  - `right_index_joint_3: 0.2892995179`
+  - `right_middle_joint_0: 0.0010000000`
+  - `right_thumb_joint_1: 1.5700000525`
+  - `right_thumb_joint_2: 0.0000000000`
+  - `right_thumb_joint_3: 0.9119660854`
+- Closed the previous local tuner process before opening the freeze viewer.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe confirmed:
+  - `handRootPos=[0.086, 0.014, 0.243]`
+  - `handRootRPY=[3.1415, 0.422173, 3.1415]`
+  - updated index/thumb/middle0 init joints
+  - `baseObjScale=1.2`
+  - `randomizeScale=False`
+  - `randomizeScaleList=[1.2]`
+- Launched local frozen viewer:
+  - `./docker-run-isaacgym.sh python scripts/view_dexh13_lightbulb_initpose_freeze.py --task Dexh13HoraLightbulb --gpu 0 --seed 42 --num-envs 1`
+- Viewer stdout confirms:
+  - `Generated 5000 random initial poses for XHand at scale 1.2`
+  - `object.init_pos: [0.012, -0.018, 0.0]`
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - `handRootPos: [0.086, 0.014, 0.243]`
+  - `handRootRPY: [3.1415, 0.422173, 3.1415]`
+- Captured current default-view screenshot:
+  - `outputs/visual_checks/dexh13_lightbulb_new_initpose_freeze.png`
+
+### Local conclusion
+- The task YAML now contains the user's latest tuned initpose.
+- A local frozen/no-policy viewer is open for inspecting the initial geometry.
+
+### Remaining blocked/risky
+- The default viewer camera is top-down and the screenshot mostly shows the hand, so rotate/zoom the live viewer to inspect the bulb-hand contact relation directly.
+
+### Single recommended next step
+- If the pose looks correct in the frozen viewer, use this YAML as the next PPO training baseline and avoid judging initpose through an already-moving PPO policy viewer.
+
+---
+
+## v2-191 (2026-04-30) -- DexH13 Lightbulb Domain Randomization Restored
+
+### Target milestone/subgoal
+- Keep the user's latest tuned initpose and restore the domain randomization settings that were temporarily disabled for pose inspection.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+  - Preserved latest tuned initpose:
+    - `handRootPos: [0.086000, 0.014000, 0.243000]`
+    - `handRootRPY: [3.141500, 0.422173, 3.141500]`
+    - updated index/thumb/middle0 initial joints from the user's keyboard tuner snippet.
+  - Restored training perturbations:
+    - `forceScale: 2.0`
+    - `randomForceProbScalar: 0.25`
+    - `randomizeMass: True`
+    - `randomizeCOM: True`
+    - `randomizeFriction: True`
+    - `randomizePDGains: True`
+    - obs/action/noisy pose scales restored to `0.01/0.005/0.1/0.02`
+    - `object.init_pos_noise: [0.005, 0.005, 0.0]`
+  - Restored bulb scale randomization:
+    - `baseObjScale: 1.20`
+    - `randomizeScale: True`
+    - `randomizeScaleList: [1.175, 1.225]`
+    - `randomizeScaleMin/Max/Lower/Upper: 1.15 / 1.25`
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe confirmed:
+  - latest tuned hand root and init joints are still active.
+  - `baseObjScale=1.2`
+  - `randomizeScale=True`
+  - `randomizeScaleList=[1.175, 1.225]`
+  - scale bounds `1.15 1.25 1.15 1.25`
+  - `mass/com/friction/pd=True True True True`
+  - obs/action/noisy scales `0.01 0.005 0.01 0.005 0.1 0.02`
+  - `force=2.0 0.25`
+  - `object_init_pos_noise=[0.005, 0.005, 0.0]`
+
+### Local conclusion
+- The YAML is ready for the next PPO training run with the new initpose and restored domain randomization.
+- The actual runtime scale range is approximately `1.15-1.25` because task code samples each `randomizeScaleList` center with `±0.025`.
+
+### Remaining blocked/risky
+- Any already-open viewer/training process keeps its startup config; restart viewers/training to use this restored randomization.
+
+### Single recommended next step
+- Launch a fresh PPO teacher run from this YAML with a new cache name before comparing behavior against earlier fixed-scale/no-randomization checkpoints.
+
+---
+
+## v2-192 (2026-04-30) -- Cloud DexH13 NewInit DR115125 PPO20m Launch
+
+### Target milestone/subgoal
+- Train a fresh 20-minute PPO teacher on cloud from the latest `Dexh13HoraLightbulb.yaml`: new keyboard-tuned initpose plus restored domain randomization and bulb scale range approximately `1.15-1.25`.
+
+### What changed (files + behavior impact)
+- Added cloud launch script:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_newinit_dr115125_ppo20m/run_ppo_20m_aggressive.sh`
+- Script behavior:
+  - `timeout 1200`
+  - task `Dexh13HoraLightbulb`
+  - `headless=True`
+  - seed `42`
+  - `task.env.numEnvs=12288`
+  - `train.ppo.minibatch_size=24576`
+  - output run:
+    - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_newinit_dr115125_s42_20m/`
+  - pipeline log:
+    - `outputs/cloud_pipeline_dexh13_lightbulb_newinit_dr115125_ppo20m/latest.log`
+- Synced to cloud:
+  - `configs/task/Dexh13HoraLightbulb.yaml`
+  - `configs/train/Dexh13HoraLightbulb.yaml`
+  - `dexscrew/tasks/xhand_hora.py`
+  - launch script above.
+
+### What was verified (commands + key outcomes)
+- Local Hydra probe confirmed before sync:
+  - `handRootPos=[0.086, 0.014, 0.243]`
+  - `handRootRPY=[3.1415, 0.422173, 3.1415]`
+  - updated index/thumb initial joints
+  - `baseObjScale=1.2`
+  - `randomizeScale=True`
+  - `randomizeScaleList=[1.175, 1.225]`
+  - scale bounds `1.15 1.25 1.15 1.25`
+  - `mass/com/friction/pd=True True True True`
+  - `force=2.0 0.25`
+  - `object_init_pos_noise=[0.005, 0.005, 0.0]`
+- Remote preflight:
+  - no tmux session
+  - no matching `Dexh13HoraLightbulb` train process
+  - GPU idle: `NVIDIA GeForce RTX 4090 D`, `1 MiB / 24564 MiB`, `0%`
+- Remote post-sync checks:
+  - script syntax pass
+  - remote YAML contains the new initpose and restored DR values.
+- Remote launch:
+  - tmux session:
+    - `dexh13_lightbulb_newinit_dr115125_ppo20m`
+  - command:
+    - `timeout 1200 python train.py task=Dexh13HoraLightbulb ...`
+  - runtime config log confirms:
+    - new `handRootPos`, `handRootRPY`, index/thumb init joints.
+    - object init noise and DR restored.
+  - after about 48 seconds:
+    - process alive
+    - GPU `14265 MiB / 24564 MiB`, util about `64%`
+    - scale init markers:
+      - `Generated 5000 random initial poses for XHand at scale 1.175`
+      - `Generated 5000 random initial poses for XHand at scale 1.225`
+
+### Local conclusion
+- The requested 20-minute cloud PPO run is active with the correct new initpose and restored domain randomization.
+
+### Remaining blocked/risky
+- No checkpoint had appeared at the first short status check; this is normal during early startup/initial training.
+- It should exit with `train_exit_status=124` after `timeout 1200`.
+
+### Single recommended next step
+- After timeout completion, sync `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_newinit_dr115125_s42_20m/` and visualize the best checkpoint locally.
+
+---
+
+## v2-191 (2026-04-30) -- Sim2Real TwoFinger Strong Stable-Grasp Reward Added
+
+### Target milestone/subgoal
+- Tighten the `Dexh13HoraLightbulbSim2RealTwoFinger` reward so the policy is pushed away from alternating single-finger flicks and toward stable thumb-index co-contact/co-grip.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - Stronger existing gate:
+    - `two_finger_gate.contact_force_min: 0.5 -> 1.0`
+    - `two_finger_gate.contact_force_max: 2.0 -> 3.0`
+    - `two_finger_gate.no_grasp_penalty_scale: -1.5 -> -3.0`
+  - Stronger coactive fingertip rewards:
+    - `fingertip_tangent_reward.contact_force_min: 1.0`
+    - `fingertip_tangent_reward.contact_force_max: 3.0`
+    - `fingertip_torque_reward.contact_force_min: 1.0`
+    - `fingertip_torque_reward.contact_force_max: 3.0`
+  - Added positive-rotation co-contact penalty:
+    - `active_two_finger_contact.enable: True`
+    - Penalizes positive screw motion when thumb/index contact is weak.
+  - Added opposition/inward grip reward:
+    - `opposition_grip_reward.enable: True`
+    - Rewards thumb/index being on opposite sides and applying inward force toward the bulb center.
+- Updated `dexscrew/tasks/xhand_hora.py`.
+  - Added config parsing for `active_two_finger_contact`.
+  - Added config parsing for `opposition_grip_reward`.
+  - Added reward contribution and diagnostics:
+    - `active_two_finger/penalty`
+    - `active_two_finger/active_frac`
+    - `active_two_finger/pair_contact_w`
+    - `active_two_finger/thumb_contact_w`
+    - `active_two_finger/other_contact_w`
+    - `opposition_grip/reward`
+    - `opposition_grip/reward_scaled`
+    - `opposition_grip/oppositeness`
+    - `opposition_grip/radial_dot`
+    - `opposition_grip/pair_dist_w`
+    - `opposition_grip/pair_inward_w`
+    - `opposition_grip/thumb_inward_force`
+    - `opposition_grip/other_inward_force`
+
+### What was verified (commands + key outcomes)
+- Compile:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(Path('dexscrew/tasks/xhand_hora.py').read_text(), ...) ... PY`
+  - Outcome: `compile_ok`.
+- Static diff check:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe confirmed:
+  - strong gate/contact thresholds are present.
+  - both new config blocks resolve under the task YAML.
+- IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulbSim2RealTwoFinger headless=True seed=42 train.algo=PPO wandb_activate=False task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 train.ppo.output_name=Dexh13HoraLightbulb_teacher_sim2real_twofinger/smoke_strong_grasp_tmp task.env.termination.log=True`
+  - Outcome: env built, config printed with `active_two_finger_contact` and `opposition_grip_reward`, and run exited normally with `max steps achieved`.
+- Process check:
+  - no matching smoke/training process remained.
+
+### Local conclusion
+- The current sim2real two-finger YAML now has all four stable-grasp changes enabled:
+  - stronger no-grasp penalty,
+  - higher effective contact threshold,
+  - active positive-rotation co-contact penalty,
+  - opposition/inward grip reward.
+
+### Remaining blocked/risky
+- This is a stricter reward and may slow early PPO learning; reward may start lower than the previous `best_reward_3101.83` run.
+- The new reward has only smoke validation; visual behavior still requires a fresh PPO probe.
+
+### Single recommended next step
+- Train a fresh 30-minute PPO with a new cache such as `sim2real_twofinger_stronggrasp_scale115125_s42_30m`, then visualize whether index/thumb stay in stable co-contact instead of alternating single-finger phases.
+
+---
+
+## v2-192 (2026-04-30) -- Sim2Real TwoFinger Strong-Grasp r45 PPO Probe
+
+### Target milestone/subgoal
+- Test whether raising the main lightbulb rotation reward by `+1.0` improves the strong stable-grasp Sim2Real two-finger PPO probe without breaking the co-contact constraints.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - `reward.rotate_reward_scale: 3.5 -> 4.5`.
+  - Kept the current strong-grasp settings unchanged:
+    - stronger two-finger gate/contact thresholds,
+    - active positive-rotation co-contact penalty,
+    - opposition/inward grip reward,
+    - bulb scale randomization around `1.15-1.25`.
+
+### What was verified (commands + key outcomes)
+- Static diff check:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml dexscrew/tasks/xhand_hora.py`
+  - Outcome: pass.
+- Docker/Hydra compose probe confirmed:
+  - `rotate_reward_scale: 4.5`.
+  - strong-grasp reward blocks still resolve.
+- 20-minute PPO probe:
+  - `./docker-run-isaacgym.sh timeout 1200 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh 0 42 sim2real_twofinger_stronggrasp_r45_scale115125_s42_20m True wandb_activate=True task.env.termination.log=True task.env.numEnvs=4096 train.ppo.minibatch_size=8192`
+  - Outcome: expected timeout exit `124`; no OOM or segfault.
+  - Best checkpoint: `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_stronggrasp_r45_scale115125_s42_20m/stage1_nn/best_reward_3161.09.pth`.
+- TensorBoard final scalar spot check:
+  - `episode_rewards/step ~= 3158.44`.
+  - `screw/angular_velocity ~= 0.919`.
+  - `two_finger/gate ~= 0.986`.
+  - `active_two_finger/penalty = 0.0`.
+  - `active_two_finger/pair_contact_w = 1.0`.
+  - `term/any_reset_frac ~= 0.00122`.
+  - `term/no_contact_frac = 0.0`.
+- Process/GPU check:
+  - no residual IsaacGym `train.py`/run-with-cleanup process.
+  - no training compute process left on GPU.
+
+### Local conclusion
+- Raising `rotate_reward_scale` to `4.5` learned normally over the 20-minute probe and reached a usable checkpoint.
+- Scalar-level co-contact health looks acceptable; visual behavior still needs to be checked because the previous concern was specifically two-finger coordination quality, not reward alone.
+
+### Remaining blocked/risky
+- `opposition_grip/reward_scaled` and `opposition_grip/oppositeness` ended at `0.0` in the final scalar sample, so the opposition reward may be inactive or too hard under the current measured geometry.
+- The policy may still visually fall back to alternating behavior despite the good gate scalar; visualization is the required next check.
+
+### Single recommended next step
+- Visualize `best_reward_3161.09.pth` for `sim2real_twofinger_stronggrasp_r45_scale115125_s42_20m` and decide whether this r45 probe is more stable than the previous r35 strong-grasp run.
+
+---
+
+## v2-193 (2026-04-30) -- Sim2Real TwoFinger Thumb Stability Penalty Added
+
+### Target milestone/subgoal
+- Address the user's visual finding that the current `Sim2RealTwoFinger` policy still tends to lose thumb contact at the end of each thumb rotation stroke.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/tasks/xhand_hora.py`.
+  - Reused and extended the existing `env.thumb_slip_penalty` path.
+  - Added per-env `prev_thumb_drive_w` state and reset handling.
+  - Extended the thumb slip penalty with:
+    - high-speed ejection loss,
+    - after-drive detach loss,
+    - terminal-ease loss when thumb joints are near their limits and still moving fast.
+  - Added TensorBoard/W&B diagnostics:
+    - `thumb_slip_penalty/ejection_loss`
+    - `thumb_slip_penalty/after_drive_loss`
+    - `thumb_slip_penalty/terminal_ease_loss`
+    - `thumb_slip_penalty/thumb_tip_speed`
+    - `thumb_slip_penalty/speed_weight`
+    - `thumb_slip_penalty/prev_drive_w`
+    - `thumb_slip_penalty/current_drive_w`
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - Enabled `thumb_slip_penalty`.
+  - Active only when screw velocity is positive above `0.2`.
+  - Uses strong contact thresholds `1.0-3.0`.
+  - Penalizes thumb being beyond `far_dist=0.085`, high-speed ejection above `0.18 m/s`, detach after prior drive, and high thumb velocity near joint-limit edges.
+
+### What was verified (commands + key outcomes)
+- Python compile:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(Path('dexscrew/tasks/xhand_hora.py').read_text(), ...) ... PY`
+  - Outcome: `compile_ok`.
+- Static diff check:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml`
+  - Outcome: pass.
+- Docker/Hydra compose probe confirmed:
+  - `thumb_slip_penalty` resolves under `Dexh13HoraLightbulbSim2RealTwoFinger`.
+  - New scales `ejection_penalty_scale=-2.0`, `after_drive_penalty_scale=-1.5`, `terminal_ease_penalty_scale=-0.2` are present.
+- IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulbSim2RealTwoFinger headless=True seed=42 train.algo=PPO wandb_activate=False task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 train.ppo.output_name=Dexh13HoraLightbulb_teacher_sim2real_twofinger/smoke_thumb_stability_tmp task.env.termination.log=True`
+  - Outcome: env built with the new config and exited normally with `max steps achieved`.
+- Process/GPU check:
+  - no residual smoke/training process.
+  - no IsaacGym compute process left on GPU.
+
+### Local conclusion
+- The current `Sim2RealTwoFinger` YAML now has a targeted reward term for the observed thumb end-of-stroke detach, instead of relying on broad pose/work penalties.
+- Existing PPO checkpoints do not include this behavior change; a fresh PPO probe is required.
+
+### Remaining blocked/risky
+- This can lower early reward because thumb flicking is now explicitly punished.
+- The terminal-ease term is deliberately mild (`-0.2`) so it should guide slowdown near the stroke edge without freezing useful thumb motion.
+
+### Single recommended next step
+- Run a fresh 20-30 minute PPO with a new cache such as `sim2real_twofinger_thumbstable_r45_scale115125_s42_30m`, then visualize whether thumb end-of-stroke detach is reduced.
+
+---
+
+## v2-193 (2026-04-30) -- Dexh13 Lightbulb New InitPose DR115-125 PPO20m Sync/Visualize
+
+### Target milestone/subgoal
+- Train and inspect the current `Dexh13HoraLightbulb.yaml` teacher PPO after restoring domain randomization and setting bulb scale randomization around `1.15-1.25`.
+
+### What changed (files + behavior impact)
+- No new code/config edit in this step; used the already-updated `configs/task/Dexh13HoraLightbulb.yaml`.
+- Cloud run artifacts were synced back locally under:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_newinit_dr115125_s42_20m/`
+  - `outputs/cloud_pipeline_dexh13_lightbulb_newinit_dr115125_ppo20m/`
+
+### What was verified (commands + key outcomes)
+- Cloud PPO run completed by expected timeout:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_newinit_dr115125_ppo20m/pipeline_20260429_181636.log` ends with `[pipeline] train_exit_status=124`.
+  - Best checkpoint synced locally:
+    `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_newinit_dr115125_s42_20m/stage1_nn/best_reward_3461.48.pth`.
+- Local viewer launched:
+  - `./docker-run-isaacgym.sh bash scripts/vis_dexh13_lightbulb_teacher.sh 0 42 dexh13_lightbulb_newinit_dr115125_s42_20m test=True checkpoint=outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_newinit_dr115125_s42_20m/stage1_nn/best_reward_3461.48.pth graphics_device_id=0`
+  - Outcome: Isaac Gym viewer window is active; checkpoint loads.
+- Screenshot captured:
+  - `outputs/visual_checks/dexh13_lightbulb_newinit_dr115125_best3461.png`.
+
+### Local conclusion
+- Training finished and the best PPO checkpoint is available locally.
+- Visual inspection from the captured frame shows thumb-side contact is closer than index-side contact; the index still appears separated from the bulb at this sampled moment/view.
+
+### Remaining blocked/risky
+- This is a 20-minute PPO probe, not a converged policy.
+- Viewer script disables force/noise but leaves scale randomization active, so visualized initial geometry can still sample the `1.15-1.25` scale range.
+
+### Single recommended next step
+- User should inspect the live viewer and decide whether the index gap is acceptable or whether the next PPO probe should use a fixed `1.2` scale for visual debugging before re-enabling scale randomization.
+
+---
+
+## v2-194 (2026-04-30) -- Dexh13 Lightbulb Thumb-Slip Penalty Added
+
+### Target milestone/subgoal
+- Reduce the observed thumb-end slip in `Dexh13HoraLightbulb` by first implementing:
+  - positive-rotation thumb contact-loss penalty,
+  - stricter angular-velocity clipping/penalty to discourage hard flicks.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/tasks/xhand_hora.py`.
+  - Added `env.thumb_slip_penalty` parsing.
+  - Added `_compute_thumb_slip_penalty()`.
+  - The penalty is active only during positive screw rotation above `active_screw_vel`.
+  - Penalizes weak thumb contact force and thumb distance beyond `far_dist`.
+  - Logs:
+    - `thumb_slip_penalty/penalty`
+    - `thumb_slip_penalty/contact_loss`
+    - `thumb_slip_penalty/far_loss`
+    - `thumb_slip_penalty/thumb_contact_w`
+    - `thumb_slip_penalty/thumb_dist`
+    - `thumb_slip_penalty/active_frac`
+    - `thumb_slip_penalty/velocity_weight`
+- Updated `configs/task/Dexh13HoraLightbulb.yaml`.
+  - Added:
+    - `thumb_slip_penalty.enable: True`
+    - `active_screw_vel: 0.15`
+    - `contact_force_min/max: 0.3/2.0`
+    - `far_dist: 0.09`
+    - `scale_with_object: True`
+    - `contact_penalty_scale: -1.0`
+    - `far_penalty_scale: -0.5`
+  - Made rotation less flick-friendly:
+    - `reward.angvelClipMax: 4.0 -> 2.5`
+    - `reward.angvelPenaltyThres: 10.0 -> 2.8`
+    - `reward.rotate_penalty_scale: -0.3 -> -0.8`
+
+### What was verified (commands + key outcomes)
+- Python compile:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(...) ... PY`
+  - Outcome: `compile_ok`.
+- Static whitespace/conflict check:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulb.yaml`
+  - Outcome: pass.
+- IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulb headless=True seed=42 train.algo=PPO wandb_activate=False task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 train.ppo.output_name=Dexh13HoraLightbulb_teacher/smoke_thumbslip_penalty_tmp task.env.termination.log=True`
+  - Outcome: task builds, config prints `thumb_slip_penalty` and the stricter velocity settings, then exits with `max steps achieved`.
+- Process check:
+  - no residual headless smoke training process remained.
+
+### Local conclusion
+- The first two requested reward changes are implemented and smoke-validated.
+- This is a behavior-changing reward update; existing PPO checkpoints do not reflect it.
+
+### Remaining blocked/risky
+- The new penalty can reduce raw reward at first because slipping during active rotation is now explicitly punished.
+- It still does not implement thumb action-rate/joint-velocity smoothing; that is intentionally left for the next step if this penalty alone does not fix the end-of-stroke slip.
+
+### Single recommended next step
+- Sync these two files to cloud and run a fresh PPO probe with a new output name, then compare `thumb_slip_penalty/*`, `thumb_slip/*`, and visual behavior against `dexh13_lightbulb_newinit_dr115125_s42_20m`.
+
+---
+
+## v2-195 (2026-04-30) -- Dexh13 Lightbulb Current YAML Compatibility Smoke
+
+### Target milestone/subgoal
+- Check whether later shared `xhand_hora.py` changes for another YAML broke the current `Dexh13HoraLightbulb.yaml` training entrypoint.
+
+### What changed (files + behavior impact)
+- No source/config edits were made for this check.
+- Observed current workspace state:
+  - `dexscrew/tasks/xhand_hora.py` is modified and now contains extended `thumb_slip_penalty` support.
+  - `configs/task/Dexh13HoraLightbulb.yaml` is modified and uses only the basic thumb slip penalty fields.
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml` appears untracked in this local worktree.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Static checks:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(Path('dexscrew/tasks/xhand_hora.py').read_text(), ...) ... PY`
+    - Outcome: `compile_ok`.
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulb.yaml`
+    - Outcome: pass.
+- Compatibility grep:
+  - The extended `thumb_slip_penalty` keys such as `ejection_penalty_scale`, `after_drive_penalty_scale`, and `terminal_ease_penalty_scale` exist in `xhand_hora.py` / `Dexh13HoraLightbulbSim2RealTwoFinger.yaml`.
+  - They are not set in `Dexh13HoraLightbulb.yaml`, so this YAML uses the code defaults.
+- IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 180 python train.py task=Dexh13HoraLightbulb headless=True seed=42 train.algo=PPO wandb_activate=False task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 train.ppo.output_name=Dexh13HoraLightbulb_teacher/smoke_current_yaml_compat_tmp task.env.termination.log=True`
+  - Outcome: environment built, config printed the current `Dexh13HoraLightbulb.yaml`, generated scale caches for `1.175` and `1.225`, and exited normally with `max steps achieved`.
+- Process check:
+  - no residual `smoke_current_yaml_compat_tmp` or headless `Dexh13HoraLightbulb` train process remained.
+
+### Local conclusion
+- The current shared `xhand_hora.py` changes do not break `Dexh13HoraLightbulb.yaml` at smoke-test level.
+- The other YAML's extra thumb-stability fields can affect this YAML only if configured here or if future shared-code defaults become nonzero.
+
+### Remaining blocked/risky
+- Smoke proves startup/rollout/update compatibility, not long-run reward quality.
+- Because `xhand_hora.py` is shared, future edits for another YAML can still change behavior for all Hora tasks if they alter default values or non-guarded code paths.
+
+### Single recommended next step
+- Before cloud training, sync the current `Dexh13HoraLightbulb.yaml` and `xhand_hora.py` as a pair, then run a fresh PPO with a new output name so the checkpoint is traceable to this exact reward implementation.
+
+---
+
+## v2-196 (2026-04-30) -- Sim2Real TwoFinger Thumbstable 7h PPO->PAdapt Pipeline Launched
+
+### Target milestone/subgoal
+- Run the user's requested 7h sequence:
+  - `3.5h` PPO teacher on `Dexh13HoraLightbulbSim2RealTwoFinger`.
+  - then `3.5h` `ProprioAdapt` student distillation from the teacher's selected best PPO checkpoint.
+
+### What changed (files + behavior impact)
+- Added `scripts/dexh13_lightbulb_student_padapt_sim2real_twofinger.sh`.
+  - Uses task `Dexh13HoraLightbulbSim2RealTwoFinger`.
+  - Uses algo `ProprioAdapt` with `train.ppo.proprio_adapt=True`.
+  - Takes an explicit teacher checkpoint path as its 4th argument, avoiding the old hardcoded `ThesisTwoFinger` teacher checkpoint.
+- Added `scripts/run_sim2real_twofinger_thumbstable_ppo_padapt_7h.sh`.
+  - Runs teacher with `timeout 12600`.
+  - Selects best `stage1_nn/best_reward_*.pth` after teacher finishes.
+  - Runs student with a separate `timeout 12600`.
+  - Logs command lines, exit statuses, selected checkpoint, and student artifacts under:
+    `outputs/sim2real_twofinger_thumbstable_ppo_padapt_7h/`.
+- Added `scripts/monitor_sim2real_twofinger_thumbstable_7h.sh`.
+  - Logs stage, recent reward, best ckpt, GPU usage, and error patterns every 5 minutes.
+
+### What was verified (commands + key outcomes)
+- No local conflicting `train.py` / thumbstable process before launch.
+- Script syntax:
+  - `bash -n scripts/dexh13_lightbulb_student_padapt_sim2real_twofinger.sh`
+  - `bash -n scripts/run_sim2real_twofinger_thumbstable_ppo_padapt_7h.sh`
+  - `bash -n scripts/monitor_sim2real_twofinger_thumbstable_7h.sh`
+  - Outcome: pass.
+- Hydra compose probe:
+  - task resolves as `Dexh13HoraLightbulbSim2RealTwoFinger`.
+  - `train.algo=ProprioAdapt` resolves.
+  - `action_mask_indices` and `thumb_slip_penalty` are present.
+- Pipeline launched via `nohup setsid` because local `tmux` is not installed.
+  - Pipeline pid: `984556`.
+  - Monitor pid: `996633`.
+  - Main log: `outputs/sim2real_twofinger_thumbstable_ppo_padapt_7h/latest.log`.
+  - Monitor log: `outputs/sim2real_twofinger_thumbstable_ppo_padapt_7h/monitor.log`.
+- Current teacher status at launch supervision:
+  - stage: teacher.
+  - command:
+    `./docker-run-isaacgym.sh timeout 12600 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh 0 42 sim2real_twofinger_thumbstable True wandb_activate=True task.env.termination.log=True`
+  - GPU: RTX 4080 SUPER, about `11.6GB / 16.4GB`, high utilization.
+  - Teacher entered training loop, no OOM/segfault.
+  - Early best checkpoint reached at least:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_73.57.pth`.
+
+### Local conclusion
+- The requested long sequence is running and supervised.
+- The first phase is using the exact requested teacher cache `sim2real_twofinger_thumbstable`.
+- The student phase is wired to consume the teacher phase's selected best PPO checkpoint, not a stale hardcoded teacher.
+
+### Remaining blocked/risky
+- The teacher phase is intentionally time-limited; `teacher_exit_status=124` is expected around 3.5h.
+- The pipeline must be checked at the teacher->student transition to verify the selected checkpoint and student startup.
+- The monitor's first failed inline attempt left harmless shell syntax text in `monitor.log`; the active monitor script was restarted and is now functioning.
+
+### Single recommended next step
+- Continue supervising until teacher timeout, confirm `selected_teacher_ckpt=...`, then confirm the `ProprioAdapt` student process starts with that checkpoint.
+
+---
+
+## v2-197 (2026-04-30) -- Cloud Dexh13 Lightbulb Thumbslip PPO 3.5h -> PAdapt 3.5h Supervised Launch
+
+### Target milestone/subgoal
+- Run the user's requested cloud sequence on the current `Dexh13HoraLightbulb.yaml`:
+  - `3.5h` PPO teacher.
+  - then `3.5h` `ProprioAdapt` / PAdapt student distillation from the selected best teacher checkpoint.
+
+### What changed (files + behavior impact)
+- Added cloud run artifacts under:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_thumbslip_ppo3p5h_padapt3p5h/run_ppo_padapt_7h_supervised.sh`
+  - `outputs/cloud_pipeline_dexh13_lightbulb_thumbslip_ppo3p5h_padapt3p5h/watch_ppo_padapt_7h.sh`
+- Synced current training inputs to `cloud-training:/root/code/dexscrew-repro/`:
+  - `AGENTS.md`
+  - `train.py`
+  - `configs/`
+  - `dexscrew/`
+  - `scripts/`
+  - `assets/`
+  - `.git`
+- Teacher resource setting:
+  - `task.env.numEnvs=12288`
+  - `train.ppo.minibatch_size=24576`
+  - `num_threads=22`
+- Student resource setting:
+  - `task.env.numEnvs=512`
+  - `train.ppo.minibatch_size=6144`
+  - `num_threads=22`
+
+### What was verified (commands + key outcomes)
+- Remote compile:
+  - `python -m py_compile dexscrew/tasks/xhand_hora.py`
+  - Outcome: pass.
+- Remote config presence:
+  - `Dexh13HoraLightbulb.yaml` contains the current `thumb_slip_penalty` and stricter rotation velocity penalty settings.
+  - `assets/screw/contactviz/0000_lightbulb.urdf` exists.
+- Remote teacher smoke:
+  - `timeout 180 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulb ... train.algo=PPO ... task.env.numEnvs=4 ... train.ppo.max_agent_steps=24`
+  - Outcome: passed after adding `/root/code/dexscrew-repro` to git `safe.directory`.
+- Remote PAdapt smoke:
+  - `timeout 180 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulb ... train.algo=ProprioAdapt train.ppo.proprio_adapt=True checkpoint=...`
+  - Outcome: loaded teacher checkpoint, built env, printed `ProprioAdapt trainable patterns: ['adapt_tconv']`, entered the training loop, then was manually cleaned up.
+- Formal pipeline launched on cloud in tmux:
+  - pipeline session: `dexh13_lightbulb_thumbslip_ppo_padapt_7h`
+  - watchdog session: `dexh13_lightbulb_thumbslip_watchdog_7h`
+  - phase file: `outputs/cloud_pipeline_dexh13_lightbulb_thumbslip_ppo3p5h_padapt3p5h/phase.txt`
+  - pipeline log: `outputs/cloud_pipeline_dexh13_lightbulb_thumbslip_ppo3p5h_padapt3p5h/latest.log`
+  - watchdog log: `outputs/cloud_pipeline_dexh13_lightbulb_thumbslip_ppo3p5h_padapt3p5h/watchdog_latest.log`
+- Current cloud teacher status at launch supervision:
+  - phase: `teacher_running`
+  - command uses `timeout 12600`.
+  - GPU: RTX 4090 D, about `14.3GB / 24.6GB`, active utilization.
+  - early checkpoints are being refreshed, reaching at least:
+    `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thumbslip_s42_ppo3p5h/stage1_nn/best_reward_127.77.pth`
+
+### Local conclusion
+- The current `Dexh13HoraLightbulb.yaml` teacher-student cloud pipeline is launched and actively supervised.
+- Teacher startup and PAdapt startup were both smoke-validated before the long run.
+- The formal teacher phase is actively training and producing checkpoints.
+
+### Remaining blocked/risky
+- The main stdout log is noisy because `train.py` prints a large dirty git diff at startup.
+- `teacher_exit_status=124` is expected at the 3.5h timeout and should not be treated as failure.
+- The critical transition to verify is teacher timeout -> best checkpoint selection -> PAdapt student startup.
+
+### Single recommended next step
+- Continue live supervision through the teacher timeout, verify `selected_teacher_ckpt.txt`, then verify the PAdapt student phase starts with that exact checkpoint.
+
+---
+
+## v2-198 (2026-04-30) -- Cloud Dexh13 Lightbulb Thumbslip PPO/PAdapt 7h Completed and Synced
+
+### Target milestone/subgoal
+- Finish and verify the cloud 7h sequence launched in v2-197:
+  - `3.5h` PPO teacher.
+  - `3.5h` PAdapt student distillation from the selected PPO teacher checkpoint.
+
+### What changed (files + behavior impact)
+- No source/config behavior was changed after launch.
+- Synced completed remote artifacts back to local, excluding huge TensorBoard event dirs:
+  - `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thumbslip_s42_ppo3p5h/`
+  - `outputs/Dexh13HoraLightbulb_student_padapt/dexh13_lightbulb_thumbslip_s42_padapt_from_ppo3p5h/`
+  - `outputs/cloud_pipeline_dexh13_lightbulb_thumbslip_ppo3p5h_padapt3p5h/`
+- Saved a compact local pipeline tail:
+  - `outputs/cloud_pipeline_dexh13_lightbulb_thumbslip_ppo3p5h_padapt3p5h/latest_tail_180.txt`
+
+### What was verified (commands + key outcomes)
+- Remote final status:
+  - phase: `done`
+  - `teacher_exit_status=124`
+  - `student_exit_status=124`
+  - GPU idle after completion.
+  - no residual `python train.py` / `run_with_cleanup` processes.
+- Teacher timing / result:
+  - `teacher_duration_sec=12604`
+  - selected checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_thumbslip_s42_ppo3p5h/stage1_nn/best_reward_5151.36.pth`
+- Student timing / result:
+  - `student_duration_sec=12604`
+  - final observed training metrics before timeout:
+    `Agent Steps: 0077M | FPS: 6158.5 | Current Best: 5001.07`
+  - best student checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_padapt/dexh13_lightbulb_thumbslip_s42_padapt_from_ppo3p5h/stage2_nn/model_best.ckpt`
+- Local sync verification:
+  - teacher checkpoints present locally:
+    - `best_reward_5151.36.pth`
+    - `ep_500_step_0073m_reward_4173.85.pth`
+    - `ep_1000_step_0147m_reward_4523.76.pth`
+    - `ep_1500_step_0221m_reward_4843.62.pth`
+    - `last.pth`
+  - student checkpoint present locally:
+    - `stage2_nn/model_best.ckpt`
+  - status files present locally:
+    - `phase.txt` contains `done`
+    - `teacher_exit_status` contains `124`
+    - `student_exit_status` contains `124`
+    - `selected_teacher_ckpt.txt` points to `best_reward_5151.36.pth`
+
+### Local conclusion
+- The requested cloud sequence completed correctly and exactly followed PPO teacher first, then PAdapt student from the selected best PPO checkpoint.
+- Both phases used explicit wall-clock `timeout 12600` guards and ended with expected timeout status `124`.
+- Required `.pth` / `.ckpt` artifacts are now available locally for visualization.
+
+### Remaining blocked/risky
+- No visual inspection has been performed yet on the completed teacher or student artifacts.
+- High scalar reward does not guarantee the thumb slip behavior is visually solved; local viewer inspection is still required.
+- Full TensorBoard event files were intentionally not synced because the student event file alone was about `981MB`.
+
+### Single recommended next step
+- Visualize the synced teacher first, then the synced PAdapt student, and compare thumb slip/stability against the previous `dexh13_lightbulb_newinit_dr115125_s42_20m` baseline.
+
+---
+
+## v2-198 (2026-04-30) -- Local Sim2Real TwoFinger Thumbstable PPO 3.5h -> PAdapt 3.5h Completed
+
+### Target milestone/subgoal
+- Complete the user's requested local 7h flow for `Dexh13HoraLightbulbSim2RealTwoFinger`:
+  - `3.5h` PPO teacher with cache `sim2real_twofinger_thumbstable`.
+  - then `3.5h` `ProprioAdapt` / PAdapt student distillation from that teacher's selected best PPO checkpoint.
+
+### What changed (files + behavior impact)
+- Added/used local pipeline scripts:
+  - `scripts/run_sim2real_twofinger_thumbstable_ppo_padapt_7h.sh`
+  - `scripts/dexh13_lightbulb_student_padapt_sim2real_twofinger.sh`
+  - `scripts/monitor_sim2real_twofinger_thumbstable_7h.sh`
+- Produced final local artifacts:
+  - PPO teacher:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`
+  - PAdapt student:
+    `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger/sim2real_twofinger_thumbstable_padapt/stage2_nn/model_best.ckpt`
+  - Pipeline log:
+    `outputs/sim2real_twofinger_thumbstable_ppo_padapt_7h/latest.log`
+
+### What was verified (commands + key outcomes)
+- Teacher phase:
+  - Exited with `teacher_exit_status=124`, expected from the 3.5h `timeout`.
+  - Selected exact teacher checkpoint:
+    `best_reward_6103.04.pth`.
+- Student phase:
+  - Started from the selected teacher checkpoint, not a stale path.
+  - Exited with `student_exit_status=124`, expected from the 3.5h `timeout`.
+  - Pipeline wrote `pipeline_done`.
+  - Final observed student `Current Best`: `4261.45`.
+- Artifacts:
+  - `model_best.ckpt` timestamp: `2026-04-30 10:06:52`.
+  - Student TensorBoard event timestamp: `2026-04-30 10:06:56`.
+- Cleanup/safety:
+  - No local `train.py` / pipeline process remained after completion.
+  - Recent pipeline log scan found no `Segmentation fault`, `PxgCudaDeviceMemoryAllocator fail`, `Traceback`, `FileNotFoundError`, `RuntimeError:`, or `CUDA out of memory`.
+  - GPU returned to non-training baseline use after completion.
+
+### Local conclusion
+- The requested local 7h PPO -> PAdapt flow completed successfully.
+- There are two usable strategies:
+  - teacher PPO `best_reward_6103.04.pth`;
+  - distilled PAdapt student `model_best.ckpt`.
+- The student reward is lower than teacher as expected for a proprio/adaptation student, but the distillation run was technically healthy and produced a valid best checkpoint.
+
+### Remaining blocked/risky
+- Behavior still needs visual validation before marking it as deployment candidate; reward alone cannot prove thumb slip has been eliminated.
+- The student run used `task.env.numEnvs=48` and `train.ppo.minibatch_size=576` from the student script, so its reward scale/learning curve should be compared against prior student runs rather than PPO teacher directly.
+
+### Single recommended next step
+- Visualize the PAdapt `model_best.ckpt`; if behavior is acceptable, copy the teacher PPO + student ckpt + exact output config into the sim2real handoff bundle.
+
+---
+
+## v2-199 (2026-04-30) -- Sim2Real TwoFinger Student Index Contact Force Probe
+
+### Target milestone/subgoal
+- Answer whether the PAdapt student index finger is applying meaningful contact force on the bulb or only lightly covering it.
+
+### What changed (files + behavior impact)
+- No source/config behavior change.
+- Added a rollout analysis artifact:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger/sim2real_twofinger_thumbstable_padapt/index_force_rollout.pt`
+
+### What was verified (commands + key outcomes)
+- Docker already has TensorBoard installed:
+  - `tensorboard 2.14.0`
+- Ran a deterministic headless rollout with:
+  - checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger/sim2real_twofinger_thumbstable_padapt/stage2_nn/model_best.ckpt`
+  - `task.env.numEnvs=64`
+  - `collect_steps=300`
+  - action/obs/pose/random force noise disabled
+  - point cloud saving disabled
+- Rollout summary:
+  - `mean_reward=7.1559`
+  - `mean_done_rate=0.0000`
+- Contact-force-weight metrics from rollout extras:
+  - `finger_contact/index/force_w`: mean `1.000`, p05 `1.000`, min `1.000`
+  - `two_finger/other_contact_w`: mean `0.998947`, p05 `0.997659`, min `0.963221`
+  - `active_two_finger/other_contact_w`: mean `1.000`, p05 `1.000`, min `1.000`
+  - `active_two_finger/pair_contact_w`: mean `1.000`, p05 `1.000`, min `1.000`
+  - `two_finger/gate`: mean `0.991883`, p05 `0.977593`, min `0.597645`
+
+### Local conclusion
+- Existing logs store normalized force weights, not raw Newtons.
+- With current thresholds `contact_force_min=1.0` and `contact_force_max=3.0`, `force_w=1.0` means the measured net fingertip contact force is at or above the `3N` saturation threshold.
+- Index contact is therefore not just lightly covering the bulb in the rollout; it is consistently above the configured strong-contact threshold.
+
+### Remaining blocked/risky
+- The existing `force_w` metric is clipped and does not separate normal force from tangential force.
+- Exact raw normal-force magnitude requires adding/logging raw fingertip contact vector projection, e.g. `finger_contact/index/force_raw` and `finger_contact/index/normal_force`.
+
+### Single recommended next step
+- If sim2real deployment needs force calibration, add unclipped raw/index/thumb contact force and contact-normal projection diagnostics before the next long run.
+
+---
+
+## v2-200 (2026-04-30) -- Dexh13 Lightbulb Initpose090020233 PPO 30m Completed
+
+### Target milestone/subgoal
+- Convert the user's latest keyboard-tuned initpose into a separate task YAML and run a 30min cloud PPO teacher probe.
+
+### What changed (files + behavior impact)
+- Added task config:
+  - `configs/task/Dexh13HoraLightbulbInitpose090020233.yaml`
+- Added matching train config for Hydra default resolution:
+  - `configs/train/Dexh13HoraLightbulbInitpose090020233.yaml`
+- The new task config is copied from current `Dexh13HoraLightbulb.yaml` and only changes the saved initpose:
+  - `handRootPos: [0.090000, 0.020000, 0.233000]`
+  - `handRootRPY: [3.141500, 0.422173, 3.141500]`
+  - `right_index_joint_0: 0.3400000036`
+- The original `configs/task/Dexh13HoraLightbulb.yaml` was not modified.
+
+### What was verified (commands + key outcomes)
+- Latest tuner save file:
+  - `outputs/initpose_tuning/Dexh13HoraLightbulb_current_fixed120.yaml`
+  - Confirmed final saved value was `[0.090000, 0.020000, 0.233000]`, not the earlier `[0.088000, 0.020000, 0.233000]`.
+- Local checks:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbInitpose090020233.yaml configs/train/Dexh13HoraLightbulbInitpose090020233.yaml`
+  - Outcome: pass.
+- Remote smoke:
+  - `timeout 180 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulbInitpose090020233 ... task.env.numEnvs=4 train.ppo.max_agent_steps=24`
+  - Outcome: task resolved, env built, and exited with `max steps achieved`.
+  - Remote log confirmed:
+    - `handRootPos: [0.09, 0.02, 0.233]`
+    - `right_index_joint_0: 0.3400000036`
+- Remote 30min PPO:
+  - tmux session: `dexh13_initpose090020233_ppo30m`
+  - pipeline dir: `outputs/cloud_pipeline_dexh13_initpose090020233_ppo30m/`
+  - command used `timeout 1800`.
+  - resource setting:
+    - `task.env.numEnvs=12288`
+    - `train.ppo.minibatch_size=24576`
+    - `num_threads=22`
+  - completed with:
+    - `phase=done`
+    - `ppo_exit_status=124`
+    - duration about `1804s`
+  - final best checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_initpose090020233_s42_30m/stage1_nn/best_reward_3305.03.pth`
+  - final observed tail included:
+    - `Agent Steps: 0044M`
+    - `FPS: ~28136`
+    - `Current Best: 3023.40` before the final saved `3305.03` checkpoint.
+- Local sync:
+  - synced teacher output excluding TensorBoard:
+    `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_initpose090020233_s42_30m/`
+  - synced pipeline status:
+    `outputs/cloud_pipeline_dexh13_initpose090020233_ppo30m/`
+  - local status files:
+    - `phase.txt`: `done`
+    - `ppo_exit_status`: `124`
+
+### Local conclusion
+- The new initpose YAML is available and the requested 30min PPO probe completed correctly.
+- The resulting local visualization checkpoint is:
+  `outputs/Dexh13HoraLightbulb_teacher/dexh13_lightbulb_initpose090020233_s42_30m/stage1_nn/best_reward_3305.03.pth`
+
+### Remaining blocked/risky
+- The new policy has not yet been visually inspected.
+- `right_index_joint_0` is at the configured upper joint limit `0.34`; this is intentional from the tuner save but should be watched visually for contact geometry or saturation artifacts.
+
+### Single recommended next step
+- Visualize `best_reward_3305.03.pth` locally with `task=Dexh13HoraLightbulbInitpose090020233` and compare index/thumb contact against the previous 7h `Dexh13HoraLightbulb` teacher/student runs.
+## v2-200 (2026-04-30) -- Sim2Real TwoFinger Thumb No-Slip YAML and Diagnostics
+
+### Target milestone/subgoal
+- Create a separate DexH13 lightbulb two-finger config focused on reducing the remaining thumb end-of-stroke slip, without overwriting the current `Dexh13HoraLightbulbSim2RealTwoFinger` baseline.
+
+### What changed (files + behavior impact)
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip.yaml`.
+  - Based on the current sim2real two-finger config.
+  - Keeps index+thumb only, middle/ring action mask and DOF lock.
+  - Lowers controller authority:
+    - `action_scale: 0.04`
+    - `torque_limit: 220.0`
+    - `dgain: 0.015`
+  - Strengthens anti-slip behavior:
+    - `pose_diff_penalty.thumb_weight: 0.3`
+    - tighter thumb slip `far_dist/high_tip_speed`
+    - stronger contact/far/ejection/after-drive/terminal-ease penalties
+    - stricter two-finger contact force thresholds `1.5 -> 4.0`
+  - Softens first-pass random external force to `forceScale=1.0`, `randomForceProbScalar=0.15`.
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip.yaml`.
+  - Copied from the current sim2real two-finger train config so Hydra `train: ${task}` resolves.
+- Added scripts:
+  - `scripts/dexh13_lightbulb_teacher_sim2real_twofinger_thumb_noslip.sh`
+  - `scripts/vis_dexh13_lightbulb_teacher_sim2real_twofinger_thumb_noslip.sh`
+- Updated `dexscrew/tasks/xhand_hora.py` diagnostic logging only.
+  - Added unclipped per-finger:
+    - `finger_contact/{index|middle|thumb}/force_raw`
+    - `finger_contact/{index|middle|thumb}/normal_force`
+    - `finger_tangent/{index|middle|thumb}/positive_force`
+  - Added thumb-specific:
+    - `thumb_slip/force_raw_mean`
+    - `thumb_slip/force_raw_p05`
+    - `thumb_slip/normal_force_mean`
+    - `thumb_slip/normal_force_p05`
+    - `thumb_slip/tangent_vel_abs_mean`
+    - `thumb_slip/tangent_vel_abs_p95`
+    - `thumb_slip/active_normal_drop_frac`
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Static checks:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py', 'exec') ... PY`
+    - Outcome: `compile ok`.
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip.yaml scripts/dexh13_lightbulb_teacher_sim2real_twofinger_thumb_noslip.sh scripts/vis_dexh13_lightbulb_teacher_sim2real_twofinger_thumb_noslip.sh`
+    - Outcome: pass.
+  - Docker YAML parse for the new task/train YAML:
+    - Outcome: pass.
+  - Hydra compose:
+    - `./docker-run-isaacgym.sh bash -lc 'python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip --cfg job ...'`
+    - Outcome: task/train resolve, new thresholds are present.
+  - Script syntax:
+    - `bash -n` on both new scripts.
+    - Outcome: pass.
+- IsaacGym smoke:
+  - `./docker-run-isaacgym.sh timeout 120 scripts/run_with_cleanup.sh bash scripts/dexh13_lightbulb_teacher_sim2real_twofinger_thumb_noslip.sh 0 42 thumb_noslip_smoke_4env True task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=96 wandb_activate=False task.env.termination.log=True`
+  - Outcome: environment built using `screw_contactviz`, entered loop, and exited by `max steps achieved`.
+  - Note: `mean_rewards: nan` is expected for this ultra-short smoke because no meaningful episode statistics exist.
+- TensorBoard tag verification:
+  - `EventAccumulator` found all new tags under the smoke run, including:
+    - `finger_contact/thumb/force_raw`
+    - `finger_contact/thumb/normal_force`
+    - `thumb_slip/normal_force_p05`
+    - `thumb_slip/tangent_vel_abs_p95`
+    - `thumb_slip/active_normal_drop_frac`
+- Cleanup:
+  - No residual local `train.py` / `run_with_cleanup` thumb no-slip process remained.
+
+### Local conclusion
+- A separate no-slip experiment path is ready.
+- The working hypothesis is that the remaining slip is not mainly “index too light”; prior force-weight probes saturated index contact. The more likely cause is thumb terminal impulse: high action/torque authority plus weak terminal deceleration lets the thumb generate rotation and then leave the bulb.
+- The new config attacks this by reducing authority, increasing damping, tightening terminal slip penalties, and logging raw/normal force so the next run can separate:
+  - true loss of normal support,
+  - excessive tangential speed,
+  - distance/ejection after rotation.
+
+### Remaining blocked/risky
+- This is deliberately more conservative and may reduce scalar reward/rotation speed.
+- The new `normal_force` projection assumes the existing configured `force_sign` convention; if values look inverted, use raw force and visual behavior first, then flip the diagnostic sign.
+- Smoke validates startup/logging only, not behavior quality.
+
+### Single recommended next step
+- Run a 60-90 minute PPO probe with `Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip`, then compare `thumb_slip/score`, `thumb_slip/normal_force_p05`, `thumb_slip/tangent_vel_abs_p95`, `thumb_slip_penalty/terminal_ease_loss`, and visualization against `sim2real_twofinger_thumbstable`.
+
+---
+## v2-201 (2026-04-30) -- DOTPG Student Algorithm Integrated and Smoke-Validated
+
+### Target milestone/subgoal
+- Integrate the newly added `dexscrew/dotpg` DOT-PG student distillation algorithm into the active teacher-student training entrypoint so it can be launched with `train.algo=DOTPG` / `DOTPGStudent`.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/dotpg/dotpg.py`.
+  - Fixed package imports from the branch-local path:
+    - `dexscrew.algo.dotpg.*` -> `dexscrew.dotpg.*`.
+  - Added `train.ppo.max_agent_steps` support to the DOTPG training loop.
+  - Saves `model_last.ckpt` when `max_agent_steps` is reached.
+- Updated `dexscrew/dotpg/__init__.py`.
+  - Fixed imports to the local `dexscrew.dotpg` package.
+  - Added alias `DOTPG = DOTPGStudent`.
+- Updated `dexscrew/algo/student/__init__.py`.
+  - Exposes `DOTPG` and `DOTPGStudent` with the other student algorithms.
+- Updated `train.py`.
+  - Imports `DOTPG` and `DOTPGStudent`, so `eval(config.train.algo)` can resolve both names.
+- Added scripts:
+  - `scripts/dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh`
+  - `scripts/vis_dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh`
+  - The training script defaults to:
+    - task `Dexh13HoraLightbulbSim2RealTwoFinger`
+    - `train.algo=DOTPG`
+    - `train.ppo.proprio_adapt=True`
+    - output root `outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/${CACHE}`
+    - checkpoint argument as the PPO teacher `.pth`.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Static checks:
+  - Python compile for:
+    - `train.py`
+    - `dexscrew/dotpg/__init__.py`
+    - `dexscrew/dotpg/dotpg.py`
+    - `dexscrew/dotpg/networks.py`
+    - `dexscrew/dotpg/buffer.py`
+    - `dexscrew/algo/student/__init__.py`
+    - Outcome: pass.
+  - `bash -n` for both new DOTPG scripts.
+    - Outcome: pass.
+  - `git diff --check` on touched code/scripts.
+    - Outcome: pass.
+- Docker import validation:
+  - Imported `train` first to respect IsaacGym import order, then imported:
+    - `DOTPG`
+    - `DOTPGStudent`
+    - `DOTPGConfig`
+  - Outcome:
+    - `has train DOTPG True True`
+- DOTPG training smoke:
+  - Command used `Dexh13HoraLightbulbSim2RealTwoFinger` with teacher checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`
+  - Overrides:
+    - `task.env.numEnvs=4`
+    - `train.ppo.max_agent_steps=16`
+    - `train.dotpg.warmup_steps=2`
+    - `train.dotpg.batch_size=4`
+    - small replay/expert buffers
+  - Outcome:
+    - task built using `screw_contactviz`
+    - teacher PPO checkpoint loaded
+    - expert buffer collected and saved
+    - DOTPG wrote:
+      - `student_output/dotpg_nn/model_best.ckpt`
+      - `student_output/dotpg_nn/model_last.ckpt`
+    - exited via `max_agent_steps reached: 20 >= 16`.
+- DOTPG restore/test smoke:
+  - Loaded the smoke `model_best.ckpt` with `test=True`, `test_max_steps=2`.
+  - Outcome:
+    - model restored
+    - ran two environment steps and printed `[DOTPG][TEST] step=1/2`.
+- Cleanup:
+  - No residual local `train.py` / `run_with_cleanup` / `dotpg_smoke` process remained.
+
+### Local conclusion
+- DOTPG is now a supported student distillation algorithm in this repo's active training entrypoint.
+- It can load the existing PPO teacher checkpoint and produce DOTPG student checkpoints.
+- For normal usage, prefer `train.algo=DOTPG`; `DOTPGStudent` also resolves.
+
+### Remaining blocked/risky
+- The smoke only proves wiring and runtime compatibility; it does not validate DOTPG policy quality.
+- DOTPG checkpoints are under `student_output/dotpg_nn/`, not `stage2_nn/`.
+- Hydra overrides for DOTPG-specific fields that are not already in the script should use `++train.dotpg.<key>=...`.
+- IsaacGym printed transient PhysX warnings during the tiny 4-env smoke; the run still completed and saved checkpoints.
+
+### Single recommended next step
+- Run a short 20-30 minute DOTPG distillation from the current sim2real PPO teacher and visualize `student_output/dotpg_nn/model_best.ckpt` before committing to a longer DOTPG run.
+
+---
+## v2-202 (2026-04-30) -- SeeTaCloud DOTPG Resume 2h Launched
+
+### Target milestone/subgoal
+- Continue the existing DOTPG student distillation on the new SeeTaCloud machine for 2 hours using:
+  - teacher PPO checkpoint `best_reward_6103.04.pth`
+  - DOTPG cache `sim2real_twofinger_thumbstable_dotpg_bc_s42_2h`
+  - DOTPG checkpoint `student_output/dotpg_nn/model_best.ckpt`
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/dotpg/dotpg.py`.
+  - Added DOTPG training resume config:
+    - `train.dotpg.resume_path`
+    - `train.dotpg.resume_load_optimizers`
+  - Training now loads a DOTPG student checkpoint before continuing distillation when `resume_path` is set.
+  - Resume load covers policy/target policy, critics/target critics, dual network, adapters, point MLP, running statistics, optimizers, `agent_steps`, `total_it`, and `best_rewards`.
+- Added `outputs/cloud_pipeline_seetacloud_dotpg_resume2h/run_dotpg_resume_2h.sh`.
+  - Runs the 2-hour continuation under `timeout 7200`.
+  - Writes phase/status/logs under `outputs/cloud_pipeline_seetacloud_dotpg_resume2h`.
+  - Uses the existing cache/output directory so `model_best.ckpt` and `model_last.ckpt` stay in the same DOTPG run path.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Local artifact check:
+  - Teacher exists:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`
+  - DOTPG checkpoint exists:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/sim2real_twofinger_thumbstable_dotpg_bc_s42_2h/student_output/dotpg_nn/model_best.ckpt`
+  - DOTPG expert buffer exists:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/sim2real_twofinger_thumbstable_dotpg_bc_s42_2h/expert_buffer_student_raw.pt`
+- Static checks:
+  - `python -m py_compile dexscrew/dotpg/dotpg.py`
+    - Outcome: pass.
+  - `bash -n outputs/cloud_pipeline_seetacloud_dotpg_resume2h/run_dotpg_resume_2h.sh`
+    - Outcome: pass.
+  - `git diff --check -- dexscrew/dotpg/dotpg.py outputs/cloud_pipeline_seetacloud_dotpg_resume2h/run_dotpg_resume_2h.sh`
+    - Outcome: pass.
+- Checkpoint inspection:
+  - Local DOTPG `model_best.ckpt` contains:
+    - `agent_steps=1842912`
+    - `total_it=38388`
+    - `best_rewards=1425.9762383391162`
+    - optimizer states present.
+- Remote sync to SeeTaCloud:
+  - Synced source/code changes to `/root/code/dexscrew-repro`.
+  - Synced teacher PPO checkpoint, DOTPG expert buffer, DOTPG config/logs, and DOTPG `model_best.ckpt`.
+- Remote resume smoke:
+  - Loaded existing expert buffer:
+    `从 ... expert_buffer_student_raw.pt 加载了 80000 条专家数据`
+  - Loaded DOTPG resume checkpoint:
+    `DOTPG student 续训检查点加载完成: agent_steps=1842912, total_it=38388, best_rewards=1425.98`
+  - Short run exited cleanly via `max_agent_steps`.
+- Remote resource probe:
+  - Probe with `task.env.numEnvs=4096`, `train.dotpg.batch_size=2048`, `train.dotpg.bc_batch_size=4096`, 1M CPU fp16 replay/expert buffers completed startup and short continuation without OOM.
+- Formal 2-hour SeeTaCloud run:
+  - Launched in tmux session `seetacloud_dotpg_resume2h`.
+  - Start timestamp: `2026-04-30T14:20:24+08:00`.
+  - Expected timeout completion: about `2026-04-30 16:20:24 CST`.
+  - Current status checked at `2026-04-30 14:25:39 CST`:
+    - tmux session exists.
+    - phase file: `dotpg`.
+    - GPU: RTX 4090, about 6.7GB / 24.6GB used, GPU util about 65%.
+    - Run has advanced beyond 4M agent steps.
+    - Current best remains `1425.98` early in the continuation.
+    - No `Traceback`, CUDA OOM, or PhysX GPU allocation failure found in the checked log tail.
+
+### Current launch parameters
+- Task: `Dexh13HoraLightbulbSim2RealTwoFinger`
+- Teacher checkpoint:
+  `/root/code/dexscrew-repro/outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`
+- DOTPG resume checkpoint:
+  `/root/code/dexscrew-repro/outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/sim2real_twofinger_thumbstable_dotpg_bc_s42_2h/student_output/dotpg_nn/model_best.ckpt`
+- Resource settings:
+  - `task.env.numEnvs=4096`
+  - `train.ppo.minibatch_size=49152`
+  - `train.dotpg.batch_size=2048`
+  - `train.dotpg.bc_batch_size=4096`
+  - `train.dotpg.expert_add_num_envs=256`
+  - `train.dotpg.online_expert_add_num_envs=256`
+  - `train.dotpg.buffer_size=1000000`
+  - `train.dotpg.expert_buffer_size=1000000`
+  - CPU fp16 replay/expert buffers.
+
+### Local conclusion
+- DOTPG now supports true training continuation from an existing student checkpoint, not just PPO teacher loading.
+- The SeeTaCloud environment can load the teacher, expert buffer, and DOTPG checkpoint correctly.
+- The formal 2-hour continuation is running under a persistent tmux/timeout script with status and logs.
+
+### Remaining blocked/risky
+- The 2-hour run is still in progress; checkpoint quality has not been visualized yet.
+- Current best had not improved during the early status check, but this is too early to conclude quality.
+- The log includes large git-diff text emitted by `train.py`; use checkpoint timestamps, phase/status files, and exact DOTPG resume lines rather than broad grep over the whole log.
+
+### Single recommended next step
+- After `outputs/cloud_pipeline_seetacloud_dotpg_resume2h/dotpg_exit_status` appears with `124` or `0`, sync `student_output/dotpg_nn/model_best.ckpt` and visualize the DOTPG student locally.
+
+---
+## v2-203 (2026-04-30) -- SeeTaCloud DOTPG Max-Throughput Relaunch
+
+### Target milestone/subgoal
+- Re-evaluate the DOTPG continuation settings on SeeTaCloud for actual distillation efficiency, not just VRAM fill, and relaunch the 2-hour continuation with the highest measured throughput.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/dotpg/dotpg.py`.
+  - Added `train.dotpg.updates_per_env_step`.
+  - The DOTPG loop can now run multiple `train_step()` updates per environment interaction step.
+  - TensorBoard/direct metrics are averaged across those per-step updates.
+- Added probe scripts:
+  - `outputs/cloud_pipeline_seetacloud_dotpg_resume2h/probe_dotpg_aggressive.sh`
+  - `outputs/cloud_pipeline_seetacloud_dotpg_resume2h/probe_dotpg_aggressive_phase2.sh`
+- Added formal max-throughput launch script:
+  - `outputs/cloud_pipeline_seetacloud_dotpg_resume2h/run_dotpg_resume_2h_maxthroughput.sh`
+  - Writes logs/status under `outputs/cloud_pipeline_seetacloud_dotpg_resume2h_maxthroughput`.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `python -m py_compile dexscrew/dotpg/dotpg.py`
+    - Outcome: pass.
+  - `bash -n` on all new/probed cloud scripts.
+    - Outcome: pass.
+  - `git diff --check -- dexscrew/dotpg/dotpg.py outputs/cloud_pipeline_seetacloud_dotpg_resume2h/*.sh`
+    - Outcome: pass.
+- Stopped the earlier conservative run:
+  - Previous session `seetacloud_dotpg_resume2h` was interrupted for aggressive relaunch.
+  - `model_best.ckpt` was not overwritten during that early conservative continuation.
+- First probe pack:
+  - Summary path:
+    `outputs/cloud_pipeline_seetacloud_dotpg_resume2h/aggressive_probes_20260430_143348/summary.tsv`
+  - Results:
+    - `cuda8192_b4096_u1`: `grad_samples_per_s=7662.6`, `max_mem_mib=15421`, `max_util_pct=48`
+    - `cuda8192_b4096_u2`: `grad_samples_per_s=13054.0`, `max_mem_mib=15421`, `max_util_pct=55`
+    - `cpu12288_b4096_u1`: `grad_samples_per_s=4085.8`, `max_mem_mib=12373`, `max_util_pct=77`
+    - `cuda6144_b8192_u2`: `grad_samples_per_s=35461.7`, `max_mem_mib=14667`, `max_util_pct=56`
+  - Note: the `oom=1` field in the first probe summary was a false positive caused by `train.py` printing historical git-diff text containing old CUDA/OOM strings; runtime grep showed no actual OOM and all statuses were `0`.
+- Second probe pack:
+  - Summary path:
+    `outputs/cloud_pipeline_seetacloud_dotpg_resume2h/aggressive_probes_phase2_20260430_143643/summary.tsv`
+  - Results:
+    - `cuda6144_b8192_u3`: `grad_samples_per_s=44838.6`, `max_mem_mib=14669`, `max_util_pct=49`, `oom=0`, `traceback=0`
+    - `cuda6144_b16384_u2`: `grad_samples_per_s=61020.5`, `max_mem_mib=14671`, `max_util_pct=67`, `oom=0`, `traceback=0`
+    - `cuda4096_b16384_u3`: `grad_samples_per_s=83797.8`, `max_mem_mib=12675`, `max_util_pct=100`, `oom=0`, `traceback=0`
+- CPU/GPU buffer conclusion:
+  - CPU fp16 buffer is safe and large, but DOTPG sampling then pays CPU->GPU transfer cost every update.
+  - GPU fp16 replay/expert buffers fit on the 24GB RTX 4090 and are measurably faster here.
+  - 12288 env with CPU buffer used more environment parallelism but reduced effective distillation update throughput.
+
+### Formal max-throughput run
+- Launched tmux session:
+  - `seetacloud_dotpg_resume2h_maxthroughput`
+- Start timestamp:
+  - `2026-04-30 14:39:14 CST`
+- Expected timeout completion:
+  - about `2026-04-30 16:39 CST`
+- Status checked at `2026-04-30 14:40:39 CST`:
+  - phase: `dotpg_maxthroughput`
+  - GPU: RTX 4090, about `12677 / 24564 MiB`
+  - DOTPG expert buffer loaded:
+    `从 ... expert_buffer_student_raw.pt 加载了 80000 条专家数据`
+  - DOTPG checkpoint resumed:
+    `agent_steps=1842912, total_it=38388, best_rewards=1425.98`
+  - Training loop active, with runtime `Last FPS` around `6k-10k`; at the selected config this corresponds roughly to `72k-120k` gradient samples/sec.
+
+### Current launch parameters
+- Task: `Dexh13HoraLightbulbSim2RealTwoFinger`
+- Output/cache:
+  `outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/sim2real_twofinger_thumbstable_dotpg_bc_s42_2h`
+- Teacher checkpoint:
+  `/root/code/dexscrew-repro/outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`
+- DOTPG resume checkpoint:
+  `/root/code/dexscrew-repro/outputs/Dexh13HoraLightbulb_student_dotpg_sim2real_twofinger/sim2real_twofinger_thumbstable_dotpg_bc_s42_2h/student_output/dotpg_nn/model_best.ckpt`
+- Resource settings:
+  - `task.env.numEnvs=4096`
+  - `train.dotpg.batch_size=16384`
+  - `train.dotpg.bc_batch_size=16384`
+  - `train.dotpg.updates_per_env_step=3`
+  - `train.dotpg.replay_buffer_device=cuda`
+  - `train.dotpg.expert_buffer_device=cuda`
+  - `train.dotpg.buffer_size=1000000`
+  - `train.dotpg.expert_buffer_size=1000000`
+  - `train.dotpg.online_expert_add_num_envs=512`
+
+### Local conclusion
+- On this DOTPG workload, filling all 24GB VRAM is not the correct optimization target.
+- The measured bottleneck is effective gradient update throughput. The best tested setting uses less VRAM than the largest-env settings but saturates GPU compute and gives the highest estimated distillation update throughput.
+- The final 2-hour run is now using all-GPU buffers and the best measured probe configuration.
+
+### Remaining blocked/risky
+- `updates_per_env_step=3` is more aggressive than prior DOTPG runs; it maximizes short-probe throughput but could change off-policy stability. Monitor `Current Best`, loss metrics, and final visualization.
+- The run is still in progress; final checkpoint quality is unknown until timeout completion and local visualization.
+
+### Single recommended next step
+- When `outputs/cloud_pipeline_seetacloud_dotpg_resume2h_maxthroughput/dotpg_exit_status` appears with `124` or `0`, sync `student_output/dotpg_nn/model_best.ckpt` from SeeTaCloud and run local DOTPG student visualization.
+
+---
+## v2-204 (2026-04-30) -- SeeTaCloud DOTPG CoDrive Teacher Sweep Launched
+
+### Target milestone/subgoal
+- Restart DOTPG distillation from scratch using the newly supplied CoDrive PPO teacher and matching YAML files:
+  - teacher: `sim2real/codrive/best_reward_4159.37.pth`
+  - task YAML: `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - train YAML: `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+
+### What changed (files + behavior impact)
+- Added `outputs/cloud_pipeline_seetacloud_dotpg_codrive_sweep/run_dotpg_codrive_sweep.sh`.
+  - Uses `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`.
+  - Uses the CoDrive teacher checkpoint `sim2real/codrive/best_reward_4159.37.pth`.
+  - Does not set `train.dotpg.resume_path`; every candidate starts DOTPG from scratch.
+  - Copies the user-provided CoDrive task/train YAMLs from `sim2real/codrive` into `configs/task` and `configs/train` on the cloud before training, so Hydra uses the supplied CoDrive config.
+  - Runs three sequential candidates with separate `timeout`s and separate output folders.
+
+### What was verified (commands + key outcomes)
+- Local file check:
+  - `sim2real/codrive/best_reward_4159.37.pth`
+  - `sim2real/codrive/model_best_codrive.ckpt`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+- YAML equivalence check:
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml` matches `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`.
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml` matches `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`.
+  - Hashes:
+    - teacher pth: `2c3ff7411c7da40401866569116d98de73feded6f10f5431beac64f13ecd18ec`
+    - task yaml: `019876eaf3de4c8bbc2180886fd90ec406b753a8cdbfce72a198c31b790c6e62`
+    - train yaml: `07f2903dd9aa511c44e358757a322cf361323b2876a5c2e15f507e627ce2a627`
+- Stopped the previous old-teacher fresh sweep:
+  - `seetacloud_dotpg_fresh_sweep` was stopped.
+  - GPU returned to `0 / 24564 MiB`.
+- Synced to SeeTaCloud:
+  - `sim2real/codrive/`
+  - CoDrive task/train YAMLs
+  - `dexscrew/dotpg/dotpg.py`
+  - new CoDrive sweep script.
+- Remote checks:
+  - `bash -n outputs/cloud_pipeline_seetacloud_dotpg_codrive_sweep/run_dotpg_codrive_sweep.sh`
+    - Outcome: pass.
+  - `python -m py_compile dexscrew/dotpg/dotpg.py`
+    - Outcome: pass.
+  - Remote hash check matched the local CoDrive teacher/YAML hashes.
+
+### Current cloud run
+- Launched tmux session:
+  - `seetacloud_dotpg_codrive_sweep`
+- Start timestamp:
+  - `2026-04-30 16:49:47 CST`
+- Pipeline root:
+  - `outputs/cloud_pipeline_seetacloud_dotpg_codrive_sweep/codrive_dotpg_s42_20260430_164945`
+- Current phase at first check:
+  - `baseline48_30m`
+- Confirmed active command uses:
+  - `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+  - `checkpoint=/root/code/dexscrew-repro/sim2real/codrive/best_reward_4159.37.pth`
+  - output root `outputs/Dexh13HoraLightbulb_student_dotpg_codrive/codrive_dotpg_s42_20260430_164945_*`
+
+### Candidate schedule
+- `baseline48_30m`
+  - `timeout=1800`
+  - `numEnvs=48`
+  - CPU fp16 replay/expert buffers
+  - known-good DOTPG recipe: `warmup_steps=5000`, `adapt_warmup_steps=1000`, `bc_pretrain_steps=2000`, `bc_coef=2.5`
+- `gpu512_45m`
+  - `timeout=2700`
+  - `numEnvs=512`
+  - GPU fp16 replay/expert buffers
+  - moderate scaling with adapter freeze.
+- `bcstrong2048_60m`
+  - `timeout=3600`
+  - `numEnvs=2048`
+  - GPU fp16 replay/expert buffers
+  - stronger BC, larger batch, one DOTPG update per env step.
+
+### Local conclusion
+- The new CoDrive DOTPG sweep is correctly pointed at the user-supplied `best_reward_4159.37.pth`; it no longer uses the older `best_reward_6103.04.pth` teacher.
+- Because there is one RTX 4090, candidates are run sequentially for comparable results and to avoid multi-process interference/OOM.
+
+### Remaining blocked/risky
+- First status check happened while `train.py` was still printing a large dirty git diff into the log; the process was active but not yet past startup noise in the visible tail.
+- Candidate quality is unknown until each phase writes summary rows.
+
+### Single recommended next step
+- Monitor `outputs/cloud_pipeline_seetacloud_dotpg_codrive_sweep/codrive_dotpg_s42_20260430_164945/summary.tsv`; after the sweep completes, sync the best candidate's `student_output/dotpg_nn/model_best.ckpt` locally for visualization.
+
+---
+## v2-208 (2026-04-30) -- DOTPG CoDrive Algorithm-vs-Config Controls Queued
+
+### Target milestone/subgoal
+- Continue DOTPG CoDrive distillation controls to distinguish:
+  - algorithm/implementation limitation,
+  - poor training configuration,
+  - student adapter/proprio-state bottleneck,
+  - slow-warmup behavior.
+
+### Current observed results before extension
+- Active cloud sweep:
+  - tmux: `seetacloud_dotpg_codrive_sweep`
+  - pipeline: `outputs/cloud_pipeline_seetacloud_dotpg_codrive_sweep/codrive_dotpg_s42_20260430_164945`
+  - current phase at `2026-04-30 18:31:14 CST`: `bcstrong2048_60m`
+- Completed candidates:
+  - `baseline48_30m`: `max_best=146.67`, status `124`, no runtime errors.
+  - `gpu512_45m`: `max_best=494.10`, status `124`, no runtime errors.
+- Running candidate:
+  - `bcstrong2048_60m`
+  - `numEnvs=2048`, GPU fp16 replay/expert buffers, `bc_coef=4.0`, `bc_pretrain_steps=4000`
+  - GPU around `9115 / 24564 MiB` at status check.
+
+### What changed (files + behavior impact)
+- Added `outputs/cloud_pipeline_seetacloud_dotpg_codrive_extended/run_dotpg_codrive_extended.sh`.
+  - Runs after the current CoDrive sweep finishes.
+  - Uses the same CoDrive task/YAML and teacher:
+    `sim2real/codrive/best_reward_4159.37.pth`
+  - Writes outputs under:
+    `outputs/cloud_pipeline_seetacloud_dotpg_codrive_extended/<RUN_ID>`
+    and
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive/<RUN_ID>_*`
+- Launched queue tmux:
+  - `seetacloud_dotpg_codrive_extended_queue`
+  - It waits for `seetacloud_dotpg_codrive_sweep` to exit, then starts the extended sweep.
+  - Queue status file:
+    `outputs/cloud_pipeline_seetacloud_dotpg_codrive_extended/queue_status.txt`
+
+### Extended candidate schedule
+- `teacherstate512_45m`
+  - Diagnostic purpose: remove the student adapter/proprio-history bottleneck.
+  - `state_mode=teacher`, `dynamic_state=false`.
+  - If this works much better than student-state DOTPG, the issue is mainly student representation/adaptation, not DOTPG's distribution-matching core.
+- `student_slowwarm512_90m`
+  - Diagnostic purpose: test slow-warmup hypothesis.
+  - Longer adapt warmup/expert collection/BC pretrain:
+    - `adapt_warmup_steps=3000`
+    - `warmup_steps=6000`
+    - `bc_pretrain_steps=10000`
+    - `bc_coef=5.0`
+  - Frozen adapter after warmup, lower policy/Q/dual learning rates, lower exploration/target noise.
+- `student_bcanchor2048_90m`
+  - Diagnostic purpose: stronger BC anchor at larger scale without multi-update overload.
+  - `numEnvs=2048`, `batch_size=2048`, `bc_batch_size=8192`, `bc_coef=8.0`, `bc_pretrain_steps=8000`.
+
+### What was verified
+- Current CoDrive sweep status checked on cloud:
+  - `baseline48_30m` and `gpu512_45m` completed.
+  - `bcstrong2048_60m` running.
+  - No stale old-teacher DOTPG process.
+- New extended script checks:
+  - `bash -n outputs/cloud_pipeline_seetacloud_dotpg_codrive_extended/run_dotpg_codrive_extended.sh`
+    - Outcome: pass locally and remotely.
+  - `git diff --check -- outputs/cloud_pipeline_seetacloud_dotpg_codrive_extended/run_dotpg_codrive_extended.sh`
+    - Outcome: pass.
+- Queue launched:
+  - tmux `seetacloud_dotpg_codrive_extended_queue`
+  - status file begins with:
+    `waiting_for_codrive_sweep_2026-04-30T18:32:43+08:00`
+
+### Local conclusion
+- Existing CoDrive DOTPG student-state results remain weak so far; the best completed control is only `494.10`.
+- The next critical discriminator is `teacherstate512_45m`:
+  - high teacher-state score means current weakness is likely adapter/proprio-state/config;
+  - low teacher-state score means the DOTPG training objective/implementation is likely not competitive for this CoDrive task.
+
+### Remaining blocked/risky
+- Extended controls are queued but not yet running; they depend on the current `bcstrong2048_60m` phase finishing.
+- Long slow-warm controls take several hours; no conclusion until `summary.tsv` appears under the extended pipeline.
+
+### Single recommended next step
+- After `seetacloud_dotpg_codrive_extended_queue` starts the extended run, monitor:
+  `outputs/cloud_pipeline_seetacloud_dotpg_codrive_extended/<RUN_ID>/summary.tsv`
+  and compare `teacherstate512_45m` against student-state candidates.
+
+---
+---
+## v2-205 (2026-04-30) -- CoDrive Diffusion Student 4-Way 1h Sweep Launched
+
+### Target milestone/subgoal
+- Use the current most stable CoDrive PPO teacher as the fixed baseline and compare the four diffusion-style student distillation algorithms under the same task/train YAML:
+  - teacher: `sim2real/codrive/best_reward_4159.37.pth`
+  - task: `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+  - algorithms: `DiffusionLatentStudent`, `ConsistencyLatentStudent`, `FlowMatchingLatentStudent`, `DiffusionActionChunkStudent`
+
+### What changed (files + behavior impact)
+- Added `scripts/cloud_codrive_diffusion4_student_1h.sh`.
+  - Launches all four diffusion-class student distillation runs in parallel.
+  - Uses `timeout 3600` per algorithm.
+  - Uses separate output/log directories per algorithm.
+  - Uses the same CoDrive task/train YAML and the same PPO teacher checkpoint for all candidates.
+  - Uses the same student runtime overrides as the recent CoDrive PAdapt validation:
+    - `task.env.numEnvs=48`
+    - `train.ppo.minibatch_size=576`
+    - `task.env.termination.grace_steps=0`
+    - termination gates enabled
+    - `obs_noise_t_scale=0.01`
+    - `obs_noise_e_scale=0.02`
+
+### What was verified (commands + key outcomes)
+- Local static checks:
+  - `bash -n scripts/cloud_codrive_diffusion4_student_1h.sh`
+    - Outcome: pass.
+  - `git diff --check -- scripts/cloud_codrive_diffusion4_student_1h.sh`
+    - Outcome: pass.
+- Synced to SeeTaCloud:
+  - `train.py`
+  - `dexscrew/`
+  - `configs/`
+  - `scripts/`
+  - `sim2real/codrive/`
+- Remote checks:
+  - `bash -n scripts/cloud_codrive_diffusion4_student_1h.sh`
+    - Outcome: pass.
+  - `python -m py_compile` for the four diffusion student files and `train.py`
+    - Outcome: pass.
+  - Remote hashes matched local:
+    - teacher pth: `2c3ff7411c7da40401866569116d98de73feded6f10f5431beac64f13ecd18ec`
+    - task yaml: `019876eaf3de4c8bbc2180886fd90ec406b753a8cdbfce72a198c31b790c6e62`
+    - train yaml: `07f2903dd9aa511c44e358757a322cf361323b2876a5c2e15f507e627ce2a627`
+- Cloud GPU preflight:
+  - RTX 4090D was idle before launch: about `1 / 24564 MiB`, `0%` util.
+
+### Current cloud run
+- tmux session:
+  - `codrive_diffusion4_1h_085749`
+- Pipeline latest symlink:
+  - `outputs/cloud_pipeline_codrive_diffusion4_1h/latest`
+- Concrete run tag:
+  - `codrive_diffusion4_s42_1h_20260430_085750`
+- Pipeline root:
+  - `outputs/cloud_pipeline_codrive_diffusion4_1h/codrive_diffusion4_s42_1h_20260430_085750`
+- Status checked around `2026-04-30 17:00 CST`:
+  - phase: `running`
+  - four `python train.py` processes active
+  - GPU: about `10809 / 24564 MiB`, util `93-99%`
+  - no actual CUDA OOM observed during startup.
+
+### Output directories
+- Diffusion latent:
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_diffusion_nn/`
+- Consistency latent:
+  - `outputs/Dexh13HoraLightbulb_student_consistency_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_consistency_nn/`
+- Flow matching latent:
+  - `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_flow_nn/`
+- Diffusion action chunk:
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_diffusion_action_chunk_nn/`
+
+### Remaining blocked/risky
+- The four runs are still in progress; final checkpoint quality is unknown until the 1h timeouts finish.
+- `train.py` prints large dirty git diffs into each log, so broad grep for historical terms like `Traceback`/`OOM` can produce false positives from embedded docs/diff text. Prefer each log tail, status files, and `summary.tsv`.
+- Four processes share one GPU. Startup memory is safe, but final throughput/quality may differ from single-process PAdapt because GPU compute is shared.
+
+### Single recommended next step
+- After `outputs/cloud_pipeline_codrive_diffusion4_1h/latest/summary.tsv` is written and all statuses are `0` or `124`, sync the four `model_best.ckpt` files locally and visualize/evaluate them under `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`.
+
+---
+## v2-206 (2026-04-30) -- BC / DAgger Student Baselines Integrated
+
+### Target milestone/subgoal
+- Migrate the user-supplied `algo/student/bc+dagger` code into the active teacher-student pipeline as baseline student distillation algorithms, so later experiments can compare PAdapt / DOTPG / diffusion / BC / DAgger under the same PPO teacher.
+
+### What changed (files + behavior impact)
+- Added canonical student modules:
+  - `dexscrew/algo/student/bc_student.py`
+  - `dexscrew/algo/student/bc_buffer.py`
+  - `dexscrew/algo/student/dagger_student.py`
+  - `dexscrew/algo/student/dagger_buffer.py`
+- Registered the new algorithms in `dexscrew/algo/student/__init__.py` and `train.py`.
+  - Hydra `train.algo=BCStudent` and `train.algo=DAggerStudent` now resolve through the normal `train.py` entrypoint.
+  - Aliases `BC` and `DAgger` are also exported for compatibility.
+- Added baseline scripts:
+  - `scripts/dexh13_lightbulb_student_bc_sim2real_twofinger.sh`
+  - `scripts/dexh13_lightbulb_student_dagger_sim2real_twofinger.sh`
+  - `scripts/vis_dexh13_lightbulb_student_bc_sim2real_twofinger.sh`
+  - `scripts/vis_dexh13_lightbulb_student_dagger_sim2real_twofinger.sh`
+- Implementation fixes:
+  - Rewired old imports from nonexistent `dexscrew.algo.BC/DAgger` packages to `dexscrew.algo.student.*`.
+  - `max_agent_steps=0` now inherits `train.ppo.max_agent_steps`.
+  - Save/eval intervals default to `1e5` agent steps instead of the old very large defaults, so time-limited runs are more likely to produce checkpoints.
+  - BC saves `model_last` after demo collection / pretrain and runs an immediate pure-student eval after pretrain when eval is enabled.
+  - DAgger saves `model_last` at startup and keeps `model_best_mixed` separate from pure-student `model_best`.
+  - BC buffer save now clones sliced tensors before `torch.save`, avoiding serialization of the whole preallocated buffer capacity.
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile(...) ... PY`
+    - Outcome: `compile_ok`.
+  - `bash -n` for all four new scripts.
+    - Outcome: pass.
+  - `git diff --check -- train.py dexscrew/algo/student/* scripts/dexh13_lightbulb_student_* scripts/vis_dexh13_lightbulb_student_*`
+    - Outcome: pass.
+- Docker import check:
+  - `./docker-run-isaacgym.sh python -c "import train; from dexscrew.algo.student import BCStudent, DAggerStudent, BC, DAgger; ..."`
+    - Outcome: `student_algos_ok BCStudent DAggerStudent BCStudent DAggerStudent`.
+- BC smoke:
+  - Used PPO teacher `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_nn/best_reward_6103.04.pth`.
+  - `task.env.numEnvs=4`, tiny demo/pretrain settings.
+  - Outcome: loaded teacher checkpoint, collected/saved demo buffer, trained `adapt_tconv`, wrote `bc_nn/model_last.ckpt`.
+- DAgger smoke:
+  - Same PPO teacher and 4-env settings.
+  - Outcome: loaded teacher checkpoint, rolled student/teacher mixed actions, aggregated teacher labels, trained supervised adapter, wrote `dagger_nn/model_last.ckpt` and `dagger_nn/model_best_mixed.ckpt`.
+- BC buffer serialization check:
+  - A synthetic 16-sample buffer with `max_size=200000` now saves as about `36KB`, confirming the clone fix works.
+
+### Local conclusion
+- BC and DAgger are now usable as first-class student distillation baselines inside the existing Hora teacher-student system.
+- The original copied folder under `dexscrew/algo/student/bc+dagger代码（无best ckpt）/` remains as backup/reference only; canonical runs should use the new modules and scripts.
+
+### Remaining blocked/risky
+- Smoke tests validate wiring, checkpoint loading, buffer flow, and script entrypoints; they do not validate policy quality.
+- Real BC / DAgger runs should be compared by pure-student `model_best.ckpt`, not DAgger's `model_best_mixed.ckpt`, because the mixed metric can include teacher beta actions.
+- Default BC/DAgger buffer devices are CPU/fp16 to avoid VRAM pressure; throughput may be lower than all-GPU DOTPG/PAdapt.
+
+### Single recommended next step
+- Run 20-30 minute baseline probes from the current PPO teacher for both `BCStudent` and `DAggerStudent`, then visualize their `model_best.ckpt` policies and compare against the existing PAdapt and DOTPG students.
+---
+## v2-206 (2026-04-30) -- CoDrive Diffusion Student 4-Way 1h Sweep Completed
+
+### Target milestone/subgoal
+- Finish the 1h four-way diffusion-class student distillation sweep from the CoDrive PPO teacher and produce synchronized artifacts plus a quick numerical comparison.
+
+### What changed (files + behavior impact)
+- No additional code changes after launch.
+- Synced completed cloud artifacts back to local:
+  - `outputs/cloud_pipeline_codrive_diffusion4_1h/codrive_diffusion4_s42_1h_20260430_085750/`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive/codrive_diffusion4_s42_1h_20260430_085750/`
+  - `outputs/Dexh13HoraLightbulb_student_consistency_codrive/codrive_diffusion4_s42_1h_20260430_085750/`
+  - `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive/codrive_diffusion4_s42_1h_20260430_085750/`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive/codrive_diffusion4_s42_1h_20260430_085750/`
+
+### What was verified (commands + key outcomes)
+- Cloud run completed at `2026-04-30T09:58:50+00:00` / `2026-04-30 17:58:50 CST`.
+- Cloud GPU returned to idle after completion: about `1 / 24564 MiB`, `0%`.
+- `summary.tsv` statuses:
+  - all four algorithms ended with status `124`, expected from the 3600s timeout.
+- Training-window best rewards:
+  - `DiffusionLatentStudent`: `4145.42`
+  - `FlowMatchingLatentStudent`: `3975.03`
+  - `ConsistencyLatentStudent`: `3837.96`
+  - `DiffusionActionChunkStudent`: `3623.38`
+- Local checkpoint presence verified:
+  - `stage2_diffusion_nn/model_best.ckpt`
+  - `stage2_consistency_nn/model_best.ckpt`
+  - `stage2_flow_nn/model_best.ckpt`
+  - `stage2_diffusion_action_chunk_nn/model_best.ckpt`
+  - action-chunk extras: `model_best_student.ckpt`, `model_best_student_reward.ckpt`, `model_best_deploy_probe.ckpt`, `model_last.ckpt`
+- Checkpoint SHA256:
+  - diffusion latent `model_best.ckpt`: `9139111b8661e4536421ec19a867d9bdba4b66d999584ced46376392a042bac9`
+  - consistency latent `model_best.ckpt`: `923168a082adf7b2c90d826b24b51f489ea88556adb9df8d018dc006fbede998`
+  - flow matching `model_best.ckpt`: `d92f643d0d905a3afd9c81ec8be6397ed02c1b89d61ca88467ce0957ebfb7ac5`
+  - action chunk `model_best.ckpt`: `877625cae129fd45b04fce2666f304872943ec2ada9ae35161f46945449a97cc`
+  - action chunk `model_best_student_reward.ckpt`: `6f0831df954ad4af5c593d123a657279c207b36403d3b12aa0be5edd8aa8cab9`
+- Cloud 256-step headless eval was run with the same CoDrive task and student overrides:
+  - `DiffusionLatentStudent`: `avg_reward=2.855633`, `avg_done_rate=0.000895`
+  - `ConsistencyLatentStudent`: `avg_reward=5.155176`, `avg_done_rate=0.000000`
+  - `FlowMatchingLatentStudent`: `avg_reward=4.827848`, `avg_done_rate=0.000081`
+  - `DiffusionActionChunkStudent model_best`: `avg_reward=-3.786618`, `avg_done_rate=0.015625`
+  - `DiffusionActionChunkStudent model_best_student_reward`: `avg_reward=0.178947`, `avg_done_rate=0.007975`
+
+### Local conclusion
+- Parallel 4-way diffusion distillation is feasible on the 24GB RTX 4090D for this CoDrive student setup:
+  - startup/runtime memory stayed around `10.8GB / 24GB`;
+  - all four processes completed the intended 1h timeout window.
+- Training-window reward and deploy-style eval disagree:
+  - training best ranks diffusion latent highest;
+  - 256-step eval ranks consistency latent highest, then flow matching.
+- Action-chunk is currently not competitive in deploy eval despite writing multiple checkpoint variants.
+
+### Remaining blocked/risky
+- Numerical eval is still not a substitute for visual policy inspection. Need local viewer comparison to check thumb/index cooperation, slip, and stroke reset behavior.
+- The eval used one seed and a short 256-step window; use it as a fast screen, not a final paper metric.
+
+### Single recommended next step
+- Locally visualize `ConsistencyLatentStudent` first, then `FlowMatchingLatentStudent`, then `DiffusionLatentStudent`; only inspect action-chunk if those three fail visually.
+---
+## v2-207 (2026-04-30) -- CoDrive BC + DAgger 1h Parallel Baseline Completed
+
+### Target milestone/subgoal
+- Use the stable CoDrive PPO teacher as the common baseline and run the newly integrated BC / DAgger student distillation baselines in parallel for 1 hour.
+
+### What changed (files + behavior impact)
+- Added CoDrive baseline scripts:
+  - `scripts/dexh13_lightbulb_student_bc_codrive.sh`
+  - `scripts/dexh13_lightbulb_student_dagger_codrive.sh`
+  - `scripts/vis_dexh13_lightbulb_student_bc_codrive.sh`
+  - `scripts/vis_dexh13_lightbulb_student_dagger_codrive.sh`
+  - `outputs/codrive_bc_dagger_baseline_1h/run_codrive_bc_dagger_1h_parallel.sh`
+- Both train scripts use:
+  - task `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+  - teacher `sim2real/codrive/best_reward_4159.37.pth`
+  - CPU fp16 replay/demo buffers to keep VRAM low.
+
+### What was verified (commands + key outcomes)
+- Confirmed local CoDrive task/train YAMLs match `sim2real/codrive` copies by byte comparison.
+- Verified teacher checkpoint and YAML hashes:
+  - teacher pth `2c3ff7411c7da40401866569116d98de73feded6f10f5431beac64f13ecd18ec`
+  - task yaml `019876eaf3de4c8bbc2180886fd90ec406b753a8cdbfce72a198c31b790c6e62`
+  - train yaml `07f2903dd9aa511c44e358757a322cf361323b2876a5c2e15f507e627ce2a627`
+- `bash -n` passed for the new train/vis/parallel scripts.
+- `git diff --check` passed for the new scripts.
+- Docker import check passed for `train`, `BCStudent`, and `DAggerStudent`.
+- Parallel run:
+  - command tag `codrive_bc_dagger_s42_1h_0430_local`
+  - started `2026-04-30T17:13:34+08:00`
+  - ended `2026-04-30T18:14:37+08:00`
+  - `bc_exit_status=124`, `dagger_exit_status=124`, expected from the requested `timeout 3600`.
+- GPU monitor during parallel run:
+  - total VRAM around `6.4-6.6GB / 16GB`;
+  - each student process stayed roughly `2.5-2.7GB`, comfortably below the requested 8GB per process.
+- Post-run check:
+  - no residual `python train.py` BC/DAgger process remained.
+
+### Results
+- BC student:
+  - best pure-student eval: `1640.03`
+  - checkpoint: `outputs/Dexh13HoraLightbulb_student_bc_codrive/codrive_bc_s42_1h/bc_nn/model_best.ckpt`
+  - demo buffer saved normally at about `178MB`, indicating the buffer save clone fix worked.
+  - later evals dropped, so use `model_best.ckpt`, not `model_last.ckpt`.
+- DAgger student:
+  - best pure-student eval: `1318.65`
+  - checkpoint: `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_s42_1h/dagger_nn/model_best.ckpt`
+  - `model_best_mixed.ckpt` exists but includes teacher-beta mixed rollout metric and should not be used as final pure-student comparison.
+
+### Local conclusion
+- BC / DAgger are now executable CoDrive student baselines in the active teacher-student chain.
+- Numerically, 1h BC is stronger than 1h DAgger on pure-student eval, but BC is visibly unstable in scalar trajectory and needs viewer confirmation.
+- Both are well below the CoDrive teacher and the stronger diffusion/PAdapt-style student results, so these currently look like baseline comparisons rather than best deployment candidates.
+
+### Remaining blocked/risky
+- No visual inspection yet for either BC or DAgger `model_best.ckpt`; behavior quality may not match scalar ranking.
+- A nonfatal PhysX warning appeared once during DAgger eval (`PxScene::applyArticulationData...`), with no crash and checkpoints still written.
+- Log grep is noisy because train outputs include the dirty `gitdiff.patch`; inspect actual runtime tail before treating old diff text as current errors.
+
+### Single recommended next step
+- Visualize BC and DAgger `model_best.ckpt` with the new CoDrive vis scripts, then compare against CoDrive diffusion / PAdapt / DOTPG candidates for the baseline summary.
+---
+## v2-207 (2026-04-30) -- CoDrive Diffusion Student Continue-2h From 1h Launched
+
+### Target milestone/subgoal
+- Continue the four diffusion-class CoDrive student algorithms from their completed 1h checkpoints for another 2h each, instead of restarting from the PPO teacher.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/algo/ppo/diffusion_latent_student.py`.
+  - `restore_train()` now loads `sa_mean_std` when present in a diffusion-latent student checkpoint.
+- Updated `dexscrew/algo/ppo/diffusion_action_chunk_student.py`.
+  - Imported `cprint`.
+  - `restore_train()` now loads the action-chunk `diffusion_model` from checkpoint.
+  - Without this patch, action-chunk continuation would only load the backbone via `ProprioAdapt.restore_train()` and would not truly continue the action-chunk diffusion head.
+- Added `scripts/cloud_codrive_diffusion4_student_continue2h.sh`.
+  - Runs four parallel 2h continuation jobs.
+  - Uses `WINDOW_SEC=7200`.
+  - Uses the completed 1h run as `BASE_RUN=codrive_diffusion4_s42_1h_20260430_085750`.
+  - Writes new outputs under `codrive_diffusion4_s42_continue2h_from_1h_...`, preserving the original 1h outputs.
+- Updated `scripts/cloud_codrive_diffusion4_student_1h.sh`.
+  - Made `PIPE_ROOT` configurable.
+  - Made default `RUN_TAG` include `${WINDOW_SEC}s`.
+
+### What was verified (commands + key outcomes)
+- Local static checks:
+  - Python compile via `compile(..., 'exec')` for patched student files.
+    - Outcome: pass.
+  - `bash -n scripts/cloud_codrive_diffusion4_student_continue2h.sh scripts/cloud_codrive_diffusion4_student_1h.sh`
+    - Outcome: pass.
+  - `git diff --check` on patched files/scripts.
+    - Outcome: pass.
+- Note:
+  - Local `python -m py_compile` could not write into root-owned `dexscrew/algo/ppo/__pycache__`; this is a local permissions issue from prior root/Docker runs, not a syntax failure.
+- Remote checks:
+  - Synced patched files/scripts to SeeTaCloud in their correct paths.
+  - Remote `bash -n` pass.
+  - Remote `python -m py_compile` pass.
+  - Remote GPU idle before launch: about `1 / 24564 MiB`.
+
+### Current cloud run
+- tmux session:
+  - `codrive_diffusion4_continue2h_103524`
+- Pipeline latest symlink:
+  - `outputs/cloud_pipeline_codrive_diffusion4_continue2h/latest`
+- Concrete run tag:
+  - `codrive_diffusion4_s42_continue2h_from_1h_20260430_103525`
+- Status checked shortly after launch:
+  - phase: `running`
+  - four `python train.py` processes active
+  - GPU: about `10809 / 24564 MiB`, util about `93%`
+- Resume verification lines:
+  - diffusion latent:
+    - resume ckpt: `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_diffusion_nn/model_best.ckpt`
+    - loaded `diffusion_model`
+    - loaded `diffusion_optim`
+  - consistency latent:
+    - resume ckpt: `outputs/Dexh13HoraLightbulb_student_consistency_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_consistency_nn/model_best.ckpt`
+    - loaded `consistency_model`
+    - loaded `consistency_optim`
+    - loaded `agent_steps=653232`
+  - flow matching:
+    - resume ckpt: `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_flow_nn/model_best.ckpt`
+    - loaded `flow_model`
+    - loaded `flow_optim`
+  - diffusion action chunk:
+    - resume ckpt: `outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive/codrive_diffusion4_s42_1h_20260430_085750/stage2_diffusion_action_chunk_nn/model_best.ckpt`
+    - loaded `action-chunk diffusion_model`
+
+### Remaining blocked/risky
+- Run is still in progress; final 2h continuation quality is unknown.
+- `Current Best` in the new output starts from the new run's meter, not necessarily the previous 1h training best, so early lower values do not imply the checkpoint was not loaded.
+- Logs still contain large printed git diffs; avoid broad grep false positives.
+
+### Single recommended next step
+- After `outputs/cloud_pipeline_codrive_diffusion4_continue2h/latest/summary.tsv` is written and statuses are `0` or `124`, sync the four continuation outputs locally and run the same 256-step headless eval used for the 1h comparison.
+---
+## v2-209 (2026-05-04) -- CoDrive Teacher TensorBoard Diagnostic Review
+
+### Target milestone/subgoal
+- Inspect the fixed CoDrive PPO teacher baseline and decide whether it still needs environment/reward micro-tuning before being frozen as the standard teacher for student distillation.
+
+### What changed (files + behavior impact)
+- No code/config changes.
+- Parsed TensorBoard scalars from:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/sim2real_twofinger_codrive_s42_2h/stage1_tb/events.out.tfevents.1777522009.di-20260428205452-zqhv8`
+  - compared against old thumbstable teacher event:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger/sim2real_twofinger_thumbstable/stage1_tb/events.out.tfevents.1777489633.wbz-ubuntu22-pc`
+  - also spot-checked CoDrive PAdapt student event:
+    `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger_codrive/sim2real_twofinger_codrive_padapt_s42_2h/stage2_tb/events.out.tfevents.1777531369.di-20260428205452-zqhv8`
+
+### What was verified (commands + key outcomes)
+- Docker has TensorBoard parser available; local host Python does not.
+- CoDrive PPO best:
+  - `episode_rewards/step` max `4159.37` at step `191545344`
+  - best elapsed time scalar about `116.27 min`
+  - final reward stayed close: last `4136.52`, last-10 mean `4137.71`
+- Stability:
+  - `two_finger/gate` final `0.9933`, last-10 mean `0.9937`
+  - `term/any_reset_frac` final `0.00049`, last-10 mean `0.00075`
+  - `term/no_contact_frac = 0`, `term/screw_limit_frac = 0`
+- CoDrive vs old thumbstable teacher, last-10 mean:
+  - reward: `4137.71` vs `5954.8` (not directly comparable due reward redesign)
+  - angular velocity: `1.2176` vs `0.9176`
+  - index torque ratio: `0.4486` vs `0.8015`
+  - thumb torque ratio: `0.5514` vs `0.1985`
+  - thumb slip score: `0.0080` vs `0.0087`
+  - thumb tip-speed p95: `0.5577` vs `0.4204`
+- CoDrive PPO final drive decomposition:
+  - index positive torque final `1.373`
+  - thumb positive torque final `4.143`
+  - index positive tangent velocity final `0.0199`
+  - thumb positive tangent velocity final `0.0836`
+  - active two-finger penalty final `0`
+- A dead reward component was found:
+  - `opposition_grip/reward_scaled = 0` for the whole CoDrive teacher run.
+  - `opposition_grip/oppositeness = 0`, final radial dot about `0.259`.
+  - `opposition_grip/pair_inward_w = 0`, inward forces are large negative with current sign.
+- CoDrive PAdapt student event is consistent with teacher tendency:
+  - `episode_rewards/step` max `3448.82`
+  - last `env/thumb_slip/tip_speed_p95/frame = 0.6965`
+  - last `env/opposition_grip/reward_scaled/frame = 0`
+
+### Local conclusion
+- CoDrive is a usable fixed teacher baseline: stable resets, strong gate, and better positive angular velocity than thumbstable.
+- It is not perfectly clean as a final sim2real reward design:
+  - the enabled `opposition_grip_reward` is effectively dead and should either be fixed or removed before calling the YAML final;
+  - CoDrive achieved the intended two-finger torque sharing, but thumb still dominates tangent motion;
+  - terminal thumb speed is higher than the old thumbstable teacher, which matches the visual end-of-stroke detach concern.
+
+### Remaining blocked/risky
+- Need visual judgment before deciding whether the current CoDrive teacher is "good enough" to freeze despite the dead opposition term.
+- If tuning continues, avoid using raw reward as the only decision metric because CoDrive reward is intentionally redesigned.
+
+### Single recommended next step
+- If freezing now, document CoDrive as the standard student-distillation teacher and note the dead opposition term as a known limitation. If doing one more cleanup pass, run a bounded 2-variant PPO probe: one terminal-ease/torque-limit variant for thumb slip, and one opposition-grip target/sign diagnostic variant to make the clamp reward nonzero.
+---
+## v2-208 (2026-05-04) -- CoDrive Diffusion Continue-2h Synced and Evaled
+
+### Target milestone/subgoal
+- Recover status after the interrupted wait, sync the completed CoDrive diffusion continue-2h artifacts, and compare the 1h+2h continuation against the earlier 1h student results.
+
+### What changed (files + behavior impact)
+- No additional training code changes.
+- Synced cloud artifacts locally:
+  - `outputs/cloud_pipeline_codrive_diffusion4_continue2h/codrive_diffusion4_s42_continue2h_from_1h_20260430_103525/`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive/codrive_diffusion4_s42_continue2h_from_1h_20260430_103525/`
+  - `outputs/Dexh13HoraLightbulb_student_consistency_codrive/codrive_diffusion4_s42_continue2h_from_1h_20260430_103525/`
+  - `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive/codrive_diffusion4_s42_continue2h_from_1h_20260430_103525/`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive/codrive_diffusion4_s42_continue2h_from_1h_20260430_103525/`
+- Ran and synced cloud 256-step headless eval under the same CoDrive task/eval overrides:
+  - `outputs/cloud_pipeline_codrive_diffusion4_continue2h/codrive_diffusion4_s42_continue2h_from_1h_20260430_103525/eval_256/`
+
+### What was verified (commands + key outcomes)
+- Cloud status:
+  - phase: `done`
+  - GPU idle: about `1 / 24564 MiB`, `0%`
+  - pipeline ended at `2026-04-30T12:36:25+00:00`
+  - all four continuation statuses are `124`, expected from `timeout 7200`
+- Continue-2h training-window best rewards:
+  - `DiffusionLatentStudent`: `4246.32`
+  - `FlowMatchingLatentStudent`: `4084.44`
+  - `ConsistencyLatentStudent`: `4055.97`
+  - `DiffusionActionChunkStudent`: `3620.43`
+- Continue-2h 256-step eval:
+  - `DiffusionLatentStudent`: `avg_reward=2.942062`, `avg_done_rate=0.001465`
+  - `ConsistencyLatentStudent`: `avg_reward=4.979207`, `avg_done_rate=0.000000`
+  - `FlowMatchingLatentStudent`: `avg_reward=4.364139`, `avg_done_rate=0.000570`
+  - `DiffusionActionChunkStudent model_best`: `avg_reward=0.190792`, `avg_done_rate=0.015625`
+  - `DiffusionActionChunkStudent model_best_student_reward`: `avg_reward=0.296496`, `avg_done_rate=0.007406`
+
+### Local conclusion
+- The apparent contradiction is metric-dependent:
+  - training-window best reward ranks diffusion latent highest;
+  - fixed 256-step deploy eval still ranks consistency latent highest.
+- Continuation improved training-window rewards for latent/flow/consistency, but did not improve the short deploy eval ranking:
+  - 1h eval consistency was `5.155176`; continue-2h consistency is `4.979207`.
+  - 1h eval flow was `4.827848`; continue-2h flow is `4.364139`.
+  - 1h eval latent was `2.855633`; continue-2h latent is `2.942062`.
+- Current best numerical candidate for deploy-style evaluation remains `ConsistencyLatentStudent`, not diffusion latent.
+
+### Remaining blocked/risky
+- Visual inspection is still required. The metric may miss thumb/index motion quality, slip, stroke reset behavior, and visual smoothness.
+- The eval is single-seed, 256-step, and should be treated as a fast screen.
+
+### Single recommended next step
+- Visualize the continue-2h consistency checkpoint first, then compare it against the original 1h consistency and continue-2h latent/flow.
+---
+## v2-210 (2026-05-04) -- CoDrive Thesis Return-Contact YAML Added
+
+### Target milestone/subgoal
+- Create a CoDrive thesis variant that reduces thumb end-of-stroke fling and discourages loaded backward dragging during the return/reset stroke, without strengthening always-on grasping.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/tasks/xhand_hora.py`.
+  - Added optional `thumb_slip_penalty` return-stroke contact loss.
+  - New config keys:
+    - `return_contact_penalty_scale`
+    - `return_tangent_vel_threshold`
+    - `return_tangent_vel_span`
+  - New TensorBoard/W&B extras:
+    - `thumb_slip_penalty/return_contact_loss`
+    - `thumb_slip_penalty/return_phase_w`
+    - `thumb_slip_penalty/return_context_w`
+    - `thumb_slip_penalty/thumb_tangent_vel`
+  - Default scale is `0.0`, so existing CoDrive/thumbstable/student configs are behavior-preserving unless the new key is explicitly enabled.
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`.
+  - Forked from CoDrive.
+  - `eval_cache_name: sim2real_twofinger_codrive_thesis`
+  - `controller.torque_limit: 250.0`
+  - Thumb terminal slowing made stronger:
+    - `high_tip_speed: 0.15`
+    - `high_tip_speed_span: 0.15`
+    - `terminal_ease_penalty_scale: -0.5`
+    - `terminal_ease_near_limit: 0.70`
+    - `terminal_ease_vel_clip: 1.2`
+  - Return-stroke pressure release enabled:
+    - `return_contact_penalty_scale: -0.6`
+    - `return_tangent_vel_threshold: 0.015`
+    - `return_tangent_vel_span: 0.10`
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`.
+  - Same PPO train defaults as CoDrive so Hydra `train: ${task}` resolves cleanly.
+
+### What was verified (commands + key outcomes)
+- Static compile:
+  - `PYTHONDONTWRITEBYTECODE=1 python - <<'PY' ... compile('dexscrew/tasks/xhand_hora.py') ... PY`
+  - outcome: pass.
+- Whitespace check:
+  - `git diff --check -- dexscrew/tasks/xhand_hora.py configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`
+  - outcome: pass.
+- Docker smoke:
+  - `./docker-run-isaacgym.sh timeout 180 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis headless=True seed=42 train.algo=PPO wandb_activate=False task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 train.ppo.output_name=Dexh13HoraLightbulb_teacher/smoke_codrive_thesis_tmp task.env.termination.log=True`
+  - outcome: Hydra resolved the new task/train YAML, environment built with `screw_contactviz`, 4 envs initialized, and the run ended with `max steps achieved`.
+
+### Local conclusion
+- The thesis variant is ready for a short PPO probe.
+- This variant targets "release pressure during return" rather than "grip harder", matching the deployment observation that the thumb can stay too loaded while resetting to the initial stroke point.
+
+### Remaining blocked/risky
+- No medium/long PPO result yet. The new return-contact penalty could reduce rotation efficiency if too strong.
+- Watch `thumb_slip_penalty/return_contact_loss`, `thumb_slip_penalty/thumb_tangent_vel`, `thumb_slip/tip_speed_p95`, `screw/angular_velocity`, and visual return-stroke behavior.
+
+### Single recommended next step
+- Run a 30-60 minute PPO probe with `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis`, then visualize whether thumb return pressure drops without losing the stable two-finger contact pattern.
+---
+## v2-211 (2026-05-04) -- Eval-Best Selection Mechanism Implemented
+
+### Target milestone/subgoal
+- Add teacher/student eval-best checkpoint selection so deployment candidates are selected by fixed rollout eval, not only by noisy training reward.
+
+### What changed (files + behavior impact)
+- Added `dexscrew/algo/eval_select.py`.
+  - Shared in-training eval helper for PPO teacher and student distillers.
+  - Computes `score = avg_reward - done_penalty * avg_done_rate`.
+  - Logs `outputs/<run>/eval_select/train_eval_history.tsv`.
+  - Saves eval-selected artifacts while preserving train-reward artifacts.
+- Updated `dexscrew/algo/ppo/ppo.py`.
+  - Optional teacher eval-select via `train.ppo.eval_select`.
+  - Keeps old `best_reward_*.pth`.
+  - Adds `stage1_nn/best_eval.pth` and `stage1_nn/best_deploy.pth` when enabled.
+- Updated student distillers:
+  - `dexscrew/algo/ppo/padapt.py`
+  - `dexscrew/algo/ppo/diffusion_latent_student.py`
+  - `dexscrew/algo/ppo/consistency_latent_student.py`
+  - `dexscrew/algo/ppo/flow_matching_latent_student.py`
+  - `dexscrew/algo/ppo/diffusion_action_chunk_student.py`
+  - When eval-select is enabled, training-reward best is saved as `model_best_train.ckpt`; eval-selected best is saved as `model_best_eval.ckpt`, copied to `model_best.ckpt`, and also copied to `model_best_deploy.ckpt`.
+- Added `scripts/eval_select_checkpoints.py`.
+  - Runs fixed `train.py test=True +test_num_steps=...` evals over checkpoint candidates.
+  - Supports default `train_like/clean/light/hard` condition grid or custom `--condition`.
+  - Writes `summary.tsv` and `ranking.tsv`, then copies the best candidate to `best_deploy.pth` or `model_best_deploy.ckpt`.
+- Added default-disabled `train.ppo.eval_select` blocks to current CoDrive train YAMLs:
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`
+
+### What was verified (commands + key outcomes)
+- Static compile without writing pyc:
+  - `python -c "import pathlib; files=[...]; [compile(pathlib.Path(f).read_text(), f, 'exec') for f in files]; print('compile ok')"`
+  - outcome: pass.
+- Whitespace check:
+  - `git diff --check -- dexscrew/algo/eval_select.py ... scripts/eval_select_checkpoints.py ...`
+  - outcome: pass.
+- PPO teacher smoke:
+  - `./docker-run-isaacgym.sh timeout 240 python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive headless=True seed=42 train.algo=PPO ... train.ppo.eval_select.enabled=True train.ppo.eval_select.interval_agent_steps=1 train.ppo.eval_select.num_steps=4 train.ppo.eval_select.final_eval=False`
+  - outcome: pass; wrote `outputs/eval_select_smoke/ppo_teacher/stage1_nn/best_eval.pth`, `best_deploy.pth`, and `eval_select/train_eval_history.tsv`.
+- PAdapt student smoke:
+  - First attempt failed because `train.ppo.proprio_adapt=False` from the teacher YAML left no trainable `adapt_tconv`; rerun with `train.ppo.proprio_adapt=True`.
+  - Manual stop after sufficient smoke output; wrote `model_best_train.ckpt`, `model_best_eval.ckpt`, `model_best.ckpt`, and `model_best_deploy.ckpt`.
+- Deploy eval script smoke:
+  - Dry-run initially exposed a bad all-failed selection edge case; fixed.
+  - Real one-condition smoke succeeded and parsed `EvalSummary`:
+    - `avg_reward=-1.050713`, `avg_done_rate=0.000000`
+    - copied deploy best for the smoke checkpoint.
+
+### Local conclusion
+- The requested two-stage model selection is now wired:
+  - in-training eval-best for teacher/student;
+  - post-training candidate eval grid for final deploy-best.
+- Existing train reward best behavior remains available for diagnostics, but `model_best.ckpt` becomes eval-selected when eval-select is enabled for student algorithms.
+
+### Remaining blocked/risky
+- In-training eval currently evaluates the active task/env only. Multi-condition `clean/light/hard` comparison is done by the post-training script, not inside the training process.
+- Student smoke used very short 4-step eval and was manually stopped; it validates wiring, not policy quality.
+- Action-chunk eval resets its internal windows after eval via the shared state reset, but a longer action-chunk smoke is still advisable before a large run.
+
+### Single recommended next step
+- For the next cloud PPO/student run, enable `train.ppo.eval_select.enabled=True` with a practical interval such as `20M` agent steps and run `scripts/eval_select_checkpoints.py` at the end over `best_train/best_eval/last` candidates to select `best_deploy`.
+
+---
+## v2-212 (2026-05-04) -- Eval-Select Mechanism Reviewed
+
+### Target milestone/subgoal
+- Review the new shared eval-best selector for the latest thesis/CoDrive training path and assess whether `eval_score = avg_reward - done_penalty * avg_done_rate` is a reasonable deploy checkpoint criterion.
+
+### What changed (files + behavior impact)
+- No code changed.
+- Reviewed:
+  - `dexscrew/algo/eval_select.py`
+  - PPO integration in `dexscrew/algo/ppo/ppo.py`
+  - PAdapt integration in `dexscrew/algo/ppo/padapt.py`
+  - default-disabled eval-select blocks in current CoDrive train YAMLs.
+
+### What was verified (commands + key outcomes)
+- Source inspection confirmed:
+  - Eval-select saves a fresh `best_eval` checkpoint via `self.save(...)` when score improves, then copies deploy aliases.
+  - PPO preserves old `best_reward_*.pth` and adds `best_eval.pth` / `best_deploy.pth` only when enabled.
+  - Student eval-select preserves train-best as `model_best_train.ckpt` and makes `model_best.ckpt` eval-selected when enabled.
+  - Eval rollout resets the env and returns a fresh observation that the caller reconnects to training.
+  - Config default is `enabled: False`, so old runs remain behavior-preserving.
+
+### Local conclusion
+- The mechanism is architecturally sound as a checkpoint selector: it decouples deployment selection from noisy training reward and directly penalizes instability/reset frequency.
+- Main caution: `avg_reward` is fixed-rollout per-step mean reward, not episode return, so `done_penalty=2000` is intentionally strong and should be calibrated from actual `eval_select/train_eval_history.tsv`.
+- For thesis/co-drive deployment behavior, reward+done is a good first selector, but thumb return/slip diagnostics should still be inspected or optionally added as score penalties later.
+
+### Remaining blocked/risky
+- Tiny eval-score improvements can overwrite the best checkpoint because `min_score_improvement=0.0`.
+- `min_agent_steps=0` allows very early random-policy evals; harmless but noisy.
+- In-training eval uses only the active train env. Robust `clean/light/hard` deploy selection still requires the post-training `scripts/eval_select_checkpoints.py` grid.
+
+### Single recommended next step
+- Enable eval-select for the next CoDriveThesis/cloud run with `min_agent_steps` set above zero and `min_score_improvement` above zero, then compare `best_reward`, `best_eval`, and `last` using the post-training deploy eval script before choosing a student teacher.
+
+---
+## v2-213 (2026-05-04) -- CoDriveThesis Eval-Select Enabled In Train YAML
+
+### Target milestone/subgoal
+- Apply the reviewed eval-best selection settings to the latest CoDriveThesis train YAML so future PPO/student runs can produce eval-selected deployment checkpoints by default.
+
+### What changed (files + behavior impact)
+- Updated `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`.
+  - `train.ppo.eval_select.enabled: True`
+  - `interval_agent_steps: 20000000`
+  - `min_agent_steps: 20000000`
+  - `num_steps: 512`
+  - `done_penalty: 2000.0`
+  - `min_score_improvement: 0.02`
+  - `final_eval: True`
+  - `save_deploy_best: True`
+- Behavior impact:
+  - Future CoDriveThesis runs now preserve reward-best checkpoints and additionally emit eval-selected `best_eval` / `best_deploy` artifacts once enabled training reaches 20M agent steps.
+
+### What was verified (commands + key outcomes)
+- Confirmed YAML fragment via:
+  - `sed -n '35,60p' configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`
+- Whitespace check:
+  - custom Python trailing-whitespace scan
+  - outcome: `yaml_whitespace_ok`
+- Note:
+  - Host Python does not have `yaml` installed, so PyYAML parsing was not run locally.
+
+### Remaining blocked/risky
+- This train YAML is currently untracked in git status, matching the recent locally added CoDriveThesis files.
+- No Docker Hydra compose/smoke was rerun in this small settings-only update.
+
+### Single recommended next step
+- Use this CoDriveThesis train YAML in the next 30-60 minute PPO probe and inspect `eval_select/train_eval_history.tsv` plus `best_reward`, `best_eval`, and `best_deploy` before choosing the student teacher checkpoint.
+
+---
+## v2-214 (2026-05-04) -- CoDriveThesis Local Env Count Raised To 10000
+
+### Target milestone/subgoal
+- Increase local PPO throughput for the latest CoDriveThesis config by raising the default parallel IsaacGym env count above 8192 while checking GPU memory headroom.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`.
+  - Default `task.env.numEnvs` changed from `8192` to `10000`.
+- Updated `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`.
+  - `train.ppo.minibatch_size` changed from `16384` to `20000`.
+- Behavior impact:
+  - CoDriveThesis PPO now defaults to a 120k-sample rollout batch (`10000 envs * horizon 12`) and a proportionally larger minibatch.
+
+### What was verified (commands + key outcomes)
+- Whitespace check:
+  - `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`
+  - outcome: pass.
+- Local GPU before probe:
+  - RTX 4080 SUPER, total about `16376 MiB`, free about `14644 MiB`.
+- Short Docker PPO probe:
+  - `./docker-run-isaacgym.sh timeout 360 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis headless=True seed=42 train.algo=PPO wandb_activate=False train.ppo.max_agent_steps=240000 train.ppo.output_name=Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_thesis/probe_env10000_mb20000 task.env.termination.log=True`
+  - outcome: completed with `max steps achieved`, no CUDA OOM or segfault.
+  - produced:
+    - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_thesis/probe_env10000_mb20000/stage1_nn/best_eval.pth`
+    - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_thesis/probe_env10000_mb20000/stage1_nn/best_deploy.pth`
+    - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_thesis/probe_env10000_mb20000/eval_select/train_eval_history.tsv`
+- Observed local memory during probe:
+  - During env build: total GPU used about `10850 MiB`, python about `9640 MiB`.
+  - During PPO update: total GPU used peaked around `13168-13195 MiB`, python about `11954 MiB`, free about `2.7-2.8 GiB`.
+  - After exit: GPU returned to desktop-only use.
+
+### Local conclusion
+- `10000 envs + minibatch_size 20000` is feasible on the local RTX 4080 SUPER and does not hit the memory limit.
+- It is closer to the local sweet spot than 8192 if the goal is throughput, but it is not safe to call it unlimited headroom: only about `2.8 GiB` remained during PPO update.
+- Further increases should be treated as probes (`11000/22000` at most) rather than a new default, because extra browser/viewer memory or heavier student models could push the local card into OOM.
+
+### Remaining blocked/risky
+- This was a short startup/one-epoch probe, not a full 30-60 minute throughput comparison against 8192.
+- First-step eval metrics are not policy-quality evidence because the run was intentionally short.
+
+### Single recommended next step
+- Use `10000/20000` for local headless PPO probes; keep `8192/16384` or explicit lower overrides for visualization, concurrent workloads, or if any PhysX allocation failure reappears.
+
+---
+## v2-215 (2026-05-04) -- DOTPG Baseline Failure-Mode Review
+
+### Target milestone/subgoal
+- Analyze why the baseline DOTPG student has repeatedly shown weak reward compared with PAdapt/diffusion students, and decide whether the issue is slow warmup or an algorithm/config limitation.
+
+### What changed (files + behavior impact)
+- No code or config files changed.
+- Reviewed DOTPG implementation and historical run records:
+  - `dexscrew/dotpg/dotpg.py`
+  - `dexscrew/dotpg/networks.py`
+  - `dexscrew/dotpg/buffer.py`
+  - `scripts/dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh`
+  - prior handoff entries `v2-201` through `v2-208`
+
+### What was verified (commands + key outcomes)
+- Confirmed there is no separate `BaselineDOTPG` class in the active pipeline.
+  - `train.algo=DOTPG` resolves to `dexscrew.dotpg.DOTPGStudent`.
+- Confirmed DOTPG uses an OT/dual reward objective:
+  - environment reward is used for logging/checkpoint promotion,
+  - policy/Q learning uses the learned dual reward, not the task reward directly.
+- Parsed local DOTPG 2h logs after excluding `gitdiff.patch` text:
+  - no-BC run: runtime `Current Best max=1.76`
+  - BC-assisted run: runtime `Current Best max=1426.51`, last update reached by about `0001M` agent steps, then plateaued.
+- Historical CoDrive DOTPG controls from handoff:
+  - `baseline48_30m`: `max_best=146.67`
+  - `gpu512_45m`: `max_best=494.10`
+  - extended controls were queued specifically to separate teacher-state versus student-state/adaptation bottlenecks.
+
+### Local conclusion
+- The observed DOTPG weakness should not be treated as simply "training time too short" yet.
+- Evidence points to a combination of:
+  - DOTPG objective mismatch/instability for the contact-rich CoDrive task,
+  - student-state adapter/proprio representation bottleneck,
+  - BC acting as a stabilizer but not reliably converting into robust two-finger deployment behavior.
+- Blindly running DOTPG much longer has low expected value unless a diagnostic variant first escapes the low-reward regime.
+
+### Remaining blocked/risky
+- The critical discriminator is still a teacher-state DOTPG control.
+- DOTPG checkpoint promotion currently follows training mean episode reward, not the newer eval-select deploy score path.
+- `reuse_expert_buffer=True` can be unsafe when switching teacher/YAML/output lineage unless the output path is clean or explicitly set to false.
+
+### Single recommended next step
+- Run a focused DOTPG diagnostic matrix before any long DOTPG run: teacher-state control first, then student-state with longer adapt/BC warmup, frozen adapter, `reuse_expert_buffer=False`, and deploy eval comparison.
+
+---
+## v2-216 (2026-05-04) -- DOTPG Draft PDF Converted To Markdown
+
+### Target milestone/subgoal
+- Prepare the newly added DOTPG draft reference for local reading before mapping its theory back to the active DOTPG implementation and diagnostics.
+
+### What changed (files + behavior impact)
+- Added `thesis_reference/DOTPG-draft.md`.
+  - Extracted text from `thesis_reference/DOTPG-draft.pdf` with layout preservation.
+  - Replaced PDF page-break controls with Markdown horizontal rules.
+  - Added a short source/conversion header.
+- No training, eval, export, or algorithm code changed.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- PDF metadata:
+  - `pdfinfo thesis_reference/DOTPG-draft.pdf`
+  - outcome: LaTeX/pdfTeX PDF, unencrypted, 20 pages.
+- Conversion:
+  - `pdftotext -layout -enc UTF-8 -eol unix thesis_reference/DOTPG-draft.pdf thesis_reference/DOTPG-draft.md`
+  - `perl -0pi -e 's/\x0c/\n\n---\n\n/g' thesis_reference/DOTPG-draft.md`
+  - outcome: Markdown generated with layout-preserved text.
+- Spot checks:
+  - `wc -l thesis_reference/DOTPG-draft.md`
+  - outcome: `1251` lines.
+  - `LC_ALL=C grep -n $'\f' thesis_reference/DOTPG-draft.md || true`
+  - outcome: no remaining form-feed page controls.
+  - `rg -n "DOT-PG|Algorithm|Theorem|Wasserstein|Kantorovich|dual|policy gradient" thesis_reference/DOTPG-draft.md`
+  - outcome: core DOTPG theory and algorithm sections are searchable.
+
+### Local conclusion
+- The DOTPG draft is now available as a readable/searchable Markdown reference.
+- Layout extraction preserves most equations better than plain text mode, but it is still a text extraction from PDF rather than a semantic LaTeX/MathJax conversion.
+
+### Remaining blocked/risky
+- Figures, exact equation alignment, and some superscripts/subscripts may need manual cross-checking against the original PDF before making code-level conclusions.
+- The markdown has not yet been analyzed against `dexscrew/dotpg/dotpg.py`; this session only prepared the reference.
+
+### Single recommended next step
+- Read `thesis_reference/DOTPG-draft.md` sections 4.1-4.3 and compare the paper's dual/Q/policy update equations with the current `dexscrew/dotpg/dotpg.py` losses before launching the teacher-state DOTPG diagnostic.
+
+---
+## v2-217 (2026-05-04) -- DOTPG Theory-Driven Iteration 1 Launched
+
+### Target milestone/subgoal
+- Start the new DOTPG optimization goal: use the CoDrive PPO teacher `sim2real/codrive/best_reward_4159.37.pth` as the fixed baseline, compare theory-driven DOTPG variants, and run each candidate under a 1.5h wall-clock timeout on the cloud GPU.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/dotpg/dotpg.py`.
+  - Added optional `policy_arch=teacher_actor`, which wraps the PPO teacher `actor_mlp + mu` as the DOTPG policy and initializes it from the teacher checkpoint.
+  - Added `policy_loss_mode=q|dual|q_dual`.
+  - Added `dual_state_scale`, `dual_action_scale`, `critic_state_scale`, and `critic_action_scale` to test whether the implicit OT state-action metric is dominated by high-dimensional state.
+  - Added `policy_q` and `policy_dual` train logging fields.
+  - Fixed a real migration bug: copied teacher policy parameters inherited `requires_grad=False` from the frozen teacher model; the wrapper now re-enables gradients for the student policy.
+- Updated `train.py`.
+  - Added `DEXSCREW_SKIP_GIT_DIFF=1` support to skip printing huge dirty git diffs during cloud experiment logs.
+- Added `outputs/cloud_pipeline_dotpg_theory_iter1/run_dotpg_theory_iter1.sh`.
+  - Records command lines, start/end timestamps, status files, GPU usage logs, and a `summary.tsv`.
+  - Uses `timeout 5400` for each candidate.
+  - Runs candidates sequentially after IsaacGym multi-process parallel startup proved unreliable on this task.
+
+### What was verified (commands + key outcomes)
+- Local validation:
+  - `compile()` checks passed for `train.py` and `dexscrew/dotpg/dotpg.py`.
+  - `bash -n outputs/cloud_pipeline_dotpg_theory_iter1/run_dotpg_theory_iter1.sh` passed.
+  - `git diff --check` passed for the touched files.
+- Local Docker smoke:
+  - A tiny `teacher_actor + dual` DOTPG run completed teacher load, expert data collection, BC pretrain, short train loop, and clean `max_agent_steps` exit.
+- Cloud setup:
+  - Synced `dexscrew/dotpg/`, `dexscrew/algo/student/`, `train.py`, CoDrive artifacts, and the new pipeline script to `/root/code/dexscrew-repro`.
+  - Verified cloud GPU: `NVIDIA GeForce RTX 4090 D`, about `24564 MiB` total.
+  - Fixed missing remote imports by syncing the full `dexscrew/algo/student/` directory.
+- Cloud launch:
+  - Active tmux session: `dotpg_theory_iter1`.
+  - Active run id: `theory_iter1_20260504_045152`.
+  - Current first candidate: `teacher_actor_q`.
+  - It successfully completed environment build, teacher checkpoint load, teacher actor initialization, 500-step adapt warmup, 2000-step expert collection, and 3000-step BC pretrain.
+  - Early training status after startup: `Current Best` had reached about `513.01`.
+
+### Local conclusion
+- DOTPG does need algorithm/code adaptation before judging the thesis idea.
+- The draft theory supports the direct dual policy-gradient path: minimizing W1 implies maximizing the dual potential on policy actions; the existing baseline only updated the actor through a learned Q approximation.
+- The baseline was also architecturally disadvantaged versus PAdapt/diffusion because it trained a fresh small MLP policy instead of reusing the PPO teacher actor backbone.
+- Multi-process cloud parallelism is not currently worthwhile for this IsaacGym DOTPG setup: two concurrent 512/768-env processes stalled during environment startup. Single-process 1024 env starts reliably and uses the cloud GPU safely.
+
+### Remaining blocked/risky
+- The 1.5h `teacher_actor_q` candidate is still running; no final checkpoint quality or eval result is available yet.
+- The full four-candidate script will take about 6h sequentially if all phases hit the 5400s timeout.
+- `Current Best` is still a training reward screen. The selected DOTPG checkpoint should later be evaluated with the same deploy/eval path used for diffusion and PAdapt.
+
+### Single recommended next step
+- Monitor `outputs/cloud_pipeline_dotpg_theory_iter1/theory_iter1_20260504_045152/summary.tsv`; after `teacher_actor_q` exits with status `124`, compare its max reward to the prior DOTPG baseline and decide whether to let `teacher_actor_dual` continue or stop early for a tighter second iteration.
+
+---
+## v2-218 (2026-05-04) -- DOTPG Direct-Dual Candidate Shows Early Breakthrough
+
+### Target milestone/subgoal
+- Continue the first theory-driven DOTPG cloud matrix and compare the completed `teacher_actor_q` candidate against the direct-dual candidate that follows it.
+
+### What changed (files + behavior impact)
+- No new algorithm code changes in this step.
+- Synced the first candidate's small cloud status artifacts locally:
+  - `outputs/cloud_pipeline_dotpg_theory_iter1/theory_iter1_20260504_045152/summary.tsv`
+  - `outputs/cloud_pipeline_dotpg_theory_iter1/theory_iter1_20260504_045152/teacher_actor_q_exit_status`
+
+### What was verified (commands + key outcomes)
+- Cloud pipeline status:
+  - tmux session `dotpg_theory_iter1` is still active.
+  - run id remains `theory_iter1_20260504_045152`.
+  - current phase advanced to `teacher_actor_dual`.
+- Completed candidate:
+  - `teacher_actor_q` exited with status `124`, expected from `timeout 5400`.
+  - summary row:
+    - `max_best=869.14`
+    - `last_best=869.14`
+    - `median_last_fps=7711.1`
+    - `max_mem_mib=6117`
+    - `errors=0`
+- Event scalar inspection for `teacher_actor_q`:
+  - late `episode_rewards/step` dropped negative, around `-235`.
+  - late `policy_q` was high positive, around `57`.
+  - late `policy_dual` stayed negative, around `-5.8`.
+  - `expert_action_mse` rose to about `1.04`.
+  - Interpretation: Q-only actor optimization diverged from the dual objective and drifted away from expert action behavior despite high predicted Q.
+- Active candidate:
+  - `teacher_actor_dual` loaded the same CoDrive PPO teacher, completed expert collection and BC pretrain, and entered training.
+  - early `Current Best` already reached about `1857.65`.
+- Event scalar inspection for early `teacher_actor_dual`:
+  - `episode_rewards/step` around `1896`.
+  - `policy_dual` positive, around `3.8-4.0`.
+  - `policy_q` positive, around `4.7-4.8`.
+  - `expert_action_mse` low, around `0.067`.
+
+### Local conclusion
+- This is a meaningful positive signal for the thesis-driven DOTPG modification.
+- Reusing the teacher actor alone is not sufficient: `teacher_actor_q` still plateaued/collapsed.
+- Directly optimizing the dual potential, which is closer to the DOTPG theorem's action-gradient logic, is currently much stronger on this CoDrive task.
+- The next question is whether `teacher_actor_dual` can keep improving through the full 1.5h and whether it survives deploy-style visualization/eval.
+
+### Remaining blocked/risky
+- `teacher_actor_dual` is still in progress; final timeout result is not known.
+- A high training reward does not yet prove deploy-quality behavior. The best ckpt must be synced and evaluated/visualized after the candidate completes.
+- `q_dual_metric` and `control_dotpg_q` have not run yet in the sequential script.
+
+### Single recommended next step
+- Let `teacher_actor_dual` complete its `timeout 5400` run, then sync its `model_best.ckpt` and run the same quick deploy/eval or visualization path used for the existing CoDrive students before deciding the second DOTPG iteration.
+
+---
+## v2-219 (2026-05-04) -- DOTPG Direct-Dual Run Still In Progress, Eval Path Added
+
+### Target milestone/subgoal
+- Continue the DOTPG optimization goal: validate whether the theory-aligned `teacher_actor + direct dual` student can close the gap to the current CoDrive diffusion/PAdapt students.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/dotpg/dotpg.py`.
+  - DOTPG `test=True` now supports the repo-standard top-level `+test_num_steps`.
+  - When `+test_num_steps` is set, DOTPG prints `EvalSummary steps=... avg_reward=... avg_done_rate=...`, so `scripts/eval_select_checkpoints.py` can rank DOTPG checkpoints with the same deploy-style clean/light/hard protocol used for other students.
+  - This only changes test/eval behavior; training losses and update rules are unchanged.
+- Added `scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh`.
+  - Visualizes CoDrive DOTPG student checkpoints under `outputs/Dexh13HoraLightbulb_student_dotpg_codrive/<cache>/student_output/dotpg_nn/model_best.ckpt`.
+  - Uses `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`, `train.algo=DOTPG`, `policy_arch=teacher_actor`, and deterministic/no-disturbance viewer overrides.
+- Synced the DOTPG eval/test changes and the new visualization script to `/root/code/dexscrew-repro` on `cloud-training`.
+
+### What was verified (commands + key outcomes)
+- Local checks:
+  - `python -m py_compile dexscrew/dotpg/dotpg.py`
+  - `bash -n scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh`
+  - `git diff --check -- dexscrew/dotpg/dotpg.py scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh`
+- Remote checks:
+  - `python -m py_compile dexscrew/dotpg/dotpg.py`
+  - `bash -n scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh`
+  - Verified accidental root-level rsync copies were removed.
+- Theory/code comparison:
+  - The DOTPG draft's Theorem 3 gives `grad_theta W = -E[grad_theta pi * grad_a f]`; descending W is equivalent to increasing the dual potential on policy actions.
+  - Current `policy_loss_mode=dual` implements this direct direction with `loss = -mean(f(s, pi(s)))`.
+  - The completed `teacher_actor_q` candidate therefore likely failed because Q approximation/off-policy distribution drift was poor, not because the OT dual direction is invalid.
+- Cloud run status at last poll:
+  - Active tmux session: `dotpg_theory_iter1`.
+  - Run id: `theory_iter1_20260504_045152`.
+  - Active phase: `teacher_actor_dual`.
+  - `teacher_actor_q`: status `124`, `max_best=869.14`.
+  - `teacher_actor_dual`: still running, current `max_best=2539.57` around agent step `0006M`.
+  - Cloud GPU use: about `6117 / 24564 MiB`, util around `48%`.
+  - `teacher_actor_dual` started at `2026-05-03T22:21:53+00:00`; expected timeout end is about `2026-05-03T23:51:53+00:00`.
+
+### Local conclusion
+- `teacher_actor + direct dual` remains the strongest DOTPG direction so far.
+- The core algorithm logic is defensible under the thesis derivation, but the Q-only version is not reliable on this dexterous contact task.
+- The next quality gate must be deploy-style eval/visualization, not training reward alone.
+
+### Remaining blocked/risky
+- `teacher_actor_dual` has not finished its 1.5h timeout yet, so no final checkpoint/eval conclusion is available.
+- The later sequential candidates, `teacher_actor_qdual_metric` and `control_dotpg_q`, have not started yet.
+- A high train `Current Best` can still fail visually if the policy exploits reset/reward details.
+
+### Single recommended next step
+- After `teacher_actor_dual` exits with status `124`, sync its `student_output/dotpg_nn/model_best.ckpt`, run DOTPG deploy eval via `scripts/eval_select_checkpoints.py`, then visualize with `scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh`.
+
+---
+## v2-220 (2026-05-04) -- DOTPG Iter1 Eval Complete, Iter2 Dual-Only Matrix Launched
+
+### Target milestone/subgoal
+- Continue the DOTPG optimization goal by evaluating the best first-round DOTPG candidate and launching a narrower second-round matrix based on the observed failure modes.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/dotpg/dotpg.py`.
+  - Fixed DOTPG fixed-step eval: when top-level `+test_num_steps` is set, DOTPG now keeps rolling until that step budget is reached instead of exiting early after the default `train.dotpg.test_num_episodes=20`.
+  - This makes DOTPG compatible with `scripts/eval_select_checkpoints.py` without requiring per-command `++train.dotpg.test_num_episodes=...`.
+- Added `outputs/cloud_pipeline_dotpg_theory_iter2/run_dotpg_theory_iter2.sh`.
+  - Launches a second 1.5h-per-candidate cloud matrix focused only on `policy_loss_mode=dual`.
+  - Candidates:
+    - `dual_metric_action2`: `dual_state_scale=0.5`, `dual_action_scale=2.0`, `bc_coef=2.5`.
+    - `dual_bc5`: default metric, `bc_coef=5.0`, `bc_alpha_max=20.0`.
+    - `dual_metric_bc5`: action metric plus stronger BC.
+  - Uses the same CoDrive teacher `sim2real/codrive/best_reward_4159.37.pth`, `timeout 5400` per candidate, tmux execution, phase/status files, summary TSV, GPU log, and exact command logging.
+- Synced the updated DOTPG eval code and iter2 script to `cloud-training`.
+
+### What was verified (commands + key outcomes)
+- Local/remote code checks:
+  - `python -m py_compile dexscrew/dotpg/dotpg.py`
+  - `bash -n scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh`
+  - `bash -n outputs/cloud_pipeline_dotpg_theory_iter2/run_dotpg_theory_iter2.sh`
+  - `git diff --check -- ...`
+- DOTPG eval smoke:
+  - Local 2-step DOTPG test on the existing smoke checkpoint printed:
+    - `EvalSummary steps=2 avg_reward=-0.520926 avg_done_rate=0.000000`
+- First eval attempt uncovered a bug:
+  - Four DOTPG eval logs exited with status `0` but had `nan` summary because the old episode-based exit happened at step 149 before `EvalSummary`.
+  - After the fixed-step eval patch, reran the deploy eval successfully.
+- Iter1 cloud matrix:
+  - `teacher_actor_q`: status `124`, `max_best=869.14`.
+  - `teacher_actor_dual`: status `124`, `max_best=2622.18`.
+  - `teacher_actor_qdual_metric`: status `124`, `max_best=1327.30`.
+  - `control_dotpg_q` was manually stopped after qdual because q-only evidence was already low-value and cloud time was better spent on iter2.
+  - Phase set to `stopped_after_qdual_for_iter2`; GPU was verified free before iter2 launch.
+- Synced local artifacts:
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive/theory_iter1_20260504_045152_teacher_actor_dual/student_output/dotpg_nn/model_best.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive/theory_iter1_20260504_045152_teacher_actor_dual/student_output/dotpg_nn/model_best_deploy.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive/theory_iter1_20260504_045152_teacher_actor_qdual_metric/student_output/dotpg_nn/model_best.ckpt`
+  - `outputs/cloud_pipeline_dotpg_theory_iter1/theory_iter1_20260504_045152/summary.tsv`
+- Deploy eval for `teacher_actor_dual`:
+  - Output dir: `outputs/cloud_pipeline_dotpg_theory_iter1/theory_iter1_20260504_045152/eval_256_teacher_actor_dual_v2/`
+  - `train_like`: `avg_reward=2.767024`, `avg_done_rate=0.000504`.
+  - `clean`: `avg_reward=2.949418`, `avg_done_rate=0.000427`.
+  - `light`: `avg_reward=2.338468`, `avg_done_rate=0.000504`.
+  - `hard`: `avg_reward=1.675284`, `avg_done_rate=0.000870`.
+  - Mean across four conditions: `mean_reward=2.4325485`, `mean_done_rate=0.00057625`.
+- Iter2 launch:
+  - tmux session: `dotpg_theory_iter2`.
+  - run id: `theory_iter2_20260504_092416`.
+  - active phase: `dual_metric_action2`.
+  - early status after normal training start: `max_best=1149.01` at about `0005M`.
+
+### Local conclusion
+- The thesis-aligned direct dual actor update is the only strong DOTPG direction so far:
+  - It strongly beats Q-only (`2622.18` vs `869.14`) and q+dual metric (`2622.18` vs `1327.30`).
+  - The successful deploy eval confirms the improvement is not just a logging artifact.
+- However, direct-dual is still below the current CoDrive diffusion/PAdapt family in scalar quality:
+  - Earlier CoDrive diffusion eval examples include consistency around `avg_reward=5.155176` and flow around `4.827848` in the recorded 1h eval summary.
+  - DOTPG direct-dual clean is `2.949418`.
+- Q contamination appears harmful on this task; second-round optimization should keep the actor objective dual-only and tune metric/BC/learning dynamics around it.
+
+### Remaining blocked/risky
+- Iter2 is still running; `dual_metric_action2` is early and currently below the direct-dual baseline.
+- No visual inspection has been done yet for DOTPG direct-dual; scalar eval is valid but not a complete deployment judgment.
+- The local eval was run while another local PPO container was occupying the GPU. This should not change rollout reward semantics, but it can affect speed and is worth noting.
+
+### Single recommended next step
+- Let `dual_metric_action2` reach its 1.5h timeout unless it clearly fails, then compare its `max_best` to `teacher_actor_dual=2622.18`; if still far below, keep iter2 moving to `dual_bc5`, which is the more likely useful variant.
+
+---
+## v2-221 (2026-05-04) -- DOTPG BC5 Selected as Current CoDrive Baseline
+
+### Target milestone/subgoal
+- Close the DOTPG optimization loop by selecting the strongest CoDrive DOTPG candidate from the theory-driven and BC-scan runs, preserving it as a baseline artifact, and recording the algorithm/code conclusion.
+
+### What changed (files + behavior impact)
+- Added `outputs/cloud_pipeline_dotpg_theory_iter3/run_dotpg_theory_iter3_bc_scan.sh`.
+  - Runs `dual_bc4`, `dual_bc6`, and `dual_bc8` as 1.5h timeout candidates.
+  - Keeps the same CoDrive teacher, teacher-actor policy architecture, direct dual actor loss, default dual metric, and only varies BC strength.
+- Added `sim2real/codrive/dotpg_bc5/`.
+  - `model_best.ckpt`
+  - `model_best_deploy.ckpt`
+  - `best_reward_4159.37.pth`
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+  - `eval_256_summary.tsv`
+  - `iter2_train_summary.tsv`
+  - `README.md`
+
+### What was verified (commands + key outcomes)
+- Iter2 final status:
+  - `dual_metric_action2`: status `124`, `max_best=1386.54`.
+  - `dual_bc5`: status `124`, `max_best=2904.14`.
+  - `dual_metric_bc5` was manually stopped early after metric-only failed and bc5 succeeded; cloud time was moved to BC scan.
+- Iter2 `dual_bc5` deploy eval:
+  - `train_like`: `avg_reward=4.420655`, `avg_done_rate=0.000092`.
+  - `clean`: `avg_reward=4.496476`, `avg_done_rate=0.000122`.
+  - `light`: `avg_reward=3.824169`, `avg_done_rate=0.000198`.
+  - `hard`: `avg_reward=2.960864`, `avg_done_rate=0.000687`.
+- Iter3 BC scan:
+  - `dual_bc4`: status `124`, `max_best=2916.54`.
+  - `dual_bc6`: status `124`, `max_best=2809.14`.
+  - `dual_bc8`: status `124`, `max_best=3004.40`.
+- Iter3 deploy eval checks:
+  - `dual_bc4` looked strong by train reward but failed deploy eval:
+    - clean `avg_reward=0.240152`, hard `avg_reward=0.287173`.
+  - `dual_bc6` also failed deploy eval:
+    - clean `avg_reward=2.293629`, hard `avg_reward=0.843302`.
+  - `dual_bc8` had highest train reward but worse deploy eval than bc5:
+    - clean `avg_reward=2.754137`, hard `avg_reward=1.348749`, higher done rates.
+- Final cloud status:
+  - `outputs/cloud_pipeline_dotpg_theory_iter3/theory_iter3_bcscan_20260504_123124/phase.txt`: `done`.
+  - Cloud GPU idle: about `1 / 24564 MiB`, utilization `0%`.
+- Packaging checks:
+  - `find sim2real/codrive/dotpg_bc5 -maxdepth 1 -type f -printf '%f %s bytes\n'`
+  - `git diff --check -- sim2real/codrive/dotpg_bc5/README.md ...`
+
+### Local conclusion
+- The current best DOTPG baseline is `dual_bc5`.
+- The key algorithm conclusion is now concrete:
+  - Direct dual actor loss is necessary; Q-only and q+dual are worse.
+  - Reusing the PPO teacher actor architecture is necessary for a fair dexterous-hand baseline.
+  - Stronger BC anchoring is necessary; it prevents the DOTPG actor from drifting off the teacher manifold while the dual objective provides improvement pressure.
+  - Train reward alone is not reliable for DOTPG model selection: bc4 and bc8 had higher or similar train peaks but worse deploy eval.
+- Current DOTPG deploy eval is now in the same general range as the CoDrive diffusion baselines:
+  - DOTPG bc5 clean `4.496476`.
+  - Recorded CoDrive flow/consistency 1h eval references are around `4.827848` and `5.155176`.
+
+### Remaining blocked/risky
+- No human visual inspection of `dual_bc5` has been performed in this session.
+- The selected DOTPG baseline has not been exported/JIT-compiled; only checkpoint-level eval and packaging were completed.
+- If future work needs a paper-grade ablation table, rerun deploy eval across multiple seeds, not just seed 42.
+
+### Single recommended next step
+- Use `sim2real/codrive/dotpg_bc5/model_best_deploy.ckpt` as the current DOTPG baseline for visualization/export; if continuing algorithm work, run multi-seed eval for `dual_bc5` before more hyperparameter search.
+
+---
+## v2-221 (2026-05-04) -- CoDriveThesis PPO 8h Baseline Run Complete
+
+### Target milestone/subgoal
+- Produce a stable final PPO teacher baseline for `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis`, using the new eval-select wiring and a more aggressive local env count.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`.
+  - Set `env.numEnvs=10000` for the main CoDriveThesis PPO baseline run.
+- Updated `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml`.
+  - Set `minibatch_size=20000`.
+  - Enabled `eval_select` with 20M-step intervals, 512-step rollout, `done_penalty=2000.0`, and deploy-best saving.
+- Added `outputs/local_pipeline_codrive_thesis_ppo8h/run_ppo8h.sh`.
+  - Records status, command, timestamps, and training log under `outputs/local_pipeline_codrive_thesis_ppo8h/<cache>/`.
+- Added `outputs/local_pipeline_codrive_thesis_ppo8h/codrive_thesis_env10000_eval_s42_8h_final/final_selection.md`.
+  - Records the recommended final PPO baseline and why `best_eval.pth` should not be used as final.
+
+### What was verified (commands + key outcomes)
+- 8h PPO command:
+  - `CACHE=codrive_thesis_env10000_eval_s42_8h_final outputs/local_pipeline_codrive_thesis_ppo8h/run_ppo8h.sh`
+  - Start: `2026-05-04T04:18:07+08:00`.
+  - End: `2026-05-04T12:18:11+08:00`.
+  - Exit status: `124`, expected because `timeout 28800` reached the requested wall-clock limit.
+- Resource health:
+  - 10000 envs + minibatch 20000 allocated and ran stably.
+  - Runtime GPU memory was about `12.6-12.8 GiB` used, no OOM/segfault observed.
+  - After completion, GPU dropped to about `534 MiB` and no residual `python train.py` process remained.
+- Checkpoints:
+  - Highest reward checkpoint:
+    - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_thesis/codrive_thesis_env10000_eval_s42_8h_final/stage1_nn/best_reward_3655.17.pth`
+  - `best_eval.pth` and `best_deploy.pth` were saved only at the first eval point and were not overwritten:
+    - timestamp `2026-05-04 04:35:06`
+    - corresponding train reward `1703.26`
+- Eval-select history:
+  - Best eval score stayed at the first eval row:
+    - steps `20040000`, `avg_reward=4.1919`, `done_rate=0.000244`, `score=3.7040`.
+  - Highest train reward row:
+    - steps `501000000`, `train_reward=3655.17`, `avg_reward=5.3087`, `done_rate=0.001399`, `score=2.5099`.
+    - `no_contact_frac=0`, `screw_limit_frac=0`, `thumb_slip/score=0.00677`, `screw/angular_velocity=1.14231`.
+  - Highest eval reward row:
+    - steps `561120000`, `train_reward=3645.84`, `avg_reward=5.3330`, `done_rate=0.001108`, `score=3.1166`.
+
+### Local conclusion
+- The 8h PPO run succeeded and produced a stronger teacher than earlier short runs.
+- The recommended stable PPO baseline is:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_thesis/codrive_thesis_env10000_eval_s42_8h_final/stage1_nn/best_reward_3655.17.pth`
+- The current eval-select implementation ran correctly, but its score is not a reasonable final selector for this task because `done_penalty=2000` penalizes all done events, including `term/max_eps_frac` / `time_outs`.
+- Therefore `best_eval.pth` / `best_deploy.pth` from this run should not be treated as the final PPO baseline without a corrected or post-hoc selector.
+
+### Remaining blocked/risky
+- No visual inspection has been done yet for `best_reward_3655.17.pth`.
+- The eval selector should be refined before relying on `best_deploy.pth`, ideally by excluding normal timeouts / max-episode completions from the done penalty or by penalizing only failure reset fractions.
+
+### Single recommended next step
+- Visualize `best_reward_3655.17.pth`; if behavior is acceptable, freeze it as the PPO teacher baseline for subsequent student distillation. Separately patch eval-select so deploy selection penalizes failure resets rather than normal timeout endings.
+
+---
+## v2-222 (2026-05-04) -- CoDriveThesis PPO Visualizer Added
+
+### Target milestone/subgoal
+- Make the new 8h CoDriveThesis PPO teacher baseline easy to visualize without hand-writing a long Hydra command.
+
+### What changed (files + behavior impact)
+- Added `scripts/vis_dexh13_lightbulb_teacher_codrive_thesis.sh`.
+  - Uses `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis`.
+  - Loads `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_thesis/<cache>/stage1_nn/best_reward_*.pth`.
+  - Runs viewer mode with `headless=False`, `test=True`, `task.env.numEnvs=1`, and deterministic/no-disturbance visualization overrides.
+
+### What was verified (commands + key outcomes)
+- `bash -n scripts/vis_dexh13_lightbulb_teacher_codrive_thesis.sh`
+  - Outcome: pass.
+- Confirmed current 8h cache has one reward checkpoint:
+  - `best_reward_3655.17.pth`
+
+### Local conclusion
+- The 8h PPO baseline can now be visualized with one script command.
+
+### Remaining blocked/risky
+- Visual behavior has not yet been inspected by the user.
+
+### Single recommended next step
+- Run the new visualizer on `codrive_thesis_env10000_eval_s42_8h_final` and inspect whether two-finger cooperation / thumb return behavior is acceptable.
+
+---
+## v2-223 (2026-05-04) -- CoDriveThesis Teacher Freeze And 6x3h Student Distillation Started
+
+### Target milestone/subgoal
+- Freeze the current CoDriveThesis PPO teacher as the thesis comparison baseline, then run six student distillation baselines for 3h each under the same task/checkpoint settings.
+
+### What changed (files + behavior impact)
+- Added `sim2real/codrive_thesis/`.
+  - Contains the frozen CoDriveThesis task YAML, train YAML, teacher checkpoint `best_reward_3655.17.pth`, selection note, README, and SHA256 manifest.
+  - This directory is the local sim2real teacher baseline package for final student comparisons.
+- Added `outputs/local_pipeline_codrive_thesis_students_6x3h/run_students_6x3h.sh`.
+  - Runs six sequential 3h student distillation phases: PAdapt, diffusion latent, consistency latent, flow matching latent, diffusion action chunk, and PureBC.
+  - Uses the frozen teacher checkpoint `sim2real/codrive_thesis/best_reward_3655.17.pth`.
+  - Records per-phase logs, status, command lines, GPU samples, and summary under `outputs/local_pipeline_codrive_thesis_students_6x3h/<run_tag>/`.
+
+### What was verified (commands + key outcomes)
+- `bash -n outputs/local_pipeline_codrive_thesis_students_6x3h/run_students_6x3h.sh`
+  - Outcome: pass.
+- `git diff --check -- outputs/local_pipeline_codrive_thesis_students_6x3h/run_students_6x3h.sh sim2real/codrive_thesis/README.md`
+  - Outcome: pass.
+- Launched:
+  - `RUN_TAG=codrive_thesis_teacher3655_s42_3h_final_20260504 outputs/local_pipeline_codrive_thesis_students_6x3h/run_students_6x3h.sh`
+- Initial `padapt` health:
+  - Started at `2026-05-04T13:35:46+08:00`.
+  - Loaded the frozen teacher checkpoint successfully.
+  - GPU around `3.0 GiB / 16.0 GiB`, utilization around `70%+`.
+  - `stage2_nn/model_best_train.ckpt` was written and the early current best rose above `1900`, so the phase is not stuck at startup.
+
+### Local conclusion
+- The frozen teacher package and the six-algorithm comparison pipeline are in place.
+- The first student phase (`padapt`) is actively running and healthy.
+
+### Remaining blocked/risky
+- The full comparison is still in progress. Each phase should end with timeout status `124` if it consumes the requested 3h window.
+- Need to verify checkpoint existence and logs after every phase before treating the comparison set as complete.
+
+### Single recommended next step
+- Continue supervising the 6x3h pipeline until all six student algorithms finish, then summarize checkpoints and visualize/evaluate the resulting students.
+
+---
+## v2-224 (2026-05-04) -- DOTPG CoDrive Goal Completion Audit
+
+### Target milestone/subgoal
+- Audit the DOTPG optimization goal against the requested requirements:
+  thesis-theory review, code migration check, multiple 1.5h cloud DOTPG iterations from the CoDrive PPO teacher, deploy-oriented evaluation, and preservation of the strongest DOTPG baseline.
+
+### What changed (files + behavior impact)
+- No new source change in this audit step.
+- Confirmed the implemented DOTPG changes remain present:
+  - `dexscrew/dotpg/dotpg.py`
+    - teacher-actor policy architecture option.
+    - direct dual actor objective via `policy_loss_mode=dual`.
+    - BC anchoring knobs including `bc_coef` / `bc_alpha_max`.
+    - input metric scaling knobs for dual/critic.
+    - fixed-step DOTPG eval with `EvalSummary`.
+  - `train.py`
+    - `DEXSCREW_SKIP_GIT_DIFF=1` to prevent cloud logs from being dominated by large dirty diffs.
+  - `scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh`
+    - viewer entrypoint for CoDrive DOTPG student checkpoints.
+  - `sim2real/codrive/dotpg_bc5/`
+    - packaged current best DOTPG baseline.
+
+### What was verified (commands + key outcomes)
+- Bootstrap docs reread:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Syntax/static checks:
+  - `python -m py_compile dexscrew/dotpg/dotpg.py train.py`
+  - `bash -n scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh outputs/cloud_pipeline_dotpg_theory_iter1/run_dotpg_theory_iter1.sh outputs/cloud_pipeline_dotpg_theory_iter2/run_dotpg_theory_iter2.sh outputs/cloud_pipeline_dotpg_theory_iter3/run_dotpg_theory_iter3_bc_scan.sh`
+  - `git diff --check -- dexscrew/dotpg/dotpg.py train.py scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh outputs/cloud_pipeline_dotpg_theory_iter1/run_dotpg_theory_iter1.sh outputs/cloud_pipeline_dotpg_theory_iter2/run_dotpg_theory_iter2.sh outputs/cloud_pipeline_dotpg_theory_iter3/run_dotpg_theory_iter3_bc_scan.sh sim2real/codrive/dotpg_bc5/README.md`
+  - Outcome: pass.
+- Thesis/code alignment checked:
+  - `thesis_reference/DOTPG-draft.md` Theorem 3 gives the deterministic OT policy gradient through the Kantorovich dual potential.
+  - The implemented `policy_loss_mode=dual` uses `loss=-mean(f(s, pi(s)))`, which is the direct practical form of descending the Wasserstein objective under that theorem.
+  - The original Q-only route is still available, but experiments show it is not the right deploy route for this dexterous contact task.
+- Cloud status:
+  - `iter1_phase=stopped_after_qdual_for_iter2`
+  - `iter2_phase=stopped_metric_bc5_for_bc_scan`
+  - `iter3_phase=done`
+  - GPU idle: `NVIDIA GeForce RTX 4090 D, 1 / 24564 MiB, 0% util`.
+- Iter1 1.5h cloud results:
+  - `teacher_actor_q`: status `124`, max best `869.14`.
+  - `teacher_actor_dual`: status `124`, max best `2622.18`.
+  - `teacher_actor_qdual_metric`: status `124`, max best `1327.30`.
+- Iter2 1.5h cloud results:
+  - `dual_metric_action2`: status `124`, max best `1386.54`.
+  - `dual_bc5`: status `124`, max best `2904.14`.
+- Iter3 1.5h cloud BC scan:
+  - `dual_bc4`: status `124`, max best `2916.54`.
+  - `dual_bc6`: status `124`, max best `2809.14`.
+  - `dual_bc8`: status `124`, max best `3004.40`.
+- Deploy eval for selected `dual_bc5`:
+  - `train_like`: avg reward `4.420655`, done `0.000092`.
+  - `clean`: avg reward `4.496476`, done `0.000122`.
+  - `light`: avg reward `3.824169`, done `0.000198`.
+  - `hard`: avg reward `2.960864`, done `0.000687`.
+- Packaging verified:
+  - `sim2real/codrive/dotpg_bc5/model_best.ckpt`
+  - `sim2real/codrive/dotpg_bc5/model_best_deploy.ckpt`
+  - `sim2real/codrive/dotpg_bc5/best_reward_4159.37.pth`
+  - frozen task/train YAMLs, eval TSV, train summary TSV, and README.
+
+### Local conclusion
+- The code migration issue was real:
+  - Reusing the PPO teacher actor architecture was required for a fair high-DOF dexterous-hand baseline.
+  - The copied actor parameters must be trainable; the implementation now explicitly re-enables gradients in `TeacherActorPolicy`.
+- The algorithmic issue is also clear:
+  - The thesis dual-gradient logic is coherent for this task.
+  - The Q-only DOTPG actor objective is not sufficiently reliable here; direct dual update is the correct primary objective.
+  - BC anchoring is necessary to keep the student close to the expert manifold while the dual objective supplies improvement pressure.
+  - Train reward alone is not a good DOTPG selector: `bc4` and `bc8` looked competitive by train reward but failed or weakened in deploy eval.
+- Current selected DOTPG baseline:
+  - `sim2real/codrive/dotpg_bc5/model_best_deploy.ckpt`
+  - It is now in the same general deploy-eval range as the recorded CoDrive diffusion baselines, though not yet proven across seeds.
+
+### Remaining blocked/risky
+- No human visual inspection has been done for `dotpg_bc5`.
+- No JIT/export package has been produced for deployment.
+- Current deploy eval is seed-42 only; paper-grade claims need multi-seed eval.
+
+### Single recommended next step
+- Visualize `sim2real/codrive/dotpg_bc5/model_best_deploy.ckpt`; if behavior is acceptable, run a multi-seed eval pack before writing DOTPG as a serious baseline result.
+
+---
+## v2-225 (2026-05-05) -- DOTPG BC5 Synced And Viewer Started
+
+### Target milestone/subgoal
+- Sync the selected CoDrive DOTPG `dual_bc5` checkpoint locally and open a headed visualization for user inspection.
+
+### What changed (files + behavior impact)
+- Refreshed local DOTPG package checkpoint files from the cloud source run:
+  - `sim2real/codrive/dotpg_bc5/model_best.ckpt`
+  - `sim2real/codrive/dotpg_bc5/model_best_deploy.ckpt`
+- Both files now point to the same synced `dual_bc5` checkpoint content.
+- No source code/config behavior change.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Cloud source located:
+  - `cloud-training:/root/code/dexscrew-repro/outputs/Dexh13HoraLightbulb_student_dotpg_codrive/theory_iter2_20260504_092416_dual_bc5/student_output/dotpg_nn/model_best.ckpt`
+- Sync command completed:
+  - `rsync -av -e ssh cloud-training:/root/code/dexscrew-repro/outputs/Dexh13HoraLightbulb_student_dotpg_codrive/theory_iter2_20260504_092416_dual_bc5/student_output/dotpg_nn/model_best.ckpt ...`
+- Checkpoint hash after sync:
+  - `03ca598e9f384887ad09edde882737b36d55381b44da766e453486bb5ffd4082`
+  - hash matched for `model_best.ckpt` and `model_best_deploy.ckpt`.
+- Local viewer command launched:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive ... train.algo=DOTPG ... checkpoint=sim2real/codrive/dotpg_bc5/model_best_deploy.ckpt`
+- Viewer reached rollout:
+  - IsaacGym built the environment.
+  - DOTPG checkpoint restored.
+  - Test loop printed live `[DOTPG][TEST] step=... reward(mean)=... done=0` lines.
+
+### Local conclusion
+- The selected DOTPG BC5 checkpoint is synchronized locally and actively visualizing.
+- A separate local CoDriveThesis PureBC student phase was still running during launch, using about 3.1GB of the 16GB local GPU; the DOTPG viewer still started successfully.
+
+### Remaining blocked/risky
+- Human behavior inspection is pending.
+- If viewer is sluggish, stop the concurrent PureBC training or rerun visualization after it exits.
+
+### Single recommended next step
+- Inspect the open DOTPG BC5 viewer behavior and decide whether to run multi-seed eval or compare visually against flow/consistency students.
+
+---
+## v2-224 (2026-05-04) -- CoDriveThesis 6x3h Student Distillation Mid-Run Status
+
+### Target milestone/subgoal
+- Continue the final thesis student baseline comparison from the frozen CoDriveThesis PPO teacher.
+
+### What changed (files + behavior impact)
+- No additional code/config changes in this status update.
+- Active pipeline remains:
+  - `outputs/local_pipeline_codrive_thesis_students_6x3h/run_students_6x3h.sh`
+  - run tag `codrive_thesis_teacher3655_s42_3h_final_20260504`
+  - teacher `sim2real/codrive_thesis/best_reward_3655.17.pth`
+
+### What was verified (commands + key outcomes)
+- `padapt`
+  - status `exit_124`, expected 3h timeout.
+  - best checkpoint `outputs/Dexh13HoraLightbulb_student_padapt_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_nn/model_best_train.ckpt`
+  - observed best reward about `3448.94`.
+- `diffusion_latent`
+  - status `exit_124`, expected 3h timeout.
+  - best checkpoint `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_diffusion_nn/model_best_train.ckpt`
+  - observed best reward about `4024.44`; high early peak, no later refresh.
+- `consistency_latent`
+  - status `exit_124`, expected 3h timeout.
+  - best checkpoint `outputs/Dexh13HoraLightbulb_student_consistency_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_consistency_nn/model_best_train.ckpt`
+  - observed best reward about `3890.29`.
+- `flow_matching_latent`
+  - currently running and healthy.
+  - best checkpoint already exists at `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_flow_nn/model_best_train.ckpt`
+  - observed best reward about `3871.48` at the last status check.
+- Runtime health:
+  - Each active student phase used about `3.0 GiB / 16 GiB` GPU memory.
+  - No OOM, segfault, or lingering old viewer/train process observed.
+
+### Local conclusion
+- The six-algorithm comparison pipeline is executing correctly.
+- The first three completed algorithms produced usable checkpoints.
+- `flow_matching_latent` is currently healthy and on track.
+
+### Remaining blocked/risky
+- Three phases remain incomplete: `flow_matching_latent`, `diffusion_action_chunk`, and `purebc`.
+- Reward alone is not enough for thesis conclusion; high-scoring diffusion/consistency/flow checkpoints still need visual/eval confirmation.
+
+### Single recommended next step
+- Continue supervising the pipeline until all six phases finish, then summarize final checkpoints and run visual/eval checks on the strongest/highest-risk students.
+
+---
+## v2-226 (2026-05-05) -- DOTPG CoDrive Theory Optimization Note Added
+
+### Target milestone/subgoal
+- Document why the CoDrive DOTPG baseline improved, with emphasis on algorithmic theory, previous failure causes, implementation changes, and the evidence behind the selected `dual_bc5` checkpoint.
+
+### What changed (files + behavior impact)
+- Added `docs/dotpg_codrive_optimization.md`.
+  - Summarizes the optimal-transport derivation used by DOTPG.
+  - Explains why `policy_loss_mode=dual` follows the deterministic OT policy-gradient theorem.
+  - Records why earlier DOTPG was weak: actor parameterization mismatch, copied actor trainability bug, and noisy Q-only actor objective.
+  - Records the current fixes: teacher actor policy architecture, teacher initialization, direct dual actor loss, BC anchoring, fixed-step eval, and cloud log control.
+  - Records iter1/iter2/iter3 evidence and distillation-time interpretation.
+- Updated `sim2real/codrive/dotpg_bc5/README.md`.
+  - Added a short optimization summary and pointer to `docs/dotpg_codrive_optimization.md`.
+
+### What was verified (commands + key outcomes)
+- Read current bootstrap context:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Checked written docs:
+  - `sed -n '1,260p' docs/dotpg_codrive_optimization.md`
+  - `tail -n 140 docs/dotpg_codrive_optimization.md`
+  - `sed -n '1,180p' sim2real/codrive/dotpg_bc5/README.md`
+- Formatting check:
+  - `git diff --check -- docs/dotpg_codrive_optimization.md sim2real/codrive/dotpg_bc5/README.md`
+  - Outcome: pass.
+
+### Local conclusion
+- The DOTPG optimization is now documented as a medium-size algorithm implementation correction, not a small hyperparameter tweak.
+- The theoretical basis is explicitly tied to the Kantorovich dual potential and deterministic OT policy gradient.
+- The selected result remains `sim2real/codrive/dotpg_bc5/model_best_deploy.ckpt`, with the caveat that multi-seed eval is still needed for paper-grade claims.
+
+### Remaining blocked/risky
+- The note is a technical summary, not yet a polished thesis subsection.
+- It does not add new experiments; it records the current evidence.
+
+### Single recommended next step
+- If DOTPG is promoted from baseline to paper contribution, convert `docs/dotpg_codrive_optimization.md` into a thesis subsection and run multi-seed eval for `dual_bc5`.
+
+---
+## v2-227 (2026-05-05) -- CoDriveThesis 6x3h Student Distillation Completed
+
+### Target milestone/subgoal
+- Finish the final thesis student-baseline distillation comparison from the frozen CoDriveThesis PPO teacher.
+
+### What changed (files + behavior impact)
+- Created the frozen teacher package under `sim2real/codrive_thesis/`.
+  - Includes task/train YAML snapshots, teacher checkpoint `best_reward_3655.17.pth`, teacher selection note, README, and SHA256 sums.
+- Ran the six-student sequential pipeline:
+  - `outputs/local_pipeline_codrive_thesis_students_6x3h/run_students_6x3h.sh`
+  - run tag `codrive_thesis_teacher3655_s42_3h_final_20260504`
+  - teacher `sim2real/codrive_thesis/best_reward_3655.17.pth`
+- Added corrected strict result table:
+  - `outputs/local_pipeline_codrive_thesis_students_6x3h/codrive_thesis_teacher3655_s42_3h_final_20260504/strict_summary.tsv`
+  - This table should be used instead of the raw pipeline `summary.tsv`, because startup gitdiff text polluted the script's loose `best_from_log` parser.
+
+### What was verified (commands + key outcomes)
+- Phase completion:
+  - `padapt`: `exit_124`, expected 3h timeout.
+  - `diffusion_latent`: `exit_124`, expected 3h timeout.
+  - `consistency_latent`: `exit_124`, expected 3h timeout.
+  - `flow_matching_latent`: `exit_124`, expected 3h timeout.
+  - `diffusion_action_chunk`: `exit_124`, expected 3h timeout.
+  - `purebc`: `exit_124`, expected 3h timeout.
+- Strict reward parsing from lines beginning with `Agent Steps:`:
+  - `diffusion_latent`: `4024.44`
+  - `flow_matching_latent`: `3905.74`
+  - `consistency_latent`: `3890.47`
+  - `purebc`: `3455.90`
+  - `padapt`: `3451.98`
+  - `diffusion_action_chunk`: `2849.68`
+- Primary checkpoints:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_nn/model_best_train.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_diffusion_nn/model_best_train.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_consistency_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_consistency_nn/model_best_train.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_flow_nn/model_best_train.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_diffusion_action_chunk_nn/model_best_train.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_purebc_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_bc_nn/model_best.ckpt`
+- Runtime health:
+  - GPU returned to idle after completion, about `444 MiB / 16376 MiB`.
+  - `pgrep -af 'python train.py' | grep -v grep` returned no residual training process.
+
+### Local conclusion
+- The six requested 3h student distillation runs completed successfully from the same frozen CoDriveThesis PPO teacher and task configuration.
+- The strict training-reward ranking is:
+  - diffusion latent > flow matching latent > consistency latent > purebc ~= PAdapt > diffusion action chunk.
+- `purebc` was stronger than expected and nearly tied PAdapt after 3h, which makes it a useful low-complexity baseline for the thesis comparison.
+- `diffusion_action_chunk` improved its student-side metrics but did not convert that into high closed-loop reward in 3h.
+
+### Remaining blocked/risky
+- Raw `summary.tsv` in the run directory contains polluted `5001.07` values and must not be used for reporting.
+- Training reward alone is not enough for final thesis claims; the top candidates still need identical visual/eval checks.
+- Multi-seed eval remains needed for paper-grade conclusions.
+
+### Single recommended next step
+- Visualize and fixed-rollout-evaluate the top candidates in this order: `diffusion_latent`, `flow_matching_latent`, `consistency_latent`, then compare against `purebc` and `padapt`.
+
+---
+## v2-228 (2026-05-05) -- CoDriveThesis Rising Students Continued 2h To Plateau
+
+### Target milestone/subgoal
+- Determine whether the six 3h student-distillation baselines had reached their reward limits, and continue only the algorithms with clear late-run upward trends.
+
+### What changed (files + behavior impact)
+- Added and ran:
+  - `outputs/local_pipeline_codrive_thesis_students_continue2h/run_continue_rising_students_2h.sh`
+- The continuation script resumes from the 3h student checkpoints, not from the PPO teacher:
+  - PAdapt from `stage2_nn/model_best_train.ckpt`
+  - FlowMatching latent from `stage2_flow_nn/model_best_train.ckpt`
+  - PureBC from `stage2_bc_nn/model_best.ckpt`
+- Added result note:
+  - `outputs/local_pipeline_codrive_thesis_students_continue2h/codrive_thesis_continue2h_rising_s42_20260505/plateau_summary.md`
+
+### What was verified (commands + key outcomes)
+- Pre-run trend check from first 3h logs:
+  - Continue: `padapt`, `flow_matching_latent`, `purebc`.
+  - Do not continue: `diffusion_latent`, `consistency_latent`, `diffusion_action_chunk`.
+- Continuation phase status:
+  - `padapt`: `exit_124`, expected 2h timeout.
+  - `flow_matching_latent`: `exit_124`, expected 2h timeout.
+  - `purebc`: `exit_124`, expected 2h timeout.
+- Strict continuation results:
+  - `padapt`: `3451.98 -> 3607.14`, gain `+155.16`.
+  - `flow_matching_latent`: `3905.74 -> 3986.55`, gain `+80.81`.
+  - `purebc`: `3455.90 -> 3538.86`, gain `+82.96`.
+- Plateau evidence:
+  - `padapt`: best reached at 3.2% of continuation; final 90% gain `0.00`.
+  - `flow_matching_latent`: best reached at 3.0% of continuation; final 90% gain `0.00`.
+  - `purebc`: best reached at 62.4% of continuation; final 25% gain `0.00`.
+- Runtime health:
+  - GPU returned to idle, about `471 MiB / 16376 MiB`.
+  - No residual `python train.py` process remained.
+
+### Local conclusion
+- The first 3h comparison was not fully saturated for `padapt`, `flow_matching_latent`, or `purebc`.
+- After the 2h continuation, all three have a flat tail by strict `Agent Steps:` parsing.
+- No further reward-only continuation is recommended before fixed-rollout eval and visual inspection.
+
+### Remaining blocked/risky
+- Reward-only ranking is still not enough for thesis claims.
+- The new best continuation checkpoints need the same visual and fixed-rollout eval protocol as the original six 3h checkpoints.
+
+### Single recommended next step
+- Fixed-rollout evaluate and visualize these final candidates: `diffusion_latent` 3h, `flow_matching_latent` continued, `consistency_latent` 3h, `padapt` continued, and `purebc` continued.
+
+---
+## v2-228 (2026-05-05) -- CoDrive BC/DAgger Baseline Optimization With Cloud Parallel Eval-Select
+
+### Target milestone/subgoal
+- Optimize the weak BC and DAgger student baselines against the current CoDrive PPO teacher:
+  `sim2real/codrive/best_reward_4159.37.pth`.
+- Use the 24GB cloud GPU aggressively to test multiple BC/DAgger variants in parallel, then choose checkpoints by fixed-step deploy eval rather than episodic training reward alone.
+
+### What changed (files + behavior impact)
+- Updated BC/DAgger student implementations:
+  - `dexscrew/algo/student/bc_student.py`
+  - `dexscrew/algo/student/dagger_student.py`
+  - Both now integrate `EvalSelectMixin`, add `_eval_select_action`, and can save eval-selected aliases such as `model_best_eval.ckpt`, `model_best.ckpt`, and `model_best_deploy.ckpt`.
+  - When eval-select is enabled, periodic episodic eval saves `model_best_student_eval.ckpt` without overwriting deploy-selected `model_best`.
+- Updated cloud-capable launch scripts:
+  - `scripts/dexh13_lightbulb_student_bc_codrive.sh`
+  - `scripts/dexh13_lightbulb_student_dagger_codrive.sh`
+  - Added `EVAL_SELECT_*` env knobs and Hydra `++train.ppo.eval_select.*` overrides.
+- Added cloud iteration scripts:
+  - `outputs/cloud_pipeline_bc_dagger_opt_iter3/run_bc_dagger_opt_iter3_evalsel.sh`
+  - `outputs/cloud_pipeline_bc_dagger_opt_iter3/eval_opt_iter3_fixed.sh`
+- Behavior impact:
+  - BC/DAgger can now run closed-loop fixed-step eval during/after training and keep deploy candidates separate from episodic-reward checkpoints.
+  - The cloud pipeline runs four 512-env variants concurrently to use most of the 24GB GPU instead of serial low-utilization runs.
+
+### What was verified (commands + key outcomes)
+- Bootstrap context read:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Static checks:
+  - `python -m py_compile dexscrew/algo/student/bc_student.py dexscrew/algo/student/dagger_student.py`
+  - `bash -n scripts/dexh13_lightbulb_student_bc_codrive.sh scripts/dexh13_lightbulb_student_dagger_codrive.sh`
+  - `bash -n outputs/cloud_pipeline_bc_dagger_opt_iter3/run_bc_dagger_opt_iter3_evalsel.sh`
+  - `bash -n outputs/cloud_pipeline_bc_dagger_opt_iter3/eval_opt_iter3_fixed.sh`
+  - `git diff --check -- ...`
+  - Outcome: pass.
+- Remote sync and remote static checks:
+  - Synced BC/DAgger code, `dexscrew/algo/eval_select.py`, launch scripts, and opt-iter3 pipeline to `cloud-training:/root/code/dexscrew-repro`.
+  - Remote `py_compile` and `bash -n` passed.
+- Cloud training run:
+  - Pipeline:
+    `outputs/cloud_pipeline_bc_dagger_opt_iter3/bc_dagger_opt_iter3_evalsel_s42_20260505_002232/`
+  - Four concurrent variants:
+    - `bc_latent_evalsel`
+    - `dagger_blend_evalsel`
+    - `dagger_pure_recent`
+    - `dagger_pure_replay`
+  - Each phase used its own `timeout 3600`.
+  - Exit statuses:
+    - `bc_latent_evalsel_exit_status=124`
+    - `dagger_blend_evalsel_exit_status=124`
+    - `dagger_pure_recent_exit_status=124`
+    - `dagger_pure_replay_exit_status=124`
+  - `124` is expected wall-clock timeout.
+  - Runtime GPU use was about `21.3GB / 24GB`, with utilization near `100%`.
+- Independent fixed-step eval:
+  - Eval pipeline:
+    `outputs/cloud_pipeline_bc_dagger_opt_iter3/bc_dagger_opt_iter3_evalsel_fixed_eval_s42_20260505_012555/`
+  - Protocol:
+    - task `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+    - seed `42`
+    - `num_envs=48`
+    - `steps=256`
+    - termination enabled
+    - obs noise `t=0.01`, `e=0.02`
+  - All eight eval jobs exited `0`.
+
+| Variant | Checkpoint | avg_reward | avg_done_rate |
+|---|---|---:|---:|
+| `bc_latent_evalsel` | `model_best_deploy` | `3.449824` | `0.000244` |
+| `bc_latent_evalsel` | `model_last` | `4.134591` | `0.000081` |
+| `dagger_blend_evalsel` | `model_best_deploy` | `3.886585` | `0.000244` |
+| `dagger_blend_evalsel` | `model_last` | `4.331795` | `0.000000` |
+| `dagger_pure_recent` | `model_best_deploy` | `4.181801` | `0.000000` |
+| `dagger_pure_recent` | `model_last` | `4.467756` | `0.000000` |
+| `dagger_pure_replay` | `model_best_deploy` | `4.281959` | `0.000081` |
+| `dagger_pure_replay` | `model_last` | `4.528048` | `0.000081` |
+
+- Synced local artifacts:
+  - `outputs/cloud_pipeline_bc_dagger_opt_iter3/bc_dagger_opt_iter3_evalsel_s42_20260505_002232/`
+  - `outputs/cloud_pipeline_bc_dagger_opt_iter3/bc_dagger_opt_iter3_evalsel_fixed_eval_s42_20260505_012555/`
+  - `outputs/Dexh13HoraLightbulb_student_bc_codrive/codrive_bc_opt_iter3_evalsel_latent_evalsel_s42/`
+  - `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_opt_iter3_evalsel_blend_evalsel_s42/`
+  - `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_opt_iter3_evalsel_pure_recent_s42/`
+  - `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_opt_iter3_evalsel_pure_replay_s42/`
+  - Large replay/demo `.pt` buffers were intentionally excluded from the final sync; ckpt/config/TensorBoard/eval history files were synced.
+- Remote cleanup/status:
+  - Cloud GPU returned to idle: about `1 MiB / 24564 MiB`, `0%` utilization.
+  - No matching opt-iter3 training process remained.
+
+### Local conclusion
+- The main previous BC/DAgger problem was not only algorithm weakness; checkpoint selection by episodic reward was a poor proxy for deploy behavior.
+- `model_last` is consistently stronger than `model_best_deploy` in this 1h opt-iter3 run, so the eval-select cadence/penalty still needs refinement before it can replace final fixed-step selection.
+- Current best classical baseline candidate:
+  - `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_opt_iter3_evalsel_pure_replay_s42/dagger_nn/model_last.ckpt`
+  - fixed-step result: `avg_reward=4.528048`, `avg_done_rate=0.000081`
+- DAgger is now a reasonable CoDrive baseline, close to the earlier PAdapt fixed-step reference (`avg_reward` about `4.72`) and clearly better than the old ~1000-level episodic impression.
+- BC also improved materially, but still trails DAgger.
+
+### Remaining blocked/risky
+- The best checkpoint is `model_last`, so it depends on the chosen stopping time. For paper-grade reporting, run either:
+  - longer fixed intervals with periodic fixed-step selection, or
+  - multiseed fixed-step eval over the synced `model_last` and deploy candidates.
+- Eval-select currently saved deploy aliases too early under this setup; interval/done-penalty should be tuned if it is used as the automatic selector.
+- Behavior still needs visual confirmation before treating DAgger pure-replay as the final classical baseline.
+
+### Single recommended next step
+- Visualize:
+  `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_opt_iter3_evalsel_pure_replay_s42/dagger_nn/model_last.ckpt`
+  using `scripts/vis_dexh13_lightbulb_student_dagger_codrive.sh`, then decide whether to lock this as the optimized DAgger baseline or run a multiseed fixed-step comparison.

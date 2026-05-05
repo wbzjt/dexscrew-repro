@@ -26,6 +26,35 @@ Codeagent should focus on local execution work:
 - treat Hora as the default active path unless told otherwise
 - use `PLANS_v2.md` for current priorities and milestones, not this file
 
+## Cloud training execution
+When working on a remote/cloud development machine, or preparing commands to run there, codeagent should treat cloud execution as a first-class training target.
+
+Cloud machine detection can be based on explicit user wording, SSH aliases, remote paths such as `/root/code/dexscrew-repro`, or GPU checks such as `nvidia-smi`.
+
+For user requests like "train PPO for N hours, then train/distill student for M hours", codeagent must:
+
+- generate exact, copy-runnable commands or a remote script that implements the requested sequence
+- wrap **each** time-limited phase in its own `timeout`, including both PPO teacher and student/distillation phases
+- treat `timeout` exit status `124` as expected when the requested wall-clock limit is reached
+- record start/end timestamps, exact command lines, selected checkpoint paths, and `teacher_exit_status` / `student_exit_status` in a persistent log
+- select the teacher checkpoint explicitly before launching the student, usually the newest or best `stage1_nn/best_reward_*.pth`
+- preserve and sync the best student checkpoint after completion or manual stop
+- avoid relying on `max_agent_steps: 10000000000` as a substitute for a requested wall-clock limit
+
+Remote long-running jobs should normally be launched from a script under `outputs/cloud_pipeline_*` and run in `tmux`, with logs under the same output directory.
+
+Because the cloud machine usually has stronger resources than the local workstation, codeagent may choose more aggressive training settings there when the user has not pinned them exactly:
+
+- prefer higher `task.env.numEnvs` and compatible `train.ppo.minibatch_size` values to better use a 24GB GPU, large RAM, and fast CPU
+- for IsaacGym Hora PPO teacher runs on the current 24GB cloud GPU, prefer probing resource pairs in this order when the user wants aggressive cloud utilization and has not pinned exact values:
+  - `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`
+  - `task.env.numEnvs=8192`, `train.ppo.minibatch_size=16384`
+  - `task.env.numEnvs=6144`, `train.ppo.minibatch_size=12288`
+- use the first probe that allocates, reaches stable startup, and is expected to leave meaningful training time inside the requested wall-clock budget
+- verify GPU model, memory headroom, CUDA visibility, and initial FPS/VRAM usage before committing to a long run
+- back off if startup memory use is close to the GPU limit, if IsaacGym fails to allocate buffers, or if FPS collapses
+- keep the chosen cloud settings explicit in the launch command or script so the run is reproducible
+
 ## What codeagent can handle directly
 Codeagent may directly do:
 
