@@ -7160,3 +7160,40 @@ Start date: 2026-03-24.
 
 ### Single recommended next step
 - Preserve the v2-114 experimental next step: run one bounded 5-minute headless PPO teacher comparison on the migrated active `Dexh13HoraLightbulb` task with wandb enabled, then compare its reward/time curve against the old reward-relaxed DexH13 teacher baseline.
+
+---
+
+## v2-116 (2026-05-11) Thesis Final CoDrive Provenance Commit
+
+### Target milestone/subgoal
+- Freeze the actual CoDriveThesis experiment state into a clean local Git commit for thesis handoff and Ubuntu-side verification.
+- Target branch: `codex/thesis-final-codrive-20260511`.
+
+### What changed (files + behavior impact)
+- Created a final branch from base commit `21e8eff97dae92a88a418c34ada970b1559fa52c`.
+- Staged the current experiment working tree that was used around the cloud formal suite:
+  - CoDriveThesis task/train configs.
+  - Diffusion latent, consistency latent, flow matching, action-chunk, PAdapt, PureBC, eval-select, student registration, and task support changes.
+  - Paper eval/summarize/supervisor scripts.
+  - Synced final experiment CSV/JSON/status/manifest/commands/config/script snapshots under `thesis_reference/cloud_final_results_20260506_210723/`.
+  - Thesis-facing status and conclusion markdown files under `thesis_reference/`.
+- Excluded the duplicate binary archive `thesis_reference/cloud_final_results_20260506_210723/paper_codrive_final_artifacts_20260506_210723.tgz` from the commit; its extracted contents are kept.
+
+### What was verified (commands + key outcomes)
+- `ssh dexscrew-cloud ... outputs/paper_codrive_thesis_full_20260506_210723/manifest.txt`
+  - Outcome: final cloud suite used task `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis` and teacher `sim2real/codrive_thesis/best_reward_3655.17.pth`.
+- Cloud/local file comparison:
+  - Diffusion latent, consistency latent, flow matching, action-chunk, PAdapt, PureBC, `train.py`, and student registration matched cloud contents ignoring line-ending differences.
+- Teacher checkpoint check:
+  - CoDriveThesis teacher SHA256 in manifest: `773b9d104dc9123af213d6ff65da4f4a0dceac7f349e3687b1ce827feeb0b1f7`.
+  - Final suite CSV/commands reference `best_reward_3655.17.pth`, not old `best_reward_4159.37.pth`.
+- Staging check:
+  - `paper_codrive_final_artifacts_20260506_210723.tgz` was unstaged to avoid duplicate binary artifact storage.
+
+### Remaining blocked/risky
+- The original cloud run provenance was `21e8eff + dirty working tree`; this commit is the post-hoc clean freeze of that working state.
+- Large checkpoints are not included in this commit. Ubuntu-side verification that needs trained models must use the cloud paths or separately synced checkpoints.
+- This branch intentionally does not merge GitHub `origin/diffusion` commit `0141c26`; merge can be handled later after thesis verification.
+
+### Single recommended next step
+- On Ubuntu, checkout/pull this final branch or commit, verify imports/scripts and any needed eval smoke with the separately available CoDriveThesis checkpoints, then treat this branch as the thesis code/artifact baseline if validation passes.

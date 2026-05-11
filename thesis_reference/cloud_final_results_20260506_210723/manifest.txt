@@ -1,0 +1,131 @@
+run_name=paper_codrive_thesis_full_20260506_210723
+run_dir=outputs/paper_codrive_thesis_full_20260506_210723
+root=/root/code/dexscrew-repro
+host=di-20260428205452-zqhv8
+start_time=2026-05-06T21:07:23+00:00
+gpu=0
+parallel_train=3
+window_sec=18000
+task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis
+teacher_ckpt=sim2real/codrive_thesis/best_reward_3655.17.pth
+
+[git]
+diffusion
+21e8eff97dae92a88a418c34ada970b1559fa52c
+ M AGENTS.md
+ M configs/task/Dexh13HoraLightbulb.yaml
+ M dexscrew/algo/ppo/consistency_latent_student.py
+ M dexscrew/algo/ppo/diffusion_action_chunk_student.py
+ M dexscrew/algo/ppo/diffusion_latent_student.py
+ M dexscrew/algo/ppo/flow_matching_latent_student.py
+ M dexscrew/algo/ppo/padapt.py
+ M dexscrew/algo/ppo/pure_bc.py
+ M dexscrew/algo/student/__init__.py
+ M dexscrew/tasks/xhand_hora.py
+ M dexscrew/tasks/xhand_pasini.py
+ M docker-run-isaacgym.sh
+ M docs/session_handoff_v2.md
+ M train.py
+?? .claude/
+?? assets/lightbulb/rounded_contact_head.stl
+?? assets/lightbulb/smooth_head_collision.stl
+?? assets/screw/contactviz/
+?? assets/screw/roundedcontact/
+?? assets/screw/smoothbulb/
+?? bc_student.py
+?? buffer.py
+?? cloud_codrive_diffusion4_student_1h.sh
+?? cloud_codrive_diffusion4_student_continue2h.sh
+?? codrive/
+?? configs/_tmp_sync_marker/
+?? configs/task/Dexh13HoraLightbulb2.yaml
+?? configs/task/Dexh13HoraLightbulbInitpose090020233.yaml
+?? configs/task/Dexh13HoraLightbulbMiddleContactViz.yaml
+?? configs/task/Dexh13HoraLightbulbMiddleProbe.yaml
+?? configs/task/Dexh13HoraLightbulbMiddleScalePos.yaml
+?? configs/task/Dexh13HoraLightbulbSim2RealTwoFinger.yaml
+?? configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml
+?? configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml
+?? configs/task/Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip.yaml
+?? configs/task/Dexh13HoraLightbulbThesisSim2Real.yaml
+?? configs/task/Dexh13HoraLightbulbThesisTwoFinger.yaml
+?? configs/task/XHandPasiniBulbMiddleScalePos.yaml
+?? configs/train/Dexh13HoraLightbulbInitpose090020233.yaml
+?? configs/train/Dexh13HoraLightbulbMiddleContactViz.yaml
+?? configs/train/Dexh13HoraLightbulbMiddleProbe.yaml
+?? configs/train/Dexh13HoraLightbulbMiddleScalePos.yaml
+?? configs/train/Dexh13HoraLightbulbSim2RealTwoFinger.yaml
+?? configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml
+?? configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml
+?? configs/train/Dexh13HoraLightbulbSim2RealTwoFingerThumbNoSlip.yaml
+?? configs/train/Dexh13HoraLightbulbThesisSim2Real.yaml
+?? configs/train/Dexh13HoraLightbulbThesisTwoFinger.yaml
+?? configs/train/XHandPasiniBulbMiddleScalePos.yaml
+?? dagger_student.py
+?? dexscrew/algo/eval_select.py
+?? "dexscrew/algo/student/bc+dagger\344\273\243\347\240\201\357\274\210\346\227\240best ckpt\357\274\211/"
+?? dexscrew/algo/student/bc_buffer.py
+?? dexscrew/algo/student/bc_student.py
+?? dexscrew/algo/student/dagger_buffer.py
+?? dexscrew/algo/student/dagger_student.py
+?? dexscrew/dotpg/
+?? diffusion_action_chunk_student.py
+?? diffusion_latent_student.py
+?? docker-shell-isaacgym.sh
+?? docs/cloud_session_handoff.md
+?? docs/dotpg_codrive_optimization.md
+?? dotpg.py
+?? eval_select.py
+?? manifest.txt
+?? networks.py
+?? output_docs/
+?? run_with_cleanup.sh
+?? scripts/cloud_codrive_diffusion4_student_1h.sh
+?? scripts/cloud_codrive_diffusion4_student_continue2h.sh
+?? scripts/dexh13_lightbulb_student_bc_codrive.sh
+?? scripts/dexh13_lightbulb_student_dagger_codrive.sh
+?? scripts/dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh
+?? scripts/dexh13_lightbulb_student_padapt_sim2real_twofinger.sh
+?? scripts/dexh13_lightbulb_student_padapt_thesis_twofinger.sh
+?? scripts/dexh13_lightbulb_teacher_middle_contactviz.sh
+?? scripts/dexh13_lightbulb_teacher_middle_probe.sh
+?? scripts/dexh13_lightbulb_teacher_middle_scalepos.sh
+?? scripts/dexh13_lightbulb_teacher_sim2real_twofinger.sh
+?? scripts/dexh13_lightbulb_teacher_sim2real_twofinger_thumb_noslip.sh
+?? scripts/dexh13_lightbulb_teacher_thesis_twofinger.sh
+?? scripts/monitor_sim2real_twofinger_thumbstable_7h.sh
+?? scripts/paper_codrive_eval.py
+?? scripts/paper_codrive_summarize.py
+?? scripts/paper_codrive_thesis_full.sh
+?? scripts/run_sim2real_twofinger_thumbstable_ppo_padapt_7h.sh
+?? scripts/run_with_cleanup.sh
+?? scripts/summarize_thesis_twofinger_runs.py
+?? scripts/tune_dexh13_lightbulb_initpose.py
+?? scripts/view_dexh13_lightbulb_initpose_freeze.py
+?? scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh
+?? scripts/vis_dexh13_lightbulb_student_dotpg_sim2real_twofinger.sh
+?? scripts/vis_dexh13_lightbulb_student_padapt_thesis_twofinger.sh
+?? scripts/vis_dexh13_lightbulb_teacher_middle_contactviz.sh
+?? scripts/vis_dexh13_lightbulb_teacher_middle_probe.sh
+?? scripts/vis_dexh13_lightbulb_teacher_middle_scalepos.sh
+?? scripts/vis_dexh13_lightbulb_teacher_sim2real_twofinger_thumb_noslip.sh
+?? scripts/vis_dexh13_lightbulb_teacher_thesis_twofinger.sh
+?? scripts_upload_tmp/
+?? sim2real/
+?? tele_readme.md
+?? thesis_reference/
+
+[sha256]
+4e8c5b00ccab3f17731d741dd50175ae7291372d3bcdcfa752c2b2bd21589f4c  configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml
+9e2e9dbae80c98acb181b0cbadfe0648723c1fa0b6ab6bd617dc59b727e8012c  configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.yaml
+773b9d104dc9123af213d6ff65da4f4a0dceac7f349e3687b1ce827feeb0b1f7  sim2real/codrive_thesis/best_reward_3655.17.pth
+
+[gpu]
+0, NVIDIA GeForce RTX 4090 D, 535.154.05, 24564 MiB
+
+[checkpoint_selection_hotfix]
+time=2026-05-07T09:05:53+00:00
+reason=The formal training jobs are externally bounded by timeout, and the active run used eval_select.interval_agent_steps=20000000, while 5h runs reach roughly 4M agent steps. The planned model_best_deploy.ckpt is therefore not emitted before timeout.
+action=Create a relative symlink model_best_deploy.ckpt -> model_best_train.ckpt for each completed/active formal run that has model_best_train.ckpt but no deploy checkpoint.
+scope=outputs/paper_codrive_thesis_full_20260506_210723/train_outputs/*/*/model_best_train.ckpt
+paper_note=This makes checkpoint selection train-best for the active run. The deviation must be reported in the experiment manifest/results notes.

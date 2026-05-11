@@ -1,0 +1,21 @@
+{
+  "algo": "ConsistencyLatentStudent",
+  "checkpoint": "/root/code/dexscrew-repro/outputs/paper_codrive_thesis_full_20260506_210723/train_outputs/consistency_latent_s42/stage2_consistency_nn/model_best_deploy.ckpt",
+  "cuda_peak_mem_mib": 13.1962890625,
+  "eval_seed": 42,
+  "latency_batch_size": 1,
+  "latency_measure": 1000,
+  "latency_warmup": 200,
+  "method": "consistency_latent",
+  "mode": "latency",
+  "num_envs": 1,
+  "policy_ms_max": 2.196197032928467,
+  "policy_ms_mean": 1.0871214866638184,
+  "policy_ms_min": 1.008389949798584,
+  "policy_ms_p50": 1.0792183876037598,
+  "policy_ms_p95": 1.1637444496154785,
+  "seed": 42,
+  "status": "ok",
+  "task": "Dexh13HoraLightbulb",
+  "train_seed": "42"
+}

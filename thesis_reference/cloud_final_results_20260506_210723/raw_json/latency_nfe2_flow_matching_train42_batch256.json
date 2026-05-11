@@ -1,0 +1,21 @@
+{
+  "algo": "FlowMatchingLatentStudent",
+  "checkpoint": "/root/code/dexscrew-repro/outputs/paper_codrive_thesis_full_20260506_210723/train_outputs/flow_matching_s42/stage2_flow_nn/model_best_deploy.ckpt",
+  "cuda_peak_mem_mib": 21.21337890625,
+  "eval_seed": 42,
+  "latency_batch_size": 256,
+  "latency_measure": 1000,
+  "latency_warmup": 200,
+  "method": "flow_matching",
+  "mode": "latency",
+  "num_envs": 256,
+  "policy_ms_max": 1.2421680688858032,
+  "policy_ms_mean": 0.8125229477882385,
+  "policy_ms_min": 0.7513359785079956,
+  "policy_ms_p50": 0.8050659894943237,
+  "policy_ms_p95": 0.8791995644569397,
+  "seed": 42,
+  "status": "ok",
+  "task": "Dexh13HoraLightbulb",
+  "train_seed": "42"
+}

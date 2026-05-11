@@ -1,0 +1,5 @@
+time=2026-05-07T09:05:53+00:00
+reason=The formal training jobs are externally bounded by timeout, and the active run used eval_select.interval_agent_steps=20000000, while 5h runs reach roughly 4M agent steps. The planned model_best_deploy.ckpt is therefore not emitted before timeout.
+action=Create a relative symlink model_best_deploy.ckpt -> model_best_train.ckpt for each completed/active formal run that has model_best_train.ckpt but no deploy checkpoint.
+scope=outputs/paper_codrive_thesis_full_20260506_210723/train_outputs/*/*/model_best_train.ckpt
+paper_note=This makes checkpoint selection train-best for the active run. The deviation must be reported in the experiment manifest/results notes.

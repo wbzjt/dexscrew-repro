@@ -1,0 +1,17 @@
+time	method	seed	status	best	train_ckpt	deploy_ckpt
+2026-05-08T23:50:31+00:00	padapt	42	124	3569.41	yes	yes
+2026-05-08T23:50:31+00:00	padapt	43	124	3612.36	yes	yes
+2026-05-08T23:50:31+00:00	padapt	44	124	3706.15	yes	yes
+2026-05-08T23:50:31+00:00	purebc	42	124	3532.05	yes	yes
+2026-05-08T23:50:31+00:00	purebc	43	124	3592.33	yes	yes
+2026-05-08T23:50:31+00:00	purebc	44	124	3699.53	yes	yes
+2026-05-08T23:50:31+00:00	diffusion_latent	42	124	4177.20	yes	yes
+2026-05-08T23:50:31+00:00	diffusion_latent	43	124	4161.94	yes	yes
+2026-05-08T23:50:31+00:00	diffusion_latent	44	124	4230.67	yes	yes
+2026-05-08T23:50:31+00:00	consistency_latent	42	124	4065.07	yes	yes
+2026-05-08T23:50:31+00:00	consistency_latent	43	124	4046.77	yes	yes
+2026-05-08T23:50:31+00:00	consistency_latent	44	124	4127.26	yes	yes
+2026-05-08T23:50:31+00:00	flow_matching	42	124	4084.76	yes	yes
+2026-05-08T23:50:31+00:00	flow_matching	43	124	4062.66	yes	yes
+2026-05-08T23:50:31+00:00	flow_matching	44	124	4158.81	yes	yes
+2026-05-08T23:50:31+00:00	diffusion_action_chunk_len1	42	124	3583.11	yes	yes

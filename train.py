@@ -47,6 +47,12 @@ from dexscrew.algo.student import (
     DiffusionLatentStudent,
     ConsistencyLatentStudent,
     FlowMatchingLatentStudent,
+    BC,
+    BCStudent,
+    DAgger,
+    DAggerStudent,
+    DOTPG,
+    DOTPGStudent,
 )
 from dexscrew.algo.ppo.diffusion_action_chunk_student import DiffusionActionChunkStudent
 from dexscrew.tasks import isaacgym_task_map
@@ -175,9 +181,11 @@ def main(config: DictConfig):
             agent.test()
     else:
         date = str(datetime.datetime.now().strftime('%m%d%H'))
-        print(git_diff_config('./'))
-        gitdiff_suffix = ''
-        os.system(f'git diff HEAD > {output_dif}/gitdiff{gitdiff_suffix}.patch')
+        skip_git_diff = os.getenv('DEXSCREW_SKIP_GIT_DIFF', '0').lower() in ('1', 'true', 'yes')
+        if not skip_git_diff:
+            print(git_diff_config('./'))
+            gitdiff_suffix = ''
+            os.system(f'git diff HEAD > {output_dif}/gitdiff{gitdiff_suffix}.patch')
         with open(os.path.join(output_dif, f'config_{date}_{git_hash()}.yaml'), 'w') as f:
             f.write(OmegaConf.to_yaml(config))
         agent.restore_train(config.train.load_path)

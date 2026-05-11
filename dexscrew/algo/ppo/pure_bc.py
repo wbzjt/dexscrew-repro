@@ -100,8 +100,20 @@ class PureBC(ProprioAdapt):
 
             mean_rewards = self.mean_eps_reward.get_mean()
             if mean_rewards > self.best_rewards:
-                self.save(os.path.join(self.nn_dir, "model_best"))
+                if self.eval_select_enabled:
+                    self.save(os.path.join(self.nn_dir, "model_best_train"))
+                else:
+                    self.save(os.path.join(self.nn_dir, "model_best"))
                 self.best_rewards = mean_rewards
+
+            eval_metrics = self._run_eval_select_if_due(
+                "EVAL/student",
+                train_reward=mean_rewards,
+                eval_best_stem="model_best_eval",
+                alias_stems=("model_best", "model_best_deploy"),
+            )
+            if eval_metrics is not None:
+                obs_dict = eval_metrics["final_obs_dict"]
 
             all_fps = self.agent_steps / (time.time() - _t)
             last_fps = self.batch_size / (time.time() - _last_t)

@@ -1,0 +1,17 @@
+time=2026-05-08T23:50:31+00:00
+run_dir=outputs/paper_codrive_thesis_full_20260506_210723
+phase=done
+main_session_ok=false
+post_session_ok=true
+aliaser_session_ok=true
+gpu_csv=0, 1, 24564, 0, 47.78
+train_proc_count=0
+eval_proc_count=0
+train_status_count=16
+eval_json_count=291
+deploy_ckpt_count=16
+bad_log_pattern_count=0
+alert=ok
+recommendation=continue
+progress_file=outputs/paper_codrive_thesis_full_20260506_210723/status/training_progress.tsv
+control_file=outputs/paper_codrive_thesis_full_20260506_210723/status/CONTROL_REQUIRED.txt

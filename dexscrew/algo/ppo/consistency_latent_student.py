@@ -296,6 +296,30 @@ class ConsistencyLatentStudent(ProprioAdapt):
         if self.consistency_ema_model is not None:
             self.consistency_ema_model.eval()
 
+    def _eval_select_action(self, obs_dict):
+        if self.normalize_point_cloud:
+            point_cloud_info = self.point_cloud_mean_std(
+                obs_dict["point_cloud_info"].reshape(-1, 3)
+            ).reshape((obs_dict["obs"].shape[0], -1, 3))
+        else:
+            point_cloud_info = obs_dict["point_cloud_info"]
+
+        proprio_hist = self.sa_mean_std(obs_dict["proprio_hist"].detach())
+        obs = self.running_mean_std(obs_dict["obs"])
+        input_dict = {
+            "obs": obs,
+            "priv_info": self.priv_mean_std(obs_dict["priv_info"])
+            if self.normalize_priv
+            else obs_dict["priv_info"],
+            "proprio_hist": proprio_hist,
+            "point_cloud_info": point_cloud_info,
+        }
+        latent = self.sample_latent(proprio_hist)
+        student_obs_input = torch.cat([obs, latent], dim=-1)
+        student_x = self.model.actor_mlp(student_obs_input)
+        mu = self.model.mu(student_x)
+        return torch.clamp(mu, -1.0, 1.0), {}
+
     def test(self):
         self.set_eval()
         obs_dict = self.env.reset()
@@ -497,8 +521,20 @@ class ConsistencyLatentStudent(ProprioAdapt):
 
             mean_rewards = self.mean_eps_reward.get_mean()
             if mean_rewards > self.best_rewards:
-                self.save(os.path.join(self.nn_dir, "model_best"))
+                if self.eval_select_enabled:
+                    self.save(os.path.join(self.nn_dir, "model_best_train"))
+                else:
+                    self.save(os.path.join(self.nn_dir, "model_best"))
                 self.best_rewards = mean_rewards
+
+            eval_metrics = self._run_eval_select_if_due(
+                "EVAL/student",
+                train_reward=mean_rewards,
+                eval_best_stem="model_best_eval",
+                alias_stems=("model_best", "model_best_deploy"),
+            )
+            if eval_metrics is not None:
+                obs_dict = eval_metrics["final_obs_dict"]
 
             all_fps = self.agent_steps / (time.time() - _t)
             last_fps = self.batch_size / (time.time() - _last_t)

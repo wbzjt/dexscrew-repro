@@ -1,0 +1,21 @@
+{
+  "algo": "DiffusionActionChunkStudent",
+  "checkpoint": "/root/code/dexscrew-repro/outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive_thesis/codrive_thesis_teacher3655_s42_3h_final_20260504/stage2_diffusion_action_chunk_nn/model_best_train.ckpt",
+  "cuda_peak_mem_mib": 20.46728515625,
+  "eval_seed": 42,
+  "latency_batch_size": 48,
+  "latency_measure": 1000,
+  "latency_warmup": 200,
+  "method": "diffusion_action_chunk",
+  "mode": "latency",
+  "num_envs": 48,
+  "policy_ms_max": 2.5372109413146973,
+  "policy_ms_mean": 1.1717787981033325,
+  "policy_ms_min": 1.0829949378967285,
+  "policy_ms_p50": 1.1295669078826904,
+  "policy_ms_p95": 1.3097566366195679,
+  "seed": 42,
+  "status": "ok",
+  "task": "Dexh13HoraLightbulb",
+  "train_seed": "42"
+}

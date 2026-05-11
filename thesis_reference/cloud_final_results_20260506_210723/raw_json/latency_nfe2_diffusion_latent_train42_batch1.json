@@ -1,0 +1,21 @@
+{
+  "algo": "DiffusionLatentStudent",
+  "checkpoint": "/root/code/dexscrew-repro/outputs/paper_codrive_thesis_full_20260506_210723/train_outputs/diffusion_latent_s42/stage2_diffusion_nn/model_best_deploy.ckpt",
+  "cuda_peak_mem_mib": 13.20166015625,
+  "eval_seed": 42,
+  "latency_batch_size": 1,
+  "latency_measure": 1000,
+  "latency_warmup": 200,
+  "method": "diffusion_latent",
+  "mode": "latency",
+  "num_envs": 1,
+  "policy_ms_max": 1.9481000900268555,
+  "policy_ms_mean": 0.839219868183136,
+  "policy_ms_min": 0.7345690131187439,
+  "policy_ms_p50": 0.8411620855331421,
+  "policy_ms_p95": 0.8976297378540039,
+  "seed": 42,
+  "status": "ok",
+  "task": "Dexh13HoraLightbulb",
+  "train_seed": "42"
+}

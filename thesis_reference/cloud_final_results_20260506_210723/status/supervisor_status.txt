@@ -1,0 +1,17 @@
+time=2026-05-09T12:04:16+00:00
+run_dir=outputs/paper_codrive_thesis_full_20260506_210723
+run_name=paper_codrive_thesis_full_20260506_210723
+phase=done
+main_session=paper_codrive_thesis_20260506_210723
+post_session=paper_codrive_post_20260506_210723
+main_session_ok=false
+post_session_ok=false
+gpu_csv=0, 1, 24564, 0, 47.24
+gpu_mem_used_mib=1
+gpu_util_pct=0
+train_proc_count=0
+eval_proc_count=0
+bad_log_pattern_count=0
+status_file_count=16
+deploy_ckpt_count=16
+alert=ok
