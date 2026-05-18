@@ -167,6 +167,11 @@ class DOTPGConfig:
         self.test_num_episodes = 20
         # test_max_steps: 上限步数（0 表示不限，直到收集够 test_num_episodes）
         self.test_max_steps = 0
+        # 有头可视化时按仿真控制周期同步到正常速度；headless 数值 eval 默认仍可跑满速。
+        self.test_realtime = False
+        self.test_realtime_factor = 1.0
+        # 可选固定每个 policy step 的 wall-clock 秒数；优先级高于 test_realtime 自动周期。
+        self.test_sleep_sec = None
 
         # ===== 训练恢复 =====
         # checkpoint=... 仍然保留给 PPO teacher；resume_path 用于继续 DOTPG student。
@@ -1416,6 +1421,28 @@ class DOTPGStudent:
         max_steps = int(getattr(self.config, 'test_max_steps', 0) or 0)
         test_print_every = int(getattr(self.config, 'test_print_every', 1) or 1)
         test_print_every = max(1, test_print_every)
+        raw_realtime = getattr(self.config, 'test_realtime', False)
+        if isinstance(raw_realtime, str):
+            test_realtime = raw_realtime.strip().lower() in ('1', 'true', 'yes', 'on')
+        else:
+            test_realtime = bool(raw_realtime)
+        realtime_factor = float(getattr(self.config, 'test_realtime_factor', 1.0) or 1.0)
+        realtime_factor = max(realtime_factor, 1e-6)
+
+        target_step_sec = None
+        fixed_sleep_sec = getattr(self.config, 'test_sleep_sec', None)
+        if fixed_sleep_sec is not None:
+            target_step_sec = max(0.0, float(fixed_sleep_sec))
+        elif test_realtime:
+            sim_dt = float(getattr(self.env, 'dt', 0.0) or 0.0)
+            control_freq_inv = float(getattr(self.env, 'control_freq_inv', 1.0) or 1.0)
+            if sim_dt > 0.0 and control_freq_inv > 0.0:
+                target_step_sec = (sim_dt * control_freq_inv) / realtime_factor
+                cprint(
+                    f'[DOTPG][TEST] realtime playback: target_step_sec={target_step_sec:.4f}, '
+                    f'factor={realtime_factor:.3f}',
+                    'cyan',
+                )
 
         step_reward = torch.zeros(self.num_actors, dtype=torch.float32, device=self.device)
         step_length = torch.zeros(self.num_actors, dtype=torch.float32, device=self.device)
@@ -1428,6 +1455,7 @@ class DOTPGStudent:
         while (
             self.test_num_steps > 0 or len(episode_rewards) < target_episodes
         ) and (max_steps <= 0 or steps < max_steps):
+            loop_t0 = time.time()
             state, _, _ = self.get_state_from_obs(obs_dict)
             with torch.no_grad():
                 action = self.policy(state).clamp(-1.0, 1.0).contiguous()
@@ -1454,6 +1482,10 @@ class DOTPGStudent:
                     f'[DOTPG][TEST] step={steps} | reward(mean)={float(r.mean().item()):.3f} | done={int(done.sum().item())}',
                     'cyan',
                 )
+            if target_step_sec is not None and target_step_sec > 0.0:
+                elapsed = time.time() - loop_t0
+                if elapsed < target_step_sec:
+                    time.sleep(target_step_sec - elapsed)
             if self.test_num_steps > 0 and steps >= self.test_num_steps:
                 avg_reward = eval_reward_sum / float(steps)
                 avg_done_rate = eval_done_sum / float(steps)

@@ -348,6 +348,7 @@ def main() -> None:
         "task.env.randomization.randomizeScale=False",
         "task.env.randomization.randomizePDGains=False",
         "task.env.object.init_pos_noise=[0.0,0.0,0.0]",
+        "task.env.asset.handRootPosNoise=[0.0,0.0,0.0]",
         "task.env.forceScale=0.0",
         "task.env.randomForceProbScalar=0.0",
     ]

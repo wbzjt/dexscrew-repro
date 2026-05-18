@@ -235,3 +235,27 @@ dexscrew/algo/models/pointnets.py
 deterministic_test.py
 # ignore Python bytecode directories
 __pycache__/
+
+
+############################
+# EXPERIMENT / DEPLOY ARTIFACTS
+############################
+
+# Large or generated experiment artifacts should stay out of normal git pushes.
+# Keep source configs/code tracked; force-add specific release artifacts only when needed.
+baseline_results/
+baseline_results.zip
+baseline_result.zip
+
+sim2real/deploy/
+sim2real/*deploy*.zip
+sim2real/*_deploy*.zip
+
+# Model/checkpoint binaries generated during training/distillation.
+*.pth
+*.ckpt
+*.pt
+
+# TensorBoard / event dumps.
+events.out.tfevents*
+*.tfevents*

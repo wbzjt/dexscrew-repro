@@ -40,3 +40,12 @@ ppo:
   proprio_dim: 32
   proprio_adapt: False
   student_trainable_param_patterns: [adapt_tconv]
+  eval_select:
+    enabled: False
+    interval_agent_steps: 20000000
+    min_agent_steps: 0
+    num_steps: 256
+    done_penalty: 2000.0
+    min_score_improvement: 0.0
+    final_eval: True
+    save_deploy_best: True

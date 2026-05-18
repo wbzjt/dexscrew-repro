@@ -3,6 +3,900 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-05-18 -- Git Ignore Tightened For Experiment Artifacts
+
+### Target milestone/subgoal
+- Prevent generated baseline/deploy/model artifacts from being accidentally included in normal git commits.
+
+### What changed (files + behavior impact)
+- Updated `.gitignore`.
+  - Ignore `baseline_results/` and baseline result zip artifacts.
+  - Ignore `sim2real/deploy/` and deploy zip artifacts.
+  - Ignore generated model/checkpoint binaries: `*.pth`, `*.ckpt`, `*.pt`.
+  - Ignore TensorBoard event dumps: `events.out.tfevents*`, `*.tfevents*`.
+
+### What was verified (commands + key outcomes)
+- `git status --short --untracked-files=all`
+  - Large untracked deploy/baseline CSV/PTH/CKPT artifacts no longer appear.
+- `git check-ignore -v ...`
+  - Confirmed examples under `baseline_results/`, `sim2real/deploy/`, `baseline_results.zip`, and `sim2real/dotpg_deployv1.zip` are now ignored.
+
+### Remaining blocked/risky
+- `.gitignore` does not affect files already tracked by Git. Existing tracked artifacts such as `sim2real/codrive.zip` and some historical `sim2real/**/*.pth/*.ckpt/*.pt` remain tracked unless explicitly removed with `git rm --cached`.
+- Current status still shows `D sim2real/codrive.zip`; decide whether to commit that deletion or restore it before pushing.
+
+### Single recommended next step
+- Before committing, run `git status --short` and decide whether `sim2real/codrive.zip` should stay deleted or be restored with `git restore sim2real/codrive.zip`.
+
+---
+
+## v2-2026-05-15 -- CoDriveMiddle1 Latest Initpose PPO1h Cloud Completed/Synced
+
+### Target milestone/subgoal
+- Train a 1h PPO teacher on cloud for the latest keyboard-saved `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1` init pose.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml` from the latest tuner save:
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1_current.yaml`.
+  - `handRootPos: [0.080000, 0.020000, 0.239000]`
+  - `handRootRPY: [3.141500, 0.439627, 3.141500]`
+  - index joints: `[0.3499999940, 0.9852794409, 0.2628971040, 0.5692995787]`
+  - thumb joints: `[0.1299999952, 1.5700000525, 0.0399999991, 0.5719662905]`
+  - Preserved Middle1 noise/reward settings.
+- Added cloud PPO pipeline script:
+  `outputs/cloud_pipeline_codrive_middle1_ppo1h/middle1_latestinit_s42_20260515_150457/run_middle1_latestinit_ppo1h_cloud.sh`.
+  - Output name:
+    `Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_latestinit_s42_20260515_150457_ppo1h`
+  - Uses `timeout 3600`, `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`, `num_threads=22`.
+
+### What was verified (commands + key outcomes)
+- Read cloud handoff before execution.
+- Cloud was idle before launch: RTX 4090 D around `1 MiB / 24564 MiB`.
+- Synced to cloud:
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`
+  - `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1_current.yaml`
+  - cloud pipeline script.
+- Removed a temporary cloud sync directory accidentally created during the first rsync attempt:
+  `/root/code/dexscrew-repro/configs/__tmp_should_not_use`.
+- Launched cloud tmux session:
+  `middle1_latestinit_ppo1h_20260515_150457`.
+- Startup health was verified:
+  - Python process active under `timeout 3600`
+  - GPU around `14273 MiB / 24564 MiB`
+  - first best checkpoint appeared early.
+- Completion verified:
+  - `status/phase.txt`: `done`
+  - `ppo_exit_status=124`
+  - `timeout_status=expected_1h_timeout`
+  - cloud GPU idle after completion: RTX 4090 D around `1 MiB / 24564 MiB`
+  - final best checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_latestinit_s42_20260515_150457_ppo1h/stage1_nn/best_reward_3309.63.pth`
+- Synced cloud results back to Ubuntu local:
+  - `outputs/cloud_pipeline_codrive_middle1_ppo1h/middle1_latestinit_s42_20260515_150457/`
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_latestinit_s42_20260515_150457_ppo1h/`
+
+### Remaining blocked/risky
+- None for artifact sync. Behavioral quality still needs local headed visualization.
+
+### Single recommended next step
+- Visualize:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_latestinit_s42_20260515_150457_ppo1h/stage1_nn/best_reward_3309.63.pth`
+  and compare index/thumb cooperation against the previous Middle1 PPO (`best_reward_3783.10.pth`) and original CoDrive (`best_reward_4159.37.pth`).
+
+---
+
+## v2-2026-05-15 -- CoDriveMiddle1 Initpose Updated From Latest Tuner Save
+
+### Target milestone/subgoal
+- Solidify the latest keyboard-tuned `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1` init pose before another visual/training comparison.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml` from:
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1_current.yaml`.
+- New asset pose:
+  - `handRootPos: [0.080000, 0.022000, 0.239000]`
+  - `handRootRPY: [3.141500, 0.439627, 3.141500]`
+- New two-finger init joints:
+  - index: `[0.3499999940, 0.9852794409, 0.2628971040, 0.5692995787]`
+  - thumb: `[0.1299999952, 1.5700000525, 0.0399999991, 0.5719662905]`
+- Preserved Middle1 training randomization/noise/reward settings, including:
+  - `object.init_pos_noise: [0.0075, 0.0075, 0.0]`
+  - `asset.handRootPosNoise: [0.001, 0.001, 0.001]`
+  - `asset.handRootPosZScaleComp: 0.0`
+
+### What was verified (commands + key outcomes)
+- `sed -n '280,306p' configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`
+  confirmed the saved pose values are present in the task YAML.
+
+### Remaining blocked/risky
+- Host-side `omegaconf` import is unavailable, so the quick host YAML parse check did not run.
+- The next useful validation is visual, because this change is contact-geometry sensitive.
+
+### Single recommended next step
+- Open a deterministic headed Middle1 PPO/student viewer with noise disabled and check whether the index fingertip now starts close enough to contribute tangential rotation.
+
+---
+
+## v2-2026-05-15 -- Middle1 PAdapt Local And DOTPG Cloud Distillation Completed/Synced
+
+### Target milestone/subgoal
+- Use the Middle1 PPO teacher checkpoint as the baseline for two 1h student distillation runs:
+  - local PAdapt for 1h
+  - cloud DOTPG dual-BC5 for 1h
+
+### What changed (files + behavior impact)
+- Added local PAdapt pipeline script:
+  `outputs/local_pipeline_codrive_middle1_padapt1h/middle1_padapt_s42_20260515_131253/run_middle1_padapt1h_local.sh`.
+  - Teacher checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_ppo1h_s42_20260515_120420/stage1_nn/best_reward_3783.10.pth`.
+  - Output:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_padapt_s42_20260515_131253_from_ppo1h/`.
+  - Uses `timeout 3600`, `task.env.numEnvs=512`, `train.ppo.minibatch_size=6144`.
+- Added cloud DOTPG pipeline script:
+  `outputs/cloud_pipeline_codrive_middle1_dotpg1h/middle1_dotpg_s42_20260515_131253/run_middle1_dotpg1h_cloud.sh`.
+  - Teacher checkpoint synced to cloud under the same relative `outputs/.../best_reward_3783.10.pth` path.
+  - Output:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_dotpg_s42_20260515_131253_dual_bc5_from_ppo1h/`.
+  - Uses `timeout 3600`, `task.env.numEnvs=1024`, `train.ppo.minibatch_size=12288`.
+  - DOTPG variant: `policy_arch=teacher_actor`, `policy_loss_mode=dual`, `bc_coef=5.0`, `bc_alpha_max=20.0`.
+- Synced Middle1 task/train YAML, Middle1 PPO teacher pth, and cloud DOTPG script to:
+  `/root/code/dexscrew-repro/`.
+
+### What was verified (commands + key outcomes)
+- Read cloud handoff before launching.
+- Cloud was idle before launch: RTX 4090 D around `1 MiB / 24564 MiB`, no active training process.
+- Local first PAdapt background attempt did not persist; root cause was the Docker command receiving a host absolute checkpoint path. Fixed script to pass the container-visible relative `outputs/.../best_reward_3783.10.pth`, removed the stale created container, and relaunched.
+- Local PAdapt no longer has an active training process and produced a usable best checkpoint:
+  `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_padapt_s42_20260515_131253_from_ppo1h/stage2_nn/model_best.ckpt`
+  - checkpoint timestamp: `2026-05-15 14:16`
+  - checkpoint size: `1,301,474` bytes
+  - TensorBoard event:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_padapt_s42_20260515_131253_from_ppo1h/stage2_tb/events.out.tfevents.1778822198.wbz-ubuntu22-pc`
+- Cloud DOTPG completed with the expected wall-clock timeout:
+  - `status/phase.txt`: `done`
+  - `dotpg_exit_status=124`
+  - latest best:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_dotpg_s42_20260515_131253_dual_bc5_from_ppo1h/student_output/dotpg_nn/model_best.ckpt`
+  - observed final current best plateau around `2397.86`.
+- Synced cloud DOTPG results back to local:
+  - `outputs/cloud_pipeline_codrive_middle1_dotpg1h/middle1_dotpg_s42_20260515_131253/`
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_dotpg_s42_20260515_131253_dual_bc5_from_ppo1h/`
+- Cloud after completion is idle:
+  RTX 4090 D around `1 MiB / 24564 MiB`, `0%`.
+
+### Remaining blocked/risky
+- Local PAdapt wrapper did not write `status/summary.txt` or `padapt_exit_status.txt`; its `status/phase.txt` still says `padapt`.
+  Treat the produced `stage2_nn/model_best.ckpt` as the usable artifact, but do not treat local wrapper metadata as complete.
+- Local PAdapt stdout log is heavily buffered and only contains startup lines; use the TensorBoard event/checkpoint for artifact evidence.
+
+### Single recommended next step
+- Visualize and compare the two Middle1 student checkpoints locally:
+  - PAdapt:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_padapt_s42_20260515_131253_from_ppo1h/stage2_nn/model_best.ckpt`
+  - DOTPG:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_dotpg_s42_20260515_131253_dual_bc5_from_ppo1h/student_output/dotpg_nn/model_best.ckpt`
+
+---
+
+## v2-2026-05-15 -- Middle1/Middle2 PPO1h Completed And Synced
+
+### Target milestone/subgoal
+- Run and collect a one-hour PPO comparison between two CoDrive init-pose variants:
+  - local `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1`
+  - cloud `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle2`
+
+### What changed (files + behavior impact)
+- Added local pipeline script:
+  `outputs/local_pipeline_codrive_middle1_ppo1h/middle1_s42_20260515_120420/run_middle1_ppo1h.sh`.
+  - Runs `timeout 3600` PPO for Middle1.
+  - Records command, metadata, exit status, and latest best checkpoint under the same pipeline directory.
+- Added cloud pipeline script:
+  `outputs/cloud_pipeline_codrive_middle2_ppo1h/middle2_s42_20260515_120420/run_middle2_ppo1h_cloud.sh`.
+  - Runs `timeout 3600` PPO for Middle2.
+  - Uses the cloud conda IsaacGym environment instead of Docker.
+  - Records command, metadata, exit status, and latest best checkpoint under the cloud pipeline directory.
+- Synced Middle2 task/train YAMLs and cloud script to:
+  `/root/code/dexscrew-repro/`.
+- Synced cloud Middle2 PPO results back to local:
+  - `outputs/cloud_pipeline_codrive_middle2_ppo1h/middle2_s42_20260515_120420/`
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle2/middle2_s42_20260515_120420_ppo1h/`
+
+### What was verified (commands + key outcomes)
+- Stopped the previous headed Middle2 viewer/training process before starting long runs.
+- Local Middle1 launched in background with `nohup` because local `tmux` is unavailable:
+  - pipeline: `outputs/local_pipeline_codrive_middle1_ppo1h/middle1_s42_20260515_120420/`
+  - command uses `task.env.numEnvs=8192`, `train.ppo.minibatch_size=16384`
+  - GPU observed around `11.45GB / 16GB`, Python process active.
+- Cloud SSH host key was refreshed for the confirmed target:
+  `ssh -p 22222 root@180.184.47.96`.
+- Cloud handoff was read before execution.
+- Cloud Middle2 first Docker launch failed because the new cloud does not have image `dexscrew:ig20-py38`.
+- Cloud script was corrected to source the existing `dexscrew-ig` conda/IsaacGym environment, matching previous cloud pipelines.
+- Cloud Middle2 relaunched in tmux:
+  - session: `middle2_ppo1h_20260515_120420_retry`
+  - pipeline: `outputs/cloud_pipeline_codrive_middle2_ppo1h/middle2_s42_20260515_120420/`
+  - command uses `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`, `num_threads=22`
+  - GPU observed around `14.3GB / 24GB`, Python process active.
+  - Later confirmed PPO progress and completion:
+    `ppo_exit_status=124`, expected one-hour timeout.
+  - Best cloud checkpoint synced locally:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle2/middle2_s42_20260515_120420_ppo1h/stage1_nn/best_reward_3503.45.pth`.
+- Local Middle1 checkpoint exists:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_ppo1h_s42_20260515_120420/stage1_nn/best_reward_3783.10.pth`.
+- Cloud process check after completion:
+  - no active Middle2 training process
+  - GPU idle around `1 MiB / 24564 MiB`
+
+### Remaining blocked/risky
+- Local Middle1 generated a valid best checkpoint and TensorBoard event file, but its wrapper did not write `status/summary.txt` or `ppo_exit_status.txt`; treat the checkpoint as usable, but do not treat the local wrapper metadata as complete.
+- Cloud Middle2 metadata is complete and records expected timeout status `124`.
+
+### Single recommended next step
+- Visualize both PPO checkpoints locally and compare behavior:
+  - Middle1: `best_reward_3783.10.pth`
+  - Middle2: `best_reward_3503.45.pth`
+
+---
+
+## v2-2026-05-15 -- CoDriveMiddle2 Latest Initpose Variant Added
+
+### Target milestone/subgoal
+- Create a second CoDriveMiddle init-pose variant from `middle1` using the newest keyboard-saved hand/root pose, then open a headed PPO viewer for inspection.
+
+### What changed (files + behavior impact)
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle2.yaml`.
+  - Based on `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`.
+  - `eval_cache_name: sim2real_twofinger_codrive_middle2`.
+  - Latest saved tuner source:
+    `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1_current.yaml`.
+  - Applied `asset.handRootPos: [0.086000, 0.038000, 0.233000]`.
+  - Applied `asset.handRootRPY: [3.141500, 0.439627, 3.141500]`.
+  - Applied updated index/thumb init joints:
+    index joint1 `0.8252795935`, thumb joint3 `0.5319663286`.
+  - Inherited `middle1` randomization/noise, including object init noise `[0.0075, 0.0075, 0.0]`, hand root noise `[0.001, 0.001, 0.001]`, and `handRootPosZScaleComp: 0.0`.
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle2.yaml`.
+  - Exact copy of the `middle1` train yaml.
+
+### What was verified (commands + key outcomes)
+- `diff -u configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle2.yaml`
+  - Only experiment name and the new saved hand/root init-pose fields differ.
+- `diff -q configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle2.yaml`
+  - Train YAMLs are identical.
+- Launched headed local viewer/training:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle2 headless=False seed=42 task.env.numEnvs=10 train.ppo.minibatch_size=120 train.ppo.output_name=Dexh13HoraLightbulb_teacher/vis_codrive_middle2_headed_s42 wandb_activate=False graphics_device_id=0`
+  - Startup config confirmed `numEnvs=10`, `handRootPos=[0.086,0.038,0.233]`, `handRootPosZScaleComp=0.0`, and the inherited noise/randomization settings.
+
+### Remaining blocked/risky
+- The headed run is for visual inspection only; no long training/eval conclusion yet.
+
+### Single recommended next step
+- Inspect the current Middle2 headed viewer. If the pose looks right, use this YAML as the next PPO candidate; if not, return to the keyboard tuner and save another init-pose.
+
+---
+
+## v2-2026-05-15 -- Initpose Tuner HandRoot Noise Disabled
+
+### Target milestone/subgoal
+- Ensure keyboard init-pose tuning always uses the YAML center pose, not a random hand-root sample.
+
+### What changed (files + behavior impact)
+- Updated `scripts/tune_dexh13_lightbulb_initpose.py`.
+  - Added default override `task.env.asset.handRootPosNoise=[0.0,0.0,0.0]`.
+  - The tuner already disabled object init-position noise, scale randomization, mass/COM/friction/PD randomization, and random force.
+- Updated `tele_readme.md`.
+  - Documented that hand-root position noise is also forced off during keyboard tuning.
+
+### What was verified (commands + key outcomes)
+- `python -m py_compile scripts/tune_dexh13_lightbulb_initpose.py`
+  - Passed.
+- `rg -n "handRootPosNoise" scripts/tune_dexh13_lightbulb_initpose.py tele_readme.md`
+  - Confirmed the override appears in both script and docs.
+
+### Remaining blocked/risky
+- None for the tuner override. Training YAMLs can still keep hand-root noise; only the keyboard tuning entrypoint forces it off.
+
+### Single recommended next step
+- Use the normal tuner command without extra overrides; it now opens a clean center-pose view even for noisy task YAMLs.
+
+---
+
+## v2-2026-05-15 -- CoDriveMiddle1 Initpose/Noise Variant Added
+
+### Target milestone/subgoal
+- Create a CoDrive-derived `middle1` task using the latest keyboard-tuned DexH13 hand/root pose, then inspect it under XHandHora-style init-position noise with a headed PPO viewer.
+
+### What changed (files + behavior impact)
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`.
+  - Based on `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`.
+  - `eval_cache_name: sim2real_twofinger_codrive_middle1`.
+  - Uses latest saved tuner values from `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper_current.yaml`.
+  - `asset.handRootPos: [0.094000, 0.026000, 0.229000]`.
+  - `asset.handRootRPY: [3.1415, 0.352360, 3.1415]`.
+  - Two-finger joint init pose updated from the saved snippet.
+  - Added XHandHora-style init-position noise:
+    - `object.init_pos_noise: [0.0075, 0.0075, 0.0]`
+    - `asset.handRootPosNoise: [0.001, 0.001, 0.001]`
+  - Kept original CoDrive scale compensation: `asset.handRootPosZScaleComp: 0.06`.
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`.
+  - Exact copy of the original CoDrive train YAML.
+
+### What was verified (commands + key outcomes)
+- First headed run was stopped because it mistakenly used `handRootPos: [0.0, 0.0, 0.21]`.
+- Corrected headed run launched:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1 headless=False seed=42 task.env.numEnvs=10 train.ppo.minibatch_size=120 train.ppo.output_name=Dexh13HoraLightbulb_teacher/vis_codrive_middle1_headed_s42 wandb_activate=False graphics_device_id=0`
+- Runtime config print confirmed:
+  - `handRootPos: [0.094, 0.026, 0.229]`
+  - `handRootPosNoise: [0.001, 0.001, 0.001]`
+  - `object.init_pos_noise: [0.0075, 0.0075, 0.0]`
+  - `numEnvs: 10`
+- Reran the keyboard tuner for Middle1:
+  - `./docker-run-isaacgym.sh python scripts/tune_dexh13_lightbulb_initpose.py --task Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1 --gpu 0 --seed 42 --out outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1_current.yaml`
+  - Final saved candidate from the latest user run:
+    - `handRootPos: [0.082000, 0.030000, 0.239000]`
+    - `handRootRPY: [3.141500, 0.439627, 3.141500]`
+    - `right_index_joint_0: 0.3499999940`
+    - `right_index_joint_1: 0.8852795362`
+    - `right_thumb_joint_0: 0.1299999952`
+    - `right_thumb_joint_2: 0.0000000000`
+    - `right_thumb_joint_3: 0.5519663095`
+  - Applied this latest snippet back to `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`, preserving `object.init_pos_noise` and `asset.handRootPosNoise`.
+- Later updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`:
+  - `asset.handRootPosZScaleComp: 0.0`
+  - This removes the extra scale-dependent z lift during headed training and future PPO runs while keeping object/hand-root noise enabled.
+
+### Remaining blocked/risky
+- The headed viewer is for human visual inspection only; the negative random-PPO reward during this run is not meaningful for policy quality.
+- The latest saved `middle1` init pose and `handRootPosZScaleComp: 0.0` have been applied back to the task YAML, but still need headed inspection under the added init-position noise.
+
+### Single recommended next step
+- Rerun the 10-env headed PPO view for `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1` to inspect the updated pose under object/hand-root noise.
+
+---
+
+## v2-2026-05-15 -- RealBulb Headed PPO Visualization Check
+
+### Target milestone/subgoal
+- Verify local RealBulb task files exist and launch a headed PPO viewer for visual inspection of the real-size bulb asset and inherited CoDrive init pose.
+
+### What changed (files + behavior impact)
+- No source/config files were changed in this step.
+- Generated temporary visualization output under:
+  - `outputs/Dexh13HoraLightbulb_teacher/vis_realbulb_ppo_headed_tmp/`
+
+### What was verified (commands + key outcomes)
+- Confirmed local files exist:
+  - `assets/screw/realbulb/0000_lightbulb.urdf`
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb.yaml`
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb.yaml`
+- Confirmed RealBulb task values:
+  - `object.type: screw_realbulb`
+  - `baseObjScale: 1.00`
+  - `randomizeScaleList: [0.975, 1.025]`
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosNoise: [0.0, 0.0, 0.0]`
+- Launched headed PPO viewer:
+  - `./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb headless=False seed=42 train.algo=PPO wandb_activate=False task.env.numEnvs=10 train.ppo.num_actors=10 train.ppo.minibatch_size=120 train.ppo.max_agent_steps=1000000 train.ppo.output_name=Dexh13HoraLightbulb_teacher/vis_realbulb_ppo_headed_tmp graphics_device_id=0 task.env.randomization.randomizeScale=False task.env.object.init_pos_noise=[0.0,0.0,0.0] task.env.termination.log=True`
+  - Outcome: task loaded `screw_realbulb`, created 10 envs, started PPO with viewer, then exited cleanly.
+
+### Remaining blocked/risky
+- This was only a visualization/probe run. It fixed `randomizeScale=False` to inspect the base real-size bulb, so it does not show the full `0.95-1.05` training scale distribution.
+
+### Single recommended next step
+- If the base RealBulb geometry/init pose looks acceptable, rerun the same headed PPO with `task.env.randomization.randomizeScale=True` or open the keyboard tuner for RealBulb-specific init-pose adjustment.
+
+---
+
+## v2-2026-05-15 -- CoDriveExper Initpose Tuning Variant Added
+
+### Target milestone/subgoal
+- Create an isolated CoDrive-derived task YAML for hand init-pose tuning without modifying the frozen original CoDrive deployment/training config.
+
+### What changed (files + behavior impact)
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper.yaml`.
+  - Copied from `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`.
+  - Only changed `eval_cache_name` to `sim2real_twofinger_codrive_exper`.
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper.yaml`.
+  - Exact copy of the original CoDrive train YAML so Hydra can resolve `train: ${task}`.
+- Ran the keyboard init-pose tuner once on the new task and saved a candidate snippet to:
+  - `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper_current.yaml`
+- The saved candidate was not applied back to the task YAML yet.
+
+### What was verified (commands + key outcomes)
+- Verified task diff against original CoDrive is only `eval_cache_name`; train YAML has no diff.
+- Tuner launch command succeeded:
+  - `./docker-run-isaacgym.sh python scripts/tune_dexh13_lightbulb_initpose.py --task Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper --gpu 0 --seed 42 --out outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper_current.yaml`
+- Confirmed the new task loads `screw_contactviz` and starts an IsaacGym viewer.
+- Current tuner setup is a clean one-env view: object init noise and hand root noise are zero in the YAML, and the tuner also disables mass/COM/friction/scale/PD-gain randomization and external random force through overrides.
+
+### Remaining blocked/risky
+- The user wants to rerun the tuner locally to watch terminal print output directly before choosing the final `handRootPos`, `handRootRPY`, and `handInitPose`.
+
+### Single recommended next step
+- Rerun the tuner command locally, press `C`/`O` to inspect/save values, then apply the chosen snippet under `env.asset` in `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper.yaml`.
+
+---
+
+## v2-2026-05-13 -- CoDrive BC/DAgger Baseline Curve Pack
+
+### Target milestone/subgoal
+- Collect the original non-noise CoDrive BC/LatentBC and DAgger student training evidence for baseline comparison, including W&B-like reward curves and reproducibility parameters.
+
+### What changed (files + behavior impact)
+- Added local comparison pack:
+  - `sim2real/deploy/codrive/baseline_curves/`
+- Also copied the same pack to the top-level results area:
+  - `baseline_results/codrive_bc_dagger_baseline_curves/`
+  - added `baseline_results/README.md` as the baseline result index
+- Added four per-baseline CoDrive key-metric CSVs under `baseline_results/codrive/`, matching the existing `run,tag,step,value,wall_time` format:
+  - `bc_key_metrics.csv`
+  - `dagger_key_metrics.csv`
+  - `padapt_key_metrics.csv`
+  - `dotpg_key_metrics.csv`
+  - `baseline_metric_sources.tsv`
+  - `README.md`
+- Pack contents:
+  - copied TensorBoard event files under `raw/`
+  - exported scalar CSVs under `csv/`
+  - report-ready PNG plots under `plots/`
+  - full run configs and CoDrive task/train YAMLs under `configs/`
+  - compact `summary.csv`, `key_training_params.csv`, `manifest.json`, and `README.md`
+- Selected runs:
+  - BC/LatentBC: `outputs/Dexh13HoraLightbulb_student_bc_codrive/codrive_bc_opt_iter3_evalsel_latent_evalsel_s42`
+  - DAgger: `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_opt_iter3_evalsel_pure_replay_s42`
+
+### What was verified (commands + key outcomes)
+- Parsed TensorBoard scalars with `tensorboard.backend.event_processing.event_accumulator`.
+- Generated plots:
+  - `plots/codrive_bc_dagger_report_panels.png`
+  - `plots/codrive_bc_dagger_train_reward.png`
+  - `plots/codrive_bc_dagger_student_eval_reward.png`
+  - `plots/codrive_bc_dagger_eval_select_score.png`
+  - `plots/codrive_bc_dagger_eval_select_avg_reward.png`
+  - `plots/codrive_bc_dagger_total_loss.png`
+- `python -m json.tool sim2real/deploy/codrive/baseline_curves/manifest.json` passed.
+- Headline metrics in `summary.csv`:
+  - BC/LatentBC: TB train return max `852.115`, eval-select best score `2.541`.
+  - DAgger: TB eval reward max `1384.226`, eval-select best score `3.763`.
+- Per-baseline key-metric row counts:
+  - BC/LatentBC: `47,746`
+  - DAgger: `58,516`
+  - PAdapt: `399,776`
+  - DOTPG: `20`
+
+### Remaining blocked/risky
+- These are training/eval-select curves, not a unified multi-seed deployment eval table. Use them for training-process and baseline-method comparison, then pair them with fixed-step eval results for final paper ranking.
+- DOTPG's full TensorBoard training curve was not available in the current synced local artifacts; its key-metric CSV is converted from selected `dual_bc5` train/eval TSV summaries.
+
+### Single recommended next step
+- Use `baseline_results/codrive/` for four-baseline CSV analysis and `baseline_results/codrive_bc_dagger_baseline_curves/plots/codrive_bc_dagger_report_panels.png` for the quick BC-vs-DAgger visual entry point.
+
+---
+
+## v2-2026-05-13 -- RealBulb Cloud PPO/PAdapt/DOTPG Pipeline Started
+
+### Target milestone/subgoal
+- Train the RealBulb CoDrive task on cloud with a 2h PPO teacher phase followed by 2h parallel PAdapt and DOTPG student distillation.
+
+### What changed (files + behavior impact)
+- Added cloud pipeline script:
+  - `outputs/cloud_pipeline_realbulb_ppo2h_padapt_dotpg2h/run_realbulb_ppo2h_padapt_dotpg2h.sh`
+- Synced to cloud:
+  - `assets/screw/realbulb/0000_lightbulb.urdf`
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb.yaml`
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb.yaml`
+  - the pipeline script above
+- Pipeline behavior:
+  - PPO teacher uses `timeout 7200` with `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`.
+  - After PPO exits with expected timeout `124`, the script selects the best `stage1_nn/best_reward_*.pth`.
+  - PAdapt and DOTPG run in parallel, each under its own `timeout 7200`.
+  - Start/end timestamps, exact commands, selected teacher path, and exit statuses are written under the pipeline status directory.
+
+### What was verified (commands + key outcomes)
+- Cloud RealBulb smoke passed:
+  - `timeout 180 python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb ... task.env.numEnvs=4 train.ppo.max_agent_steps=24`
+  - Outcome: cloud loaded `screw_realbulb`, generated initial poses at scales `0.975` and `1.025`, and exited with `max steps achieved`.
+- Active cloud tmux session launched:
+  - `realbulb_ppo2h_students2h_20260513_031105`
+  - Pipeline path:
+    `outputs/cloud_pipeline_realbulb_ppo2h_padapt_dotpg2h/realbulb_s42_20260513_031105/`
+  - Convenience link:
+    `outputs/cloud_pipeline_realbulb_ppo2h_padapt_dotpg2h/latest`
+- PPO phase confirmed live:
+  - `status/phase.txt = ppo`
+  - GPU about `14359 MiB / 24564 MiB`, around `80%` utilization.
+  - PPO log reached real training lines, e.g. `Agent Steps: 0005M ... Current Best: 57.18`.
+
+### Remaining blocked/risky
+- PPO is still running; no teacher checkpoint has been selected yet.
+- Student phases have not started yet; they should start automatically after PPO reaches the 2h timeout.
+- SSH to this cloud endpoint intermittently returns `kex_exchange_identification`, so status checks may need a retry.
+
+### Single recommended next step
+- Monitor `outputs/cloud_pipeline_realbulb_ppo2h_padapt_dotpg2h/latest/status/phase.txt` until PPO exits, then confirm PAdapt and DOTPG both start and later finish with expected timeout status `124`.
+
+---
+
+## v2-2026-05-12 -- Real-Size CoDrive Bulb Asset Added
+
+### Target milestone/subgoal
+- Add a real-size lightbulb asset aligned to the measured physical bulb and create a CoDrive task variant with small 0.95-1.05 object-scale randomization.
+
+### What changed (files + behavior impact)
+- Added `assets/screw/realbulb/0000_lightbulb.urdf`.
+  - Uses existing `contact0.stl` and `contact1.stl` for both visual and collision geometry.
+  - The viewer now shows the actual low-poly contact surface, matching the contactviz convention.
+  - Meshes are anisotropically scaled so the bulb is about `140 mm` long and `60 mm` max diameter before actor-scale randomization.
+  - Object type is selectable as `task.env.object.type=screw_realbulb`.
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb.yaml`.
+  - Inherits the original CoDrive task structure.
+  - `eval_cache_name: sim2real_twofinger_codrive_realbulb`
+  - `object.type: screw_realbulb`
+  - `baseObjScale: 1.00`
+  - `randomizeScaleList: [0.975, 1.025]`
+  - `randomizeScaleMin/Max` and `randomizeScaleLower/Upper`: `0.95/1.05`
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb.yaml`.
+  - Exact copy of the original CoDrive train YAML so Hydra can resolve `train: ${task}` for the new task.
+
+### What was verified (commands + key outcomes)
+- XML/YAML parse check passed for the new URDF/task/train files.
+- Geometry calculation confirmed:
+  - visual/collision contact-pair scaled size: about `140.0 x 60.0 x 60.0 mm`
+- Local IsaacGym smoke passed:
+  - `./docker-run-isaacgym.sh timeout 180 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb headless=True seed=42 train.algo=PPO wandb_activate=False task.env.numEnvs=4 train.ppo.minibatch_size=12 train.ppo.max_agent_steps=24 train.ppo.output_name=Dexh13HoraLightbulb_teacher/smoke_codrive_realbulb_tmp task.env.termination.log=True`
+  - Outcome: loaded `screw_realbulb`, generated initial poses for scales `0.975` and `1.025`, and exited with `max steps achieved`.
+- `git diff --check` passed for the new asset/config files and handoff docs.
+
+### Remaining blocked/risky
+- The real-size bulb is taller than the original simulated bulb, so the inherited CoDrive hand root/init pose may need visual tuning before long training or deployment.
+- The real-size visual is intentionally low-poly because it now matches collision geometry exactly; use it for contact inspection rather than presentation renders.
+- The new `screw_realbulb` asset currently has no precomputed `.npy` point cloud, matching the previous `screw_contactviz` behavior that falls back to an approximate cylinder point cloud.
+
+### Single recommended next step
+- Open a headed init-pose or short visual rollout with `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveRealBulb` to confirm finger placement against the taller 140 mm bulb before launching a long PPO/student run.
+
+---
+
+## v2-2026-05-12 -- Original CoDrive Student Deploy Packages Completed
+
+### Target milestone/subgoal
+- Package original non-noise CoDrive student distillation checkpoints under `sim2real/deploy/codrive`, all aligned to the frozen roughly-4000-reward PPO teacher.
+
+### What changed (files + behavior impact)
+- Created/updated original CoDrive deploy folders:
+  - `sim2real/deploy/codrive/padapt_deploy/`
+  - `sim2real/deploy/codrive/dotpg_deployv1/`
+  - `sim2real/deploy/codrive/diffusion_latent_deploy/`
+  - `sim2real/deploy/codrive/consistency_latent_deploy/`
+  - `sim2real/deploy/codrive/flow_matching_deploy/`
+  - `sim2real/deploy/codrive/diffusion_action_chunk_deploy/`
+  - `sim2real/deploy/codrive/bc_latentbc_deploy/`
+  - `sim2real/deploy/codrive/dagger_deploy/`
+- Every package contains the same four-file deploy format:
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+  - `best_reward_4159.37.pth`
+  - `model_best.ckpt`
+
+### What was verified (commands + key outcomes)
+- Confirmed all deploy packages have exactly four files.
+- Confirmed every package's teacher/YAML files hash-match the frozen original CoDrive package under `sim2real/codrive`.
+- All packages use teacher `sim2real/codrive/best_reward_4159.37.pth`, the original CoDrive PPO baseline with max reward `4159.37`.
+- Student checkpoint selection:
+  - PAdapt: `outputs/Dexh13HoraLightbulb_student_padapt_sim2real_twofinger_codrive/sim2real_twofinger_codrive_padapt_s42_2h/stage2_nn/model_best.ckpt`
+  - DOTPG: `sim2real/codrive/dotpg_bc5/model_best.ckpt`
+  - Diffusion latent: continue-2h `model_best.ckpt`
+  - Consistency latent: 1h `model_best.ckpt` because short deploy eval was stronger than continue-2h
+  - Flow matching: 1h `model_best.ckpt` because short deploy eval was stronger than continue-2h
+  - Diffusion action chunk: continue-2h `model_best_student_reward.ckpt`, copied as deploy `model_best.ckpt`
+  - BC/LatentBC: opt-iter3 eval-select `model_best_deploy.ckpt`
+  - DAgger: opt-iter3 pure-replay eval-select `model_best_deploy.ckpt`
+
+### Remaining blocked/risky
+- These are packaged deployment candidates, not final ranked real-robot selections. Visual checks and a unified fixed-step eval should be used before choosing one.
+
+### Single recommended next step
+- For original bulb CoDrive deployment, visualize `consistency_latent_deploy`, `flow_matching_deploy`, `padapt_deploy`, and `dotpg_deployv1` first.
+
+---
+
+## v2-2026-05-12 -- Deploy Packages Grouped By Task
+
+### Target milestone/subgoal
+- Reorganize `sim2real/deploy` so deployment packages are grouped by task family rather than all living at the top level.
+
+### What changed (files + behavior impact)
+- Moved the non-thesis CoDrive deploy package to:
+  - `sim2real/deploy/codrive/dotpg_deployv1/`
+- Moved the CoDriveThesis deploy packages to:
+  - `sim2real/deploy/codrive_thesis/bc_latentbc_deploy/`
+  - `sim2real/deploy/codrive_thesis/dagger_deploy/`
+  - `sim2real/deploy/codrive_thesis/dotpg_deployv2/`
+  - `sim2real/deploy/codrive_thesis/padapt_deploy/`
+  - `sim2real/deploy/codrive_thesis/diffusion_latent_deploy/`
+  - `sim2real/deploy/codrive_thesis/consistency_latent_deploy/`
+  - `sim2real/deploy/codrive_thesis/flow_matching_deploy/`
+  - `sim2real/deploy/codrive_thesis/diffusion_action_chunk_deploy/`
+  - `sim2real/deploy/codrive_thesis/purebc_deploy/`
+- Left the CoDriveNoise deploy packages grouped under:
+  - `sim2real/deploy/codrive_noise/`
+
+### What was verified (commands + key outcomes)
+- Top-level `sim2real/deploy` now contains only task-family folders:
+  - `codrive`
+  - `codrive_thesis`
+  - `codrive_noise`
+- Every nested deploy package still contains exactly four files.
+
+### Remaining blocked/risky
+- Any old commands pointing directly at `sim2real/deploy/padapt_deploy` or similar need the new `codrive_thesis/` or `codrive_noise/` prefix.
+
+### Single recommended next step
+- Use the task-family path when selecting deployment artifacts: `sim2real/deploy/codrive`, `sim2real/deploy/codrive_thesis`, or `sim2real/deploy/codrive_noise`.
+
+---
+
+## v2-2026-05-12 -- CoDriveNoise Student Deploy Packages Grouped
+
+### Target milestone/subgoal
+- Sync all CoDriveNoise student distillation checkpoints from cloud/local outputs and package them for deployment under `sim2real/deploy/codrive_noise`.
+
+### What changed (files + behavior impact)
+- Synced cloud CoDriveNoise student outputs locally:
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive_noise/`
+  - `outputs/Dexh13HoraLightbulb_student_consistency_codrive_noise/`
+  - `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive_noise/`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive_noise/`
+  - `outputs/Dexh13HoraLightbulb_student_purebc_codrive_noise/`
+  - `outputs/Dexh13HoraLightbulb_student_dagger_codrive_noise/`
+  - existing local/cloud-synced `padapt`, `dotpg`, teacher, and YAML files were also verified.
+- Added deploy-format folders, each containing exactly task YAML, train YAML, PPO teacher pth, and student ckpt:
+  - `sim2real/deploy/codrive_noise/codrive_noise_padapt_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_dotpg_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_diffusion_latent_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_consistency_latent_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_flow_matching_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_diffusion_action_chunk_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_purebc_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_dagger_deploy/`
+  - `sim2real/deploy/codrive_noise/codrive_noise_bc_latentbc_deploy/`
+
+### What was verified (commands + key outcomes)
+- Source checkpoint existence was verified for all nine student variants:
+  - PAdapt, DOTPG, diffusion latent, consistency latent, flow matching, diffusion action chunk, PureBC, DAgger, and BC/LatentBC.
+- Deploy package check confirmed each `sim2real/deploy/codrive_noise/codrive_noise_*_deploy` directory has 4 files:
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise.task.yaml`
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise.train.yaml`
+  - `best_reward_4076.32.pth`
+  - `model_best.ckpt`
+- Verified no `sim2real/deploy/codrive_noise_*_deploy` directories remain directly under `sim2real/deploy`.
+
+### Remaining blocked/risky
+- These are packaged from training-selected `model_best.ckpt` files. Final deployment ranking should still use the unified fixed-step eval/visualization protocol.
+
+### Single recommended next step
+- Run or sync a unified fixed-step eval table for these nine CoDriveNoise deploy packages before choosing the final real-robot candidate.
+
+---
+
+## v2-2026-05-12 -- CoDriveNoise Remaining Baselines Completed
+
+### Target milestone/subgoal
+- Check completion of the CoDriveNoise remaining-baseline 3h distillation batch.
+
+### What changed (files + behavior impact)
+- No code/config changes in this status check.
+- Recorded final cloud and local checkpoint status for the remaining CoDriveNoise baselines.
+
+### What was verified (commands + key outcomes)
+- Cloud batch completed:
+  - `outputs/cloud_pipeline_codrive_noise_remaining_baselines_3h/codrive_noise_remaining_s42_3h_20260512_013000/`
+  - `phase.txt = done`
+  - no active `python train.py`
+  - RTX 4090 D idle at about `1 MiB / 24564 MiB`
+  - exit statuses all `124`, expected for 3h timeout:
+    `diffusion_latent`, `consistency_latent`, `flow_matching_latent`, `diffusion_action_chunk`, `purebc`, `dagger`
+- Cloud parsed training rewards:
+  - diffusion latent: `4019.67`
+  - consistency latent: `3840.09`
+  - flow matching: `3850.96`
+  - diffusion action chunk: `1341.73`
+  - purebc: `3305.94`
+  - DAgger: train return last `1655.33`, best student eval `979.06`
+- Cloud checkpoint folders exist:
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_latent_codrive_noise/codrive_noise_remaining_s42_3h_20260512_013000/stage2_diffusion_nn/model_best.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_consistency_codrive_noise/codrive_noise_remaining_s42_3h_20260512_013000/stage2_consistency_nn/model_best.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_flow_matching_codrive_noise/codrive_noise_remaining_s42_3h_20260512_013000/stage2_flow_nn/model_best.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_diffusion_action_chunk_codrive_noise/codrive_noise_remaining_s42_3h_20260512_013000/stage2_diffusion_action_chunk_nn/`
+  - `outputs/Dexh13HoraLightbulb_student_purebc_codrive_noise/codrive_noise_remaining_s42_3h_20260512_013000/stage2_bc_nn/model_best.ckpt`
+  - `outputs/Dexh13HoraLightbulb_student_dagger_codrive_noise/codrive_noise_remaining_s42_3h_20260512_013000_dagger_pure_replay/dagger_nn/`
+- Local BC/LatentBC completed and produced checkpoints:
+  - `outputs/Dexh13HoraLightbulb_student_bc_codrive_noise/codrive_noise_remaining_s42_3h_20260512_013000_latentbc/bc_nn/model_best.ckpt`
+  - `model_best_deploy.ckpt`, `model_best_eval.ckpt`, `model_best_student_eval.ckpt`, and `model_last.ckpt` also exist.
+- Local BC eval-select history:
+  - max `avg_reward = 3.47085`
+  - max `score = 2.98257`
+
+### Remaining blocked/risky
+- The local wrapper status file remained stale at `running` because the Docker container exited after timeout without the wrapper writing summary/status. Checkpoint timestamps and absence of Docker/train processes confirm local BC finished.
+- Training reward is not sufficient for final deployment selection. Use fixed-step eval and visualization before ranking.
+
+### Single recommended next step
+- Sync the six cloud baseline outputs locally, then run a unified fixed-step eval over all CoDriveNoise students: PPO teacher, PAdapt, DOTPG, diffusion latent, consistency, flow matching, action chunk, PureBC, DAgger, and BC/LatentBC.
+
+---
+
+## v2-2026-05-12 -- CoDriveNoise Remaining Baselines Started
+
+### Target milestone/subgoal
+- Use the CoDriveNoise PPO teacher to distill the remaining student baselines while respecting a 10h wall-clock budget.
+
+### What changed (files + behavior impact)
+- Added cloud launcher:
+  - `outputs/cloud_pipeline_codrive_noise_remaining_baselines_3h/run_cloud_diffusion_purebc_3h.sh`
+  - runs `DiffusionLatentStudent`, `ConsistencyLatentStudent`, `FlowMatchingLatentStudent`, `DiffusionActionChunkStudent`, and `PureBC` in parallel for 3h each.
+- Added cloud DAgger launcher:
+  - `outputs/cloud_pipeline_codrive_noise_remaining_baselines_3h/run_cloud_dagger_3h.sh`
+- Added local launcher:
+  - `outputs/local_pipeline_codrive_noise_remaining_baselines_3h/run_local_bc_dagger_3h.sh`
+- Synced the CoDriveNoise PPO teacher locally:
+  - `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_noise/codrive_noise_s42_20260511_094738_ppo3h/stage1_nn/best_reward_4076.32.pth`
+
+### What was verified (commands + key outcomes)
+- Syntax checks passed:
+  - `bash -n outputs/cloud_pipeline_codrive_noise_remaining_baselines_3h/run_cloud_diffusion_purebc_3h.sh`
+  - `bash -n outputs/cloud_pipeline_codrive_noise_remaining_baselines_3h/run_cloud_dagger_3h.sh`
+  - `bash -n outputs/local_pipeline_codrive_noise_remaining_baselines_3h/run_local_bc_dagger_3h.sh`
+- Active run tag:
+  - `codrive_noise_remaining_s42_3h_20260512_013000`
+- Cloud active tmux sessions:
+  - `codrive_noise_remaining_s42_3h_20260512_013000_cloud`
+  - `codrive_noise_remaining_s42_3h_20260512_013000_dagger`
+- Cloud startup check:
+  - RTX 4090 D about `17026 MiB / 24564 MiB`, about `98%`
+  - all six cloud jobs had logs and no tail `Traceback`, OOM, missing-key/size-mismatch, or segfault patterns.
+- Local startup check:
+  - RTX 4080 SUPER about `4.0GB / 16GB`
+  - local BC/LatentBC Docker job entered training and reported teacher sanity reward around `4224.80`, student pretrain/eval alive, and no fatal error.
+
+### Remaining blocked/risky
+- Local `docker-run-isaacgym.sh` did not cleanly allow two concurrent local Docker training containers. The local launcher started BC, but DAgger was moved to cloud to keep wall-clock efficiency.
+- Local BC output is best monitored via `docker logs` while the Docker container is active; the parent `nohup` wrapper exited after launching the Docker process, so final status may need to be inferred from the timeout process/checkpoint files.
+- Current training should finish after 3h wall-clock unless interrupted; status files/checkpoints still need final verification.
+
+### Single recommended next step
+- Let the active CoDriveNoise remaining-baseline jobs complete, then parse summaries, sync cloud outputs locally, and run a unified fixed-step eval before choosing deployment candidates.
+
+---
+
+## v2-2026-05-12 -- CoDriveNoise Student Checkpoints Synced Local
+
+### Target milestone/subgoal
+- Sync the CoDriveNoise PAdapt and DOTPG student checkpoints from cloud to local for visualization.
+
+### What changed (files + behavior impact)
+- Synced cloud outputs to the local workspace:
+  - `outputs/Dexh13HoraLightbulb_student_padapt_codrive_noise/codrive_noise_s42_20260511_094738_padapt3h_from_ppo3h/`
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_noise/codrive_noise_s42_20260511_094738_dotpg3h_from_ppo3h_dual_bc5/`
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise.yaml`
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise.yaml`
+  - `outputs/cloud_pipeline_codrive_noise_ppo3h_padapt_dotpg3h/codrive_noise_s42_20260511_094738/selected_teacher_ckpt.txt`
+
+### What was verified (commands + key outcomes)
+- Local checkpoint paths now exist:
+  - PAdapt:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_noise/codrive_noise_s42_20260511_094738_padapt3h_from_ppo3h/stage2_nn/model_best.ckpt`
+  - DOTPG:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_noise/codrive_noise_s42_20260511_094738_dotpg3h_from_ppo3h_dual_bc5/student_output/dotpg_nn/model_best.ckpt`
+- Local CoDriveNoise YAML contains:
+  - `eval_cache_name: sim2real_twofinger_codrive_noise`
+  - `object.init_pos_noise: [0.005, 0.005, 0.0]`
+  - `asset.handRootPosNoise: [0.001, 0.001, 0.001]`
+
+### Remaining blocked/risky
+- These checkpoints have not yet been locally visualized in this sync step.
+
+### Single recommended next step
+- Run headed local visualization for PAdapt and DOTPG on `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise`.
+
+---
+
+## v2-2026-05-12 -- CoDriveNoise Cloud Pipeline Completed
+
+### Target milestone/subgoal
+- Check completion status for the CoDriveNoise cloud pipeline:
+  3h PPO teacher, then 3h PAdapt and 3h DOTPG students from that PPO.
+
+### What changed (files + behavior impact)
+- No code/config behavior changed in this status check.
+- Updated cloud/local handoff records with final completion status, selected checkpoints, and parsed rewards.
+
+### What was verified (commands + key outcomes)
+- Cloud status:
+  - `status/phase.txt = done`
+  - no active `python train.py`
+  - RTX 4090 D idle, about `1 MiB / 24564 MiB`, `0%`
+- Exit statuses:
+  - PPO `124`
+  - PAdapt `124`
+  - DOTPG `124`
+  - all are expected timeout completions for the requested 3h phases.
+- Selected/result checkpoints:
+  - PPO:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_noise/codrive_noise_s42_20260511_094738_ppo3h/stage1_nn/best_reward_4076.32.pth`
+  - PAdapt:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_noise/codrive_noise_s42_20260511_094738_padapt3h_from_ppo3h/stage2_nn/model_best.ckpt`
+  - DOTPG:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_noise/codrive_noise_s42_20260511_094738_dotpg3h_from_ppo3h_dual_bc5/student_output/dotpg_nn/model_best.ckpt`
+- Parsed actual training progress lines:
+  - PPO max/current best: `4076.32`
+  - PAdapt max/current best: `3501.40`
+  - DOTPG max/current best: `2631.82`
+- Tail scans of final log sections found no runtime/OOM/missing-key/size-mismatch/segfault patterns.
+
+### Remaining blocked/risky
+- The logs include startup dirty-git-diff text from before `DEXSCREW_SKIP_GIT_DIFF=1` was added; broad grep can find unrelated historical reward/error text. Real rewards above were parsed only from actual `Agent Steps: ... Current Best` progress lines.
+- These are training rewards only; for paper/deploy comparison they still need fixed-step eval and/or local visualization.
+
+### Single recommended next step
+- Sync the PPO/PAdapt/DOTPG CoDriveNoise checkpoints and YAMLs to local, then visualize the PAdapt and DOTPG students against the noised PPO teacher.
+
+---
+
+## v2-2026-05-11 -- CoDriveNoise Cloud PPO/PAdapt/DOTPG Pipeline Launched
+
+### Target milestone/subgoal
+- Add a separate CoDrive noise ablation YAML and launch cloud training:
+  PPO teacher for 3h, then PAdapt and DOTPG students for 3h each from that PPO.
+
+### What changed (files + behavior impact)
+- Restored the base CoDrive YAML to no init-pose noise:
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosNoise: [0.0, 0.0, 0.0]`
+- Added the new noise variant:
+  - `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise.yaml`
+  - `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise.yaml`
+  - `eval_cache_name: sim2real_twofinger_codrive_noise`
+  - `object.init_pos_noise: [0.005, 0.005, 0.0]`
+  - `asset.handRootPosNoise: [0.001, 0.001, 0.001]`
+- Added cloud pipeline script:
+  - `outputs/cloud_pipeline_codrive_noise_ppo3h_padapt_dotpg3h/run_codrive_noise_ppo3h_padapt_dotpg3h.sh`
+  - PPO is wrapped in its own `timeout 10800`.
+  - PAdapt and DOTPG are each wrapped in their own `timeout 10800`.
+  - The script selects the PPO teacher checkpoint explicitly from `stage1_nn/best_reward_*.pth` before starting students.
+  - The script records commands, exit statuses, GPU usage, and selected checkpoint under the pipeline directory.
+
+### What was verified (commands + key outcomes)
+- Local YAML smoke passed:
+  - `./docker-run-isaacgym.sh timeout 180 scripts/run_with_cleanup.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveNoise ... task.env.numEnvs=4 train.ppo.max_agent_steps=24`
+  - Outcome: completed with `max steps achieved`.
+- Synced config/script/source to cloud and verified cloud-side YAML values:
+  - base CoDrive remained zero-noise
+  - CoDriveNoise had object noise `[0.005, 0.005, 0.0]` and hand root noise `[0.001, 0.001, 0.001]`
+- Cloud smoke passed after sourcing the cloud IsaacGym activation:
+  - same task, `numEnvs=4`, `max_agent_steps=24`
+  - Outcome: `smoke_status=0`.
+- Launched active cloud tmux session:
+  - `codrive_noise_ppo3h_students3h_20260511_174738`
+  - Pipeline path:
+    `outputs/cloud_pipeline_codrive_noise_ppo3h_padapt_dotpg3h/codrive_noise_s42_20260511_094738/`
+- PPO startup was confirmed:
+  - phase: `ppo`
+  - GPU: about `14327 MiB / 24564 MiB`, about `67%` utilization
+  - latest startup check observed checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_noise/codrive_noise_s42_20260511_094738_ppo3h/stage1_nn/best_reward_70.57.pth`
+
+### Remaining blocked/risky
+- The 6h total pipeline is still running on cloud; PPO has not yet reached its 3h timeout in this handoff.
+- The currently active run was launched before the script was patched with `DEXSCREW_SKIP_GIT_DIFF=1`, so the PPO log has startup git-diff noise. The running training itself is unaffected.
+- Need verify after PPO exits that `selected_teacher_ckpt.txt` points to the intended best teacher, then that both PAdapt and DOTPG start.
+
+### Single recommended next step
+- Monitor `outputs/cloud_pipeline_codrive_noise_ppo3h_padapt_dotpg3h/latest/status/` on cloud until PPO exits, then confirm PAdapt and DOTPG complete their own 3h timeouts and sync the best checkpoints back for visualization.
+
+---
+
 ## v2-001 (2026-03-24) — M1 Evidence Hardening Micro-Milestone
 
 ### Target milestone/subgoal
@@ -14729,3 +15623,328 @@ Start date: 2026-03-24.
 - Visualize:
   `outputs/Dexh13HoraLightbulb_student_dagger_codrive/codrive_dagger_opt_iter3_evalsel_pure_replay_s42/dagger_nn/model_last.ckpt`
   using `scripts/vis_dexh13_lightbulb_student_dagger_codrive.sh`, then decide whether to lock this as the optimized DAgger baseline or run a multiseed fixed-step comparison.
+
+---
+
+## v2-2026-05-06 -- Cloud Handoff Added And DOTPG/Diffusion Files Synced
+
+### Target milestone/subgoal
+- Prepare the cloud machine for later Windows-side unified CoDriveThesis paper eval development without launching new eval/training in this session.
+
+### What changed (files + behavior impact)
+- Updated `AGENTS.md`.
+  - Added explicit cloud handoff expectations so Ubuntu-side and Windows-side Codex sessions can coordinate through the cloud repo.
+  - Added a cloud preflight rule: before cloud execution or preparing cloud commands, read cloud-side documentation as needed, at minimum `/root/code/dexscrew-repro/docs/cloud_session_handoff.md` when reachable.
+- Added/updated `docs/cloud_session_handoff.md`.
+  - Records live cloud state, already-completed classic baseline/eval results, known eval pitfalls, and next cloud action.
+- Synced local DOTPG/diffusion-relevant files to `cloud-training:/root/code/dexscrew-repro/`.
+  - Source: `dexscrew/dotpg/`, diffusion-class student files, eval-select/student wrapper files, `train.py`.
+  - Scripts/configs/docs: CoDriveThesis YAMLs, cloud diffusion scripts, DOTPG/diffusion docs, `thesis_reference/DOTPG-draft.md`.
+  - Selected CoDriveThesis local ckpts: PAdapt, diffusion latent, consistency latent, flow matching, diffusion action chunk, PureBC.
+
+### What was verified (commands + key outcomes)
+- Remote handoff visibility:
+  - `rsync -av AGENTS.md docs/cloud_session_handoff.md cloud-training:/root/code/dexscrew-repro/`
+  - `ssh cloud-training 'cd /root/code/dexscrew-repro && sed -n "1,220p" docs/cloud_session_handoff.md'`
+  - Outcome: cloud can read `docs/cloud_session_handoff.md`.
+- Remote artifact spot checks:
+  - Verified cloud now has DOTPG/diffusion source files, CoDriveThesis YAML/package files, teacher ckpt, and selected local CoDriveThesis student ckpts.
+- Existing cloud paper eval inspection:
+  - `outputs/paper_eval_codrive_thesis_cloud_s42_s43_s44_20260506_092231/validation_summary.txt`
+  - Outcome: `all_ok=True` for existing teacher/LatentBC/DAgger/DOTPG `2048`-step eval table.
+
+### Remaining blocked/risky
+- No new unified eval was launched because the user explicitly deferred eval to a later Windows-side cloud-development session.
+- The current clean paper eval covers only teacher/LatentBC/DAgger/DOTPG; PAdapt and diffusion-class/PureBC ckpts are now synced but still need the same fixed-step eval protocol.
+- One rsync command returned code `23` because a listed local DOTPG config path did not exist; follow-up remote spot checks confirmed the important source/config/docs/ckpt files are present.
+
+### Single recommended next step
+- In the next Windows-side cloud session, read `docs/cloud_session_handoff.md`, then extend the existing paper eval pipeline to add PAdapt, diffusion latent, consistency latent, flow matching, diffusion action chunk, and PureBC under the same `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis`, seeds `42,43,44`, `2048`-step protocol.
+
+---
+
+## v2-2026-05-06 -- Windows Handoff Eval Checkpoint Verification
+
+### Target milestone/subgoal
+- Confirm that Windows-side Codex can continue cloud paper-eval development without relying on Ubuntu-local checkpoint files.
+
+### What changed (files + behavior impact)
+- Updated `docs/cloud_session_handoff.md` with a final Windows handoff checkpoint inventory.
+- No eval/training was launched.
+
+### What was verified (commands + key outcomes)
+- Read cloud-side handoff first:
+  - `ssh cloud-training 'cd /root/code/dexscrew-repro && sed -n "1,120p" docs/cloud_session_handoff.md'`
+- Cloud status:
+  - Host: `di-20260428205452-zqhv8`
+  - GPU: RTX 4090 D, idle at about `1 MiB / 24564 MiB`, `0%`.
+- Verified all 10 next-eval checkpoints are present on cloud:
+  - PPO teacher
+  - LatentBC
+  - DAgger
+  - DOTPG
+  - PAdapt
+  - diffusion latent
+  - consistency latent
+  - flow matching
+  - diffusion action chunk
+  - PureBC
+- Existing clean paper eval remains valid:
+  - `outputs/paper_eval_codrive_thesis_cloud_s42_s43_s44_20260506_092231/validation_summary.txt`
+  - `raw_rows=12`, `expected_rows=12`, `all_ok=True`
+
+### Remaining blocked/risky
+- The clean existing eval covers only teacher/LatentBC/DAgger/DOTPG.
+- PAdapt/diffusion-class/PureBC still need the same unified fixed-step eval in the next cloud session.
+
+### Single recommended next step
+- On Windows Codex, SSH/Remote-SSH into the cloud repo, read `docs/cloud_session_handoff.md`, and extend the existing paper eval pipeline for the six remaining synced models under the same `2048`-step `s42,s43,s44` protocol.
+
+---
+
+## v2-2026-05-11 -- Cloud Paper Eval Status Readback
+
+### Target milestone/subgoal
+- Read current cloud state after Windows-side Codex ran extended CoDriveThesis paper evals, without launching new eval/training.
+
+### What changed (files + behavior impact)
+- Synced the latest cloud `docs/cloud_session_handoff.md` back to local so Ubuntu-side docs reflect Windows-side cloud work.
+- No training/eval process was started or stopped.
+
+### What was verified (commands + key outcomes)
+- Read cloud handoff first:
+  - `ssh cloud-training 'cd /root/code/dexscrew-repro && sed -n "1,260p" docs/cloud_session_handoff.md'`
+- Cloud runtime status:
+  - Cloud host: `di-20260428205452-zqhv8`
+  - GPU idle: RTX 4090 D, about `1 MiB / 24564 MiB`, `0%`
+  - No active `python train.py` process.
+  - One stale/empty tmux session remains:
+    `paper_codrive_supervisor_20260506_210723`
+- Main new cloud run:
+  - `outputs/paper_codrive_thesis_full_20260506_210723/`
+  - `status/phase.txt`: `done`
+  - `validation_summary.txt`: no bad patterns and no missing deploy ckpts.
+  - Active guard: `eval_json_count=291`, `bad_log_pattern_count=0`, `alert=ok`.
+  - Pipeline phases completed:
+    formal training, representation training, main eval, NFE/latency, representation eval, robustness, validation.
+- Main table source:
+  - `outputs/paper_codrive_thesis_full_20260506_210723/aggregate_csv/main_aggregate.csv`
+  - `outputs/paper_codrive_thesis_full_20260506_210723/tables/main_table.tex`
+
+### Key Cloud Results Observed
+- Main fixed-step ranking:
+  - `teacher_ppo`: reward `5.479`, return `3764.160`
+  - `consistency_latent`: reward `5.228`, return `3538.866`
+  - `flow_matching`: reward `5.102`, return `3428.253`
+  - `padapt`: reward `4.880`, return `3275.302`
+  - `purebc`: reward `4.817`, return `3192.494`
+  - `dagger`: reward `4.768`, return `3283.343`
+  - `diffusion_latent`: reward `4.569`, return `2934.284`
+  - `bc_latentbc`: reward `4.086`, return `2684.759`
+  - `dotpg`: reward `3.446`, return `2330.396`
+- Robustness tables exist for:
+  - nominal
+  - obs2x
+  - obs4x
+  - friction wide
+  - mass/COM wide
+  - initpos noise
+- NFE/latency tables exist for diffusion-class methods at NFE `1,2,4,8,10`.
+- Representation ablation exists for `diffusion_action_chunk` vs `diffusion_action_chunk_len1`.
+
+### Remaining blocked/risky
+- The formal training jobs were timeout-bounded and did not reach the configured `eval_select.interval_agent_steps=20000000`; manifest records a checkpoint-selection hotfix:
+  `model_best_deploy.ckpt -> model_best_train.ckpt`.
+  This deviation should be disclosed in experiment notes/paper methods.
+- `diffusion_action_chunk` remains behaviorally poor in the main/NFE tables despite valid execution.
+- `matplotlib_available=False`, so artifact generation completed but plots may be absent; tables/CSVs are present.
+- The stale tmux session can be cleaned later, but it is not consuming GPU and no train/eval process is active.
+
+### Single recommended next step
+- Treat `outputs/paper_codrive_thesis_full_20260506_210723/aggregate_csv/main_aggregate.csv` and related robustness/NFE CSVs as the current cloud-side paper data source, then decide how to present `diffusion_action_chunk` and the deploy-checkpoint symlink hotfix in the paper/appendix.
+
+---
+
+## v2-2026-05-11 -- DOTPG Checkpoints Synced From Cloud
+
+### Target milestone/subgoal
+- Bring DOTPG-related cloud checkpoints and eval artifacts back to the Ubuntu local workspace for local visualization/inspection.
+
+### What changed (files + behavior impact)
+- Synced DOTPG checkpoint/config/eval artifacts from cloud to local:
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive/`
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_thesis/`
+  - selected DOTPG cloud-pipeline logs/summaries
+  - DOTPG paper-eval logs/raw JSON/main aggregate snippets
+- No cloud training/eval was launched.
+
+### What was verified (commands + key outcomes)
+- Read cloud handoff first:
+  - `ssh cloud-training 'cd /root/code/dexscrew-repro && sed -n "1,180p" docs/cloud_session_handoff.md'`
+- Cloud status:
+  - GPU idle, no active `python train.py`.
+- Local main CoDriveThesis DOTPG checkpoint exists:
+  - `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_thesis/codrive_thesis_formal_dotpg_dual_bc5_s42/student_output/dotpg_nn/model_best.ckpt`
+- Paper eval result for this DOTPG checkpoint:
+  - fixed-step reward mean `3.4462656`
+  - done-rate mean `0.0010376`
+  - episode return mean `2330.3963`
+  - screw progress mean `2.2405`
+
+### Remaining blocked/risky
+- The existing `scripts/vis_dexh13_lightbulb_student_dotpg_codrive.sh` targets the non-thesis CoDrive task/path by default; for the synced CoDriveThesis checkpoint, use a direct `train.py` command or add a thesis-specific visualizer wrapper.
+
+### Single recommended next step
+- Visualize the main local DOTPG CoDriveThesis checkpoint:
+  `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_thesis/codrive_thesis_formal_dotpg_dual_bc5_s42/student_output/dotpg_nn/model_best.ckpt`
+
+---
+
+## v2-2026-05-11 -- DOTPG Visualization Normal-Speed Support
+
+### Target milestone/subgoal
+- Make headed policy visualization run at human-inspection normal speed by default when requested, especially for DOTPG student visual checks.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/dotpg/dotpg.py`:
+  - Added `train.dotpg.test_realtime`, `test_realtime_factor`, and `test_sleep_sec`.
+  - DOTPG `test()` can now sync playback to `env.dt * env.control_freq_inv` without changing physics or controller settings.
+- Updated `AGENTS.md`:
+  - Future headed IsaacGym visualization should default to normal real-time playback unless the user asks for fast/headless eval.
+
+### What was verified (commands + key outcomes)
+- `python -m py_compile dexscrew/dotpg/dotpg.py`
+  - Passed.
+- The CoDriveThesis task uses `sim.dt=0.005` and `controlFrequencyInv=10`, so `++train.dotpg.test_realtime=True ++train.dotpg.test_realtime_factor=1.0` targets about `0.05s` per policy step, i.e. normal 1x policy playback.
+
+### Remaining blocked/risky
+- Other student visualizers may still need equivalent realtime/sleep flags if their test loops bypass IsaacGym frame sync.
+
+### Single recommended next step
+- Use DOTPG visualization with `++train.dotpg.test_realtime=True ++train.dotpg.test_realtime_factor=1.0` for normal-speed local inspection.
+
+---
+
+## v2-2026-05-11 -- DOTPG Deploy Packs Created
+
+### Target milestone/subgoal
+- Package the two latest DOTPG-BC5 students for deployment with their matching PPO teacher and frozen YAML files.
+
+### What changed (files + behavior impact)
+- Created clean deploy folders with exactly four files each:
+  - `sim2real/deploy/dotpg_deployv1/`
+    - CoDrive task.
+    - PPO teacher `best_reward_4159.37.pth`.
+    - DOTPG student `model_best.ckpt`.
+    - Matching task/train YAMLs.
+  - `sim2real/deploy/dotpg_deployv2/`
+    - CoDriveThesis task.
+    - PPO teacher `best_reward_3655.17.pth`.
+    - DOTPG student `model_best.ckpt`.
+    - Matching task/train YAMLs.
+- Removed the temporary README files and renamed the initial `dotpg1`/`dotpg2` folders per user request.
+
+### What was verified (commands + key outcomes)
+- Verified each deploy folder contains exactly the intended four files by `find`.
+- Verified checksums match source checkpoints/YAMLs:
+  - `dotpg_deployv1/model_best.ckpt` matches `sim2real/codrive/dotpg_bc5/model_best.ckpt`.
+  - `dotpg_deployv2/model_best.ckpt` matches `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_thesis/codrive_thesis_formal_dotpg_dual_bc5_s42/student_output/dotpg_nn/model_best.ckpt`.
+
+### Remaining blocked/risky
+- These deploy folders are local; sync to cloud/other OS only if deployment will happen there.
+
+### Single recommended next step
+- Use `sim2real/deploy/dotpg_deployv1` for non-thesis CoDrive deployment and `sim2real/deploy/dotpg_deployv2` for CoDriveThesis deployment.
+
+---
+
+## v2-2026-05-11 -- CoDriveThesis Student Deploy Packs Created
+
+### Target milestone/subgoal
+- Sync the paper/eval-selected CoDriveThesis student checkpoints from cloud and package all relevant student algorithms for deployment under `sim2real/deploy`.
+
+### What changed (files + behavior impact)
+- Synced eval-selected student checkpoints from cloud to local `outputs/...` paths.
+- Created/updated deploy folders, each with exactly four files:
+  - `sim2real/deploy/bc_latentbc_deploy/`
+  - `sim2real/deploy/dagger_deploy/`
+  - `sim2real/deploy/dotpg_deployv2/`
+  - `sim2real/deploy/padapt_deploy/`
+  - `sim2real/deploy/diffusion_latent_deploy/`
+  - `sim2real/deploy/consistency_latent_deploy/`
+  - `sim2real/deploy/flow_matching_deploy/`
+  - `sim2real/deploy/diffusion_action_chunk_deploy/`
+  - `sim2real/deploy/purebc_deploy/`
+- Each CoDriveThesis deploy folder contains:
+  - `best_reward_3655.17.pth`
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.task.yaml`
+  - `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveThesis.train.yaml`
+  - `model_best.ckpt`
+- Existing `sim2real/deploy/dotpg_deployv1/` remains the non-thesis CoDrive DOTPG deploy package.
+
+### What was verified (commands + key outcomes)
+- Read cloud handoff first:
+  - `ssh cloud-training 'cd /root/code/dexscrew-repro && sed -n "1,220p" docs/cloud_session_handoff.md'`
+- Verified all cloud source checkpoints/YAMLs existed before sync.
+- Verified every deploy folder under `sim2real/deploy` has exactly four files.
+- Verified SHA256 equality between each deploy `model_best.ckpt` and its source eval checkpoint for:
+  `bc_latentbc`, `dagger`, `dotpg`, `padapt`, `diffusion_latent`, `consistency_latent`, `flow_matching`, `diffusion_action_chunk`, and `purebc`.
+
+### Remaining blocked/risky
+- `diffusion_action_chunk_deploy` is included because it is a valid eval-run student, but paper eval showed it is behaviorally poor compared with the other deploy candidates.
+- Deploy folders are local artifacts; sync them elsewhere only when deploying from that machine.
+
+### Single recommended next step
+- Use `sim2real/deploy/consistency_latent_deploy` or `sim2real/deploy/flow_matching_deploy` as the strongest student deployment candidates from the current CoDriveThesis paper eval, while keeping the other folders for controlled comparisons.
+
+---
+
+## v2-2026-05-11 -- CoDrive Working YAML Init Noise Restored
+
+### Target milestone/subgoal
+- Restore original-style small object/hand-root init-position randomization in the active CoDrive working task YAML for future PPO probes.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml` only:
+  - `env.object.init_pos_noise: [0.005, 0.005, 0.0]`
+  - `env.asset.handRootPosNoise: [0.001, 0.001, 0.001]`
+- Frozen deploy/reference packages under `sim2real/codrive` and `sim2real/deploy` were not changed.
+
+### What was verified (commands + key outcomes)
+- `git diff --check -- configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+  - Passed.
+- Confirmed the non-thesis CoDrive PPO teacher referred to by the user is the `best_reward_4159.37.pth` run, i.e. the roughly 4000-reward PPO baseline.
+
+### Remaining blocked/risky
+- This YAML change makes future training/eval distribution different from the frozen `sim2real/codrive/best_reward_4159.37.pth` teacher package unless that package is intentionally regenerated.
+
+### Single recommended next step
+- If using this noised CoDrive working YAML as a new baseline, launch a fresh PPO probe instead of treating `best_reward_4159.37.pth` as trained under the modified init-noise distribution.
+
+---
+
+## v2-2026-05-15 -- CoDriveExper Saved Initpose PPO Visualization
+
+### Target milestone/subgoal
+- Test the latest keyboard-tuned CoDrive init pose by applying it to the experimental CoDrive task YAML and driving it with the frozen roughly 4000-reward CoDrive PPO teacher.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper.yaml` only:
+  - `env.asset.handRootPos: [0.106000, 0.028000, 0.265000]`
+  - `env.asset.handRootRPY: [3.141500, 0.387266, 3.141500]`
+  - `env.asset.handInitPose` matched the latest saved file at `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper_current.yaml`.
+  - Main joint changes: `right_index_joint_0=0.3499999940`, `right_index_joint_3=0.3692995608`, `right_thumb_joint_0=-0.3499999940`.
+- The frozen pure CoDrive reference YAML/checkpoint under `sim2real/codrive` was not changed.
+
+### What was verified (commands + key outcomes)
+- Verified the saved initpose file and the edited CoDriveExper asset block with `sed`.
+- Launched headed local PPO visualization using the latest saved pose:
+  - Task: `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveExper`
+  - Checkpoint: `sim2real/codrive/best_reward_4159.37.pth`
+  - Randomization/noise disabled for visual alignment with the keyboard tuner.
+
+### Remaining blocked/risky
+- This visualization intentionally tests the frozen CoDrive PPO on a modified init pose; behavior may differ from the original training distribution.
+
+### Single recommended next step
+- Inspect the running headed viewer; if the contact geometry is good, decide whether to train a fresh CoDriveExper PPO or keep the pose only for deployment/init-pose probing.

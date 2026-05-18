@@ -31,6 +31,8 @@ When working on a remote/cloud development machine, or preparing commands to run
 
 Cloud machine detection can be based on explicit user wording, SSH aliases, remote paths such as `/root/code/dexscrew-repro`, or GPU checks such as `nvidia-smi`.
 
+Before cloud execution or preparing cloud commands, codeagent must read cloud-side documentation as needed, not only local notes. At minimum, when the cloud repo is reachable, check `/root/code/dexscrew-repro/docs/cloud_session_handoff.md` before starting or modifying cloud training/eval/sync work. Also read any cloud-side docs, manifests, status files, or pipeline logs referenced there when they are relevant to the requested task.
+
 For user requests like "train PPO for N hours, then train/distill student for M hours", codeagent must:
 
 - generate exact, copy-runnable commands or a remote script that implements the requested sequence
@@ -42,6 +44,20 @@ For user requests like "train PPO for N hours, then train/distill student for M 
 - avoid relying on `max_agent_steps: 10000000000` as a substitute for a requested wall-clock limit
 
 Remote long-running jobs should normally be launched from a script under `outputs/cloud_pipeline_*` and run in `tmux`, with logs under the same output directory.
+
+When cloud execution is used, codeagent must also update a cloud-visible handoff:
+
+- `docs/cloud_session_handoff.md`
+
+This file should live on the cloud repo as the source of truth for active/recent cloud work, so Ubuntu-side and Windows-side agents can quickly see:
+
+- active tmux sessions or confirmation that no cloud job is running
+- latest cloud pipeline path and phase/status files
+- exact teacher/student checkpoints being evaluated or trained
+- key result tables and known invalid/polluted summaries
+- the single recommended next cloud action
+
+For cloud work, update both `docs/session_handoff_v2.md` locally and `docs/cloud_session_handoff.md` on/synced to the cloud when the session produces meaningful results or changes the cloud state.
 
 Because the cloud machine usually has stronger resources than the local workstation, codeagent may choose more aggressive training settings there when the user has not pinned them exactly:
 
@@ -67,6 +83,11 @@ Codeagent may directly do:
 - documentation updates tied to real code changes
 
 No GPT escalation is needed for these if the work stays inside the current plan.
+
+## Visualization execution
+For headed IsaacGym visualization intended for human inspection, codeagent should default to normal real-time playback.
+Use algorithm-specific realtime or sleep flags when available, and avoid changing physics `dt` or controller `controlFrequencyInv` just to slow visualization.
+Fast-as-possible playback is only the default for headless numeric eval or when the user explicitly asks for speed.
 
 ## When codeagent must escalate
 Codeagent must stop and write `codeagent_issue.md` if any of the following happens:
