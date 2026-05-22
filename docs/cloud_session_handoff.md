@@ -6,6 +6,290 @@ Use this file as the first stop when switching between Ubuntu-side and Windows-s
 
 ---
 
+## 2026-05-18 -- Middle1 PPO3799 Students Synced To Ubuntu Local
+
+### Current Cloud State
+- GPU remains idle.
+- The completed Middle1 PPO3799 PAdapt/DOTPG cloud outputs have been synced to Ubuntu local.
+
+### Synced Outputs
+- PAdapt:
+  `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_padapt1h_from_ppo3799/stage2_nn/model_best.ckpt`
+- DOTPG:
+  `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_dotpg1h_from_ppo3799_dual_bc5/student_output/dotpg_nn/model_best.ckpt`
+- Pipeline logs/status:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/`
+
+### Recommended Next Action
+- Headed-visualize Middle1 PPO/PAdapt/DOTPG locally and decide which policy is worth deploying or further distilling.
+
+---
+
+## 2026-05-18 -- Middle1 PPO3799 PAdapt/DOTPG 1h Parallel Complete
+
+### Current Cloud State
+- GPU is idle:
+  `NVIDIA GeForce RTX 4090 D, 1 MiB / 24564 MiB, 0%`.
+- The tmux session `middle1_students_ppo3799_20260518_160530` has exited.
+- Pipeline:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/`
+- `status/phase.txt=done`
+
+### Teacher Checkpoint
+- Both students used the latest Middle1 NoInitNoise cloud PPO teacher:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_3799.45.pth`
+
+### Results
+- PAdapt:
+  - `padapt_exit_status=124`
+  - `padapt_timeout_status=expected_1h_timeout`
+  - max parsed `Current Best: 3236.33`
+  - checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_padapt1h_from_ppo3799/stage2_nn/model_best.ckpt`
+- DOTPG:
+  - `dotpg_exit_status=124`
+  - `dotpg_timeout_status=expected_1h_timeout`
+  - max parsed `Current Best: 2901.99`
+  - checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_dotpg1h_from_ppo3799_dual_bc5/student_output/dotpg_nn/model_best.ckpt`
+
+### Recommended Next Cloud Action
+- Sync both student output dirs and this pipeline directory to Ubuntu local, then headed-visualize the two students on `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1`.
+
+---
+
+## 2026-05-18 -- Middle1 PPO3799 PAdapt/DOTPG 1h Parallel Active
+
+### Current Cloud State
+- Active tmux session:
+  `middle1_students_ppo3799_20260518_160530`
+- Pipeline:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/`
+- `status/phase.txt`: `running_parallel`
+- Cloud GPU startup check after launch:
+  `NVIDIA GeForce RTX 4090 D, 9162 MiB / 24564 MiB, 95%`
+- Active jobs:
+  - PAdapt 1h student distillation, `task.env.numEnvs=512`, `train.ppo.minibatch_size=6144`
+  - DOTPG 1h student distillation, `task.env.numEnvs=1024`, `train.ppo.minibatch_size=12288`
+
+### Teacher Checkpoint
+- Both students use the latest Middle1 NoInitNoise cloud PPO teacher:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_3799.45.pth`
+
+### Output Targets
+- PAdapt:
+  `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_padapt1h_from_ppo3799/`
+- DOTPG:
+  `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_dotpg1h_from_ppo3799_dual_bc5/`
+
+### Logs And Status
+- PAdapt log:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/logs/padapt.log`
+- DOTPG log:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/logs/dotpg.log`
+- GPU log:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/logs/gpu_usage.csv`
+
+### Recommended Next Cloud Action
+- Let both jobs reach their expected `timeout 3600` wall-clock completion (`exit_status=124`), then sync the two student output dirs and pipeline status back to Ubuntu local for headed visualization.
+
+---
+
+## 2026-05-18 -- Cloud Status Check: No Active Cloud Training
+
+### Current Cloud State
+- GPU is idle:
+  `NVIDIA GeForce RTX 4090 D, 1 MiB / 24564 MiB, 0%`.
+- No active `train.py` / `timeout 3600` cloud training processes were found.
+
+### Middle1 Status
+- `Middle1 KeyboardLatest NoInitNoise PPO1h` completed:
+  - pipeline:
+    `outputs/cloud_pipeline_codrive_middle1_ppo1h/middle1_keyboardlatest_noinitnoise_s42_20260518_111917/`
+  - `status/phase.txt=done`
+  - `ppo_exit_status=124`
+  - `timeout_status=expected_1h_timeout`
+  - final teacher:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_3799.45.pth`
+- The planned follow-up script path exists locally in prior notes, but this cloud path did not contain a launched student-after-PPO status directory:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_115617/`.
+- Older Middle1 students from the earlier `middle1_ppo1h_s42_20260515_120420` teacher are complete:
+  - DOTPG:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_dotpg_s42_20260515_131253_dual_bc5_from_ppo1h/student_output/dotpg_nn/model_best.ckpt`
+  - PAdapt exists locally from the paired local run:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_padapt_s42_20260515_131253_from_ppo1h/stage2_nn/model_best.ckpt`
+
+### Small Status
+- `CoDriveSmall` PPO and students were run locally on Ubuntu, not on cloud:
+  - PPO final best:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_s42_20260518_120558_ppo1h/stage1_nn/best_reward_3985.40.pth`
+  - PAdapt 1h:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_padapt1h/stage2_nn/model_best.ckpt`
+  - DOTPG 1h:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_dotpg1h_dual_bc5/student_output/dotpg_nn/model_best.ckpt`
+
+### Recommended Next Cloud Action
+- If continuing Middle1, sync the final cloud PPO output back to local before visualization:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/`.
+- If continuing Small, visualize the local PAdapt/DOTPG checkpoints first; cloud is currently free for a longer follow-up run.
+
+---
+
+## 2026-05-18 -- Middle1 KeyboardLatest NoInitNoise PPO1h Active
+
+### Current Cloud State
+- Active tmux session:
+  `middle1_keyboardlatest_noinitnoise_ppo1h_20260518_111917`
+- Pipeline:
+  `outputs/cloud_pipeline_codrive_middle1_ppo1h/middle1_keyboardlatest_noinitnoise_s42_20260518_111917/`
+- `status/phase.txt`: `ppo`
+- Active command:
+  PPO teacher on `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1`
+- Output name:
+  `Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h`
+- Runtime budget:
+  `timeout 3600` wall-clock seconds.
+- Cloud resource settings:
+  - `task.env.numEnvs=12288`
+  - `train.ppo.num_actors=12288`
+  - `train.ppo.minibatch_size=24576`
+  - `num_threads=22`
+- Confirmed cloud task YAML values:
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosNoise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosZScaleComp: 0.0`
+  - `asset.handRootPos: [0.092000, 0.020000, 0.245000]`
+  - `right_index_joint_3: 0.4492996037`
+  - `right_thumb_joint_2: 0.2999999821`
+
+### Synced Files
+- `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`
+- `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`
+- `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1_current.yaml`
+- `outputs/cloud_pipeline_codrive_middle1_ppo1h/middle1_keyboardlatest_noinitnoise_s42_20260518_111917/run_middle1_keyboardlatest_noinitnoise_ppo1h_cloud.sh`
+
+### Verification
+- The previous `middle1_keyboardlatest_s42_20260518_111658` cloud run was stopped/restarted because init-pose noise was not zero.
+- Cloud startup verified:
+  - Python active under `timeout 3600`.
+  - GPU around `14313 MiB / 24564 MiB`.
+  - First best checkpoint appeared:
+    `best_reward_61.34.pth` at about 2.6 minutes elapsed.
+- Mid-run sync for local visualization:
+  - Cloud was still active: `phase=ppo`.
+  - GPU around `14313 MiB / 24564 MiB`.
+  - Synced current output to Ubuntu local.
+  - Latest synced checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_2807.89.pth`.
+
+### Recommended Next Cloud Action
+- Let this no-noise Middle1 PPO run to expected 1h timeout (`ppo_exit_status=124`), then sync:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/`
+- Visualize the final `stage1_nn/best_reward_*.pth`.
+
+---
+
+## 2026-05-18 -- Pure CoDrive Reprobe PPO1h Active
+
+### Current Cloud State
+- Active tmux session:
+  `codrive_reprobe_ppo1h_20260518_105210`
+- Pipeline:
+  `outputs/cloud_pipeline_codrive_reprobe_ppo1h/codrive_reprobe_s42_20260518_105210/`
+- `status/phase.txt`: `ppo`
+- Active command:
+  PPO teacher on `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`
+- Output name:
+  `Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/codrive_reprobe_s42_20260518_105210_ppo1h`
+- Runtime budget:
+  `timeout 3600` wall-clock seconds.
+- Cloud resource settings:
+  - `task.env.numEnvs=12288`
+  - `train.ppo.num_actors=12288`
+  - `train.ppo.minibatch_size=24576`
+  - `num_threads=22`
+
+### Synced Files
+- `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+- `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`
+- `outputs/cloud_pipeline_codrive_reprobe_ppo1h/codrive_reprobe_s42_20260518_105210/run_codrive_reprobe_ppo1h_cloud.sh`
+
+### Verification
+- Previous `Index112 NoInitNoise` cloud PPO was manually stopped by user request.
+  - Stop time: `2026-05-18T02:51:59+00:00`.
+  - Last observed best before stop:
+    `best_reward_3360.56.pth`.
+  - `status/phase.txt`: `stopped_manual`.
+- Pure CoDrive YAML was compared against the deployment copy under local `configs/codrive/`.
+  - Task YAML SHA256 matched exactly.
+  - Train YAML SHA256 matched exactly.
+- Pure CoDrive cloud startup verified:
+  - Python active under `timeout 3600`.
+  - GPU around `14329 MiB / 24564 MiB`.
+  - First best checkpoint appeared:
+    `best_reward_65.72.pth` at about 3 minutes elapsed.
+
+### Recommended Next Cloud Action
+- Let the pure CoDrive reprobe run to the expected 1h timeout (`ppo_exit_status=124`), then sync:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/codrive_reprobe_s42_20260518_105210_ppo1h/`
+- Compare the final best against the historical deploy teacher:
+  `configs/codrive/best_reward_4159.37.pth`.
+
+---
+
+## 2026-05-18 -- CoDriveMiddle1 Index112 NoInitNoise PPO1h Active
+
+### Current Cloud State
+- Active tmux session:
+  `middle1_index112_noinitnoise_ppo1h_20260518_101206`
+- Pipeline:
+  `outputs/cloud_pipeline_codrive_middle1_index112_noinitnoise_ppo1h/middle1_index112_noinitnoise_s42_20260518_101206/`
+- `status/phase.txt`: `ppo`
+- Active command:
+  PPO teacher on `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1Index112NoInitNoise`
+- Output name:
+  `Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1_index112_noinitnoise/middle1_index112_noinitnoise_s42_20260518_101206_ppo1h`
+- Runtime budget:
+  `timeout 3600` wall-clock seconds.
+- Cloud resource settings:
+  - `task.env.numEnvs=12288`
+  - `train.ppo.num_actors=12288`
+  - `train.ppo.minibatch_size=24576`
+  - `num_threads=22`
+- Isolation variables relative to current Middle1:
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosNoise: [0.0, 0.0, 0.0]`
+  - `right_index_joint_3: 1.1200000000`
+  - `asset.handRootPosZScaleComp` remains `0.0`
+
+### Synced Files
+- `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1Index112NoInitNoise.yaml`
+- `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1Index112NoInitNoise.yaml`
+- `outputs/cloud_pipeline_codrive_middle1_index112_noinitnoise_ppo1h/middle1_index112_noinitnoise_s42_20260518_101206/run_middle1_index112_noinitnoise_ppo1h_cloud.sh`
+
+### Verification
+- Cloud handoff was read before launch.
+- Cloud was idle before launch: RTX 4090 D around `1 MiB / 24564 MiB`.
+- Startup health verified after launch:
+  - Python active under `timeout 3600`
+  - GPU around `14339 MiB / 24564 MiB`
+  - first best checkpoint appeared and continued updating:
+    `best_reward_117.90.pth` at about 3.6 minutes elapsed.
+- 30min visual-check sync:
+  - `phase=ppo`, cloud training still active.
+  - GPU around `14339 MiB / 24564 MiB`.
+  - best at about 30.5 minutes:
+    `best_reward_3237.63.pth`.
+  - local sync pulled the slightly newer checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1_index112_noinitnoise/middle1_index112_noinitnoise_s42_20260518_101206_ppo1h/stage1_nn/best_reward_3255.81.pth`.
+
+### Recommended Next Cloud Action
+- Local 30min checkpoint is ready for headed visualization:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1_index112_noinitnoise/middle1_index112_noinitnoise_s42_20260518_101206_ppo1h/`
+- If waiting for full completion, expect `ppo_exit_status=124` as the correct 1h timeout result.
+
+---
+
 ## 2026-05-15 -- CoDriveMiddle1 Latest Initpose PPO1h Completed And Synced
 
 ### Current Cloud State

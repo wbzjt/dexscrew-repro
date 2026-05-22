@@ -3,6 +3,546 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-05-18 -- Build Middle/Small PAdapt-DOTPG Deploy Packs
+
+### Target milestone/subgoal
+- Package the current Middle1 and Small1 PAdapt/DOTPG deployment artifacts under `sim2real/deploy` using the existing deploy directory format.
+
+### What changed (files + behavior impact)
+- Added Middle1 deploy pack:
+  - `sim2real/deploy/codrive_middle/padapt_deploy/`
+  - `sim2real/deploy/codrive_middle/dotpg_deploy/`
+- Added Small deploy pack:
+  - `sim2real/deploy/codrive_small/padapt_deploy/`
+  - `sim2real/deploy/codrive_small/dotpg_deploy/`
+- Each deploy subdirectory contains exactly:
+  - the task YAML used by the corresponding training/distillation run
+  - the train YAML used by the corresponding training/distillation run
+  - the PPO teacher `best_reward_*.pth`
+  - the student `model_best.ckpt`
+
+### What was verified (commands + key outcomes)
+- Verified every deploy subdirectory has the expected four-file layout.
+- Middle1 deploy artifacts use:
+  - PPO teacher `best_reward_3799.45.pth`
+  - PAdapt `Current Best: 3236.33`
+  - DOTPG `Current Best: 2901.99`
+- Small deploy artifacts use the already-distilled Small PPO3985 run:
+  - PPO teacher `best_reward_3985.40.pth`
+  - PAdapt `Current Best: 3464.36`
+  - DOTPG `Current Best: 3048.75`
+- Small deploy uses the saved `*.yaml.used` from the PPO3985 student pipeline, because the live `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml` was modified later for a different PPO-only run.
+
+### Remaining blocked/risky
+- The later Small PPO-only checkpoint `best_reward_3838.03.pth` has no corresponding PAdapt/DOTPG students yet, so it was not used for this deploy pack.
+
+### Single recommended next step
+- Use the deploy packs for local visualization/deployment checks, starting with `codrive_middle/padapt_deploy` and `codrive_small/padapt_deploy`.
+
+---
+
+## v2-2026-05-18 -- Sync Middle1 PPO3799 Students Locally
+
+### Target milestone/subgoal
+- Sync the completed cloud PAdapt/DOTPG students distilled from the latest `middle1_keyboardlatest_noinitnoise` PPO teacher to Ubuntu local and prepare headed visualization commands.
+
+### What changed (files + behavior impact)
+- Synced cloud PAdapt output locally:
+  `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_padapt1h_from_ppo3799/`.
+- Synced cloud DOTPG output locally:
+  `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_dotpg1h_from_ppo3799_dual_bc5/`.
+- Synced cloud pipeline logs/status locally:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/`.
+
+### What was verified (commands + key outcomes)
+- Local checkpoint files exist:
+  - PPO teacher:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_3799.45.pth`.
+  - PAdapt student:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_padapt1h_from_ppo3799/stage2_nn/model_best.ckpt`.
+  - DOTPG student:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_dotpg1h_from_ppo3799_dual_bc5/student_output/dotpg_nn/model_best.ckpt`.
+- Synced status confirms:
+  - PAdapt `Current Best: 3236.33`, `exit_status=124`.
+  - DOTPG `Current Best: 2901.99`, `exit_status=124`.
+
+### Remaining blocked/risky
+- The two synced student checkpoints still need headed visualization to judge behavior quality.
+
+### Single recommended next step
+- Run the three headed visualization commands for Middle1 PPO/PAdapt/DOTPG and compare policy behavior.
+
+---
+
+## v2-2026-05-18 -- Middle1 PPO3799 Students Cloud Complete
+
+### Target milestone/subgoal
+- Check completion status for the cloud PAdapt/DOTPG distillation jobs launched from the latest `middle1_keyboardlatest_noinitnoise` PPO teacher.
+
+### What changed (files + behavior impact)
+- Updated `docs/cloud_session_handoff.md` to mark the cloud jobs complete and record final checkpoints.
+
+### What was verified (commands + key outcomes)
+- Cloud pipeline:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/`.
+- `status/phase.txt=done`.
+- Cloud GPU idle after completion:
+  `NVIDIA GeForce RTX 4090 D, 1 MiB / 24564 MiB, 0%`.
+- PAdapt:
+  - `padapt_exit_status=124`
+  - max parsed `Current Best: 3236.33`
+  - checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_padapt1h_from_ppo3799/stage2_nn/model_best.ckpt`.
+- DOTPG:
+  - `dotpg_exit_status=124`
+  - max parsed `Current Best: 2901.99`
+  - checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530_dotpg1h_from_ppo3799_dual_bc5/student_output/dotpg_nn/model_best.ckpt`.
+
+### Remaining blocked/risky
+- The new student checkpoints are still on the cloud and have not yet been synced locally for headed visualization.
+
+### Single recommended next step
+- Sync the new PAdapt/DOTPG Middle1 student output dirs locally and run headed visualization.
+
+---
+
+## v2-2026-05-18 -- CoDriveSmall Saved InitPose PPO1h Local Complete
+
+### Target milestone/subgoal
+- Apply the latest keyboard-saved `CoDriveSmall` init pose to the task YAML and run a local 1h PPO teacher training.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml` from:
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall_current.yaml`.
+  - `handRootPos: [0.100000, 0.036000, 0.247000]`
+  - `handRootRPY: [3.141500, 0.439627, 3.141500]`
+  - `right_thumb_joint_2: 0.5600000024`
+  - `right_thumb_joint_3: 0.3919662833`
+- Added local PPO pipeline script:
+  `outputs/local_pipeline_codrive_small_ppo1h/codrive_small_keyboardlatest_y036_thumb056_s42_20260518_161335/run_codrive_small_ppo1h_local.sh`.
+- PPO output:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_y036_thumb056_s42_20260518_161335_ppo1h/`.
+
+### What was verified (commands + key outcomes)
+- Local 1h PPO command completed under `timeout 3600`:
+  - `ppo_exit_status=124`
+  - `timeout_status=expected_1h_timeout`
+  - resource settings: `task.env.numEnvs=8192`, `train.ppo.num_actors=8192`, `train.ppo.minibatch_size=16384`, `num_threads=16`
+- Best checkpoint:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_y036_thumb056_s42_20260518_161335_ppo1h/stage1_nn/best_reward_3838.03.pth`.
+- End-of-run process check showed no remaining local `codrive_small_keyboardlatest_y036_thumb056` training process; GPU memory returned to about `1272 MiB / 16376 MiB`.
+
+### Remaining blocked/risky
+- This PPO has not yet been headed-visualized.
+- It is slightly below the previous `CoDriveSmall` PPO best `3985.40`, so visual behavior should decide whether the new hand-root/thumb pose is preferable.
+
+### Single recommended next step
+- Headed-visualize:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_y036_thumb056_s42_20260518_161335_ppo1h/stage1_nn/best_reward_3838.03.pth`.
+
+---
+
+## v2-2026-05-18 -- CoDriveSmall InitPose Tuner Inspection
+
+### Target milestone/subgoal
+- Open the keyboard-controlled init-pose tuner for `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall` so the user can inspect/adjust the Small PPO initial pose.
+
+### What changed (files + behavior impact)
+- The tuner saved a new snippet to:
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall_current.yaml`.
+- The task YAML was not overwritten in this step.
+
+### What was verified (commands + key outcomes)
+- Ran:
+  `./docker-run-isaacgym.sh python scripts/tune_dexh13_lightbulb_initpose.py --task Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall --gpu 0 --seed 42 --out outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall_current.yaml`.
+- The tuner forced clean one-env inspection and disabled init/noise randomization for viewing.
+- Final saved values:
+  - `handRootPos: [0.100000, 0.036000, 0.247000]`
+  - `handRootRPY: [3.141500, 0.439627, 3.141500]`
+  - `right_thumb_joint_2: 0.5600000024`
+  - `right_thumb_joint_3: 0.3919662833`
+
+### Remaining blocked/risky
+- The saved snippet has not yet been applied to `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml`.
+
+### Single recommended next step
+- If this pose looked correct, apply the saved snippet to the Small task YAML before any new Small PPO/student training.
+
+---
+
+## v2-2026-05-18 -- Launch Middle1 PPO3799 Student Distillation On Cloud
+
+### Target milestone/subgoal
+- Correct the missing student follow-up for the latest cloud Middle1 NoInitNoise PPO teacher by launching PAdapt and DOTPG distillation in parallel on the cloud.
+
+### What changed (files + behavior impact)
+- Added and synced cloud launch script:
+  `outputs/cloud_pipeline_codrive_middle1_students_after_noinitnoise1h/middle1_keyboardlatest_noinitnoise_students_s42_20260518_160530/run_middle1_students_after_noinitnoise1h_cloud.sh`.
+- Updated `docs/cloud_session_handoff.md` with the active tmux session and cloud output paths.
+
+### What was verified (commands + key outcomes)
+- Confirmed local/cloud Middle1 task and train YAML SHA256 match.
+- Confirmed teacher checkpoint exists on cloud:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_3799.45.pth`.
+- Launched cloud tmux session:
+  `middle1_students_ppo3799_20260518_160530`.
+- Startup check showed both `train.py` jobs active:
+  - PAdapt: `task.env.numEnvs=512`, `train.ppo.minibatch_size=6144`
+  - DOTPG: `task.env.numEnvs=1024`, `train.ppo.minibatch_size=12288`
+- Initial GPU after launch:
+  `NVIDIA GeForce RTX 4090 D, 9162 MiB / 24564 MiB, 95%`.
+
+### Remaining blocked/risky
+- Jobs are still running. Expected successful wall-clock completion is `timeout` exit code `124` for each phase.
+
+### Single recommended next step
+- After about 1h, check `status/padapt_exit_status.txt` and `status/dotpg_exit_status.txt`; if both are `124`, sync the two student output dirs locally and visualize.
+
+---
+
+## v2-2026-05-18 -- Sync Six Middle/Small Visualization Checkpoints
+
+### Target milestone/subgoal
+- Sync/verify the six current `middle1` and `small` PPO/student checkpoints locally and prepare headed visualization commands.
+
+### What changed (files + behavior impact)
+- Synced final cloud `middle1_keyboardlatest_noinitnoise` PPO output locally:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/`.
+- Synced its cloud pipeline status/log folder locally:
+  `outputs/cloud_pipeline_codrive_middle1_ppo1h/middle1_keyboardlatest_noinitnoise_s42_20260518_111917/`.
+
+### What was verified (commands + key outcomes)
+- Verified the six local checkpoints exist:
+  - Middle1 PPO:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_3799.45.pth`.
+  - Middle1 PAdapt:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_middle1/middle1_padapt_s42_20260515_131253_from_ppo1h/stage2_nn/model_best.ckpt`.
+  - Middle1 DOTPG:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_middle1/middle1_dotpg_s42_20260515_131253_dual_bc5_from_ppo1h/student_output/dotpg_nn/model_best.ckpt`.
+  - Small PPO:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_s42_20260518_120558_ppo1h/stage1_nn/best_reward_3985.40.pth`.
+  - Small PAdapt:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_padapt1h/stage2_nn/model_best.ckpt`.
+  - Small DOTPG:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_dotpg1h_dual_bc5/student_output/dotpg_nn/model_best.ckpt`.
+
+### Remaining blocked/risky
+- Middle1 PAdapt/DOTPG are from the older `middle1_ppo1h_s42_20260515_120420` teacher (`best_reward_3783.10.pth`), not from the latest `middle1_keyboardlatest_noinitnoise` teacher (`best_reward_3799.45.pth`).
+
+### Single recommended next step
+- Run the headed visualization commands for the six checkpoints and decide whether the latest Middle1 teacher also needs fresh PAdapt/DOTPG distillation.
+
+---
+
+## v2-2026-05-18 -- Status Check Middle1 And Small
+
+### Target milestone/subgoal
+- Confirm whether the recent `middle1` and `small` train/distill jobs have completed and whether cloud is still busy.
+
+### What changed (files + behavior impact)
+- Updated `docs/cloud_session_handoff.md` with a new top status entry correcting stale cloud "active" notes.
+
+### What was verified (commands + key outcomes)
+- Local process check:
+  - no active local `train.py` / `timeout 3600` training processes remained.
+- Local `CoDriveSmall`:
+  - PPO done:
+    `ppo_exit_status=124`, `timeout_status=expected_1h_timeout`, best:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_s42_20260518_120558_ppo1h/stage1_nn/best_reward_3985.40.pth`.
+  - PAdapt done:
+    max parsed `Current Best: 3464.36`, ckpt:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_padapt1h/stage2_nn/model_best.ckpt`.
+  - DOTPG done:
+    max parsed `Current Best: 3048.75`, ckpt:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_dotpg1h_dual_bc5/student_output/dotpg_nn/model_best.ckpt`.
+- Cloud:
+  - GPU idle: `NVIDIA GeForce RTX 4090 D, 1 MiB / 24564 MiB, 0%`.
+  - no active cloud `train.py` / `timeout 3600` processes found.
+  - `Middle1 KeyboardLatest NoInitNoise PPO1h` done on cloud:
+    `ppo_exit_status=124`, best:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_3799.45.pth`.
+
+### Remaining blocked/risky
+- Local only has the mid-run synced `middle1_keyboardlatest_noinitnoise` checkpoint `best_reward_2807.89.pth`; the final cloud `best_reward_3799.45.pth` has not yet been synced back locally.
+- The latest `middle1_keyboardlatest_noinitnoise` PPO did not automatically launch PAdapt/DOTPG student distillation; the older Middle1 PAdapt/DOTPG artifacts are from the earlier `middle1_ppo1h_s42_20260515_120420` teacher.
+
+### Single recommended next step
+- Sync the final cloud `middle1_keyboardlatest_noinitnoise` PPO output locally if it should be visualized or used for new student distillation.
+
+---
+
+## v2-2026-05-18 -- CoDriveSmall PAdapt/DOTPG Student1h Local Complete
+
+### Target milestone/subgoal
+- Distill the local `CoDriveSmall` PPO teacher `best_reward_3985.40.pth` into PAdapt and DOTPG students, each for a full 1h wall-clock window.
+
+### What changed (files + behavior impact)
+- Added local student pipeline script:
+  `outputs/local_pipeline_codrive_small_students1h/codrive_small_students_from_ppo3985_s42_20260518_131156/run_codrive_small_students1h_local.sh`.
+- Teacher checkpoint used:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_s42_20260518_120558_ppo1h/stage1_nn/best_reward_3985.40.pth`.
+- PAdapt output:
+  `outputs/Dexh13HoraLightbulb_student_padapt_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_padapt1h/`.
+- DOTPG output:
+  `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_dotpg1h_dual_bc5/`.
+  - DOTPG variant: `policy_arch=teacher_actor`, `policy_init_from_teacher=True`, `policy_loss_mode=dual`, `bc_coef=5.0`, `bc_pretrain_steps=3000`, GPU fp16 buffers.
+
+### What was verified (commands + key outcomes)
+- Sequential local run completed:
+  - `padapt_exit_status=124`, `padapt_timeout_status=expected_1h_timeout`
+  - `dotpg_exit_status=124`, `dotpg_timeout_status=expected_1h_timeout`
+  - `status/phase.txt=done`
+- PAdapt:
+  - max parsed `Current Best: 3464.36`
+  - checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_padapt_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_padapt1h/stage2_nn/model_best.ckpt`
+  - GPU memory about `4.0-4.2GB`.
+- DOTPG:
+  - max parsed `Current Best: 3048.75`
+  - checkpoint:
+    `outputs/Dexh13HoraLightbulb_student_dotpg_codrive_small/codrive_small_students_from_ppo3985_s42_20260518_131156_dotpg1h_dual_bc5/student_output/dotpg_nn/model_best.ckpt`
+  - GPU memory about `7.2-7.4GB`.
+
+### Remaining blocked/risky
+- These are training-reward selections only. Headed visualization is still needed to judge actual two-finger behavior and deployment suitability.
+
+### Single recommended next step
+- Headed-visualize both student checkpoints on `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall`, starting with PAdapt because it reached the higher training best.
+
+---
+
+## v2-2026-05-18 -- CoDriveSmall KeyboardLatest PPO1h Local Complete
+
+### Target milestone/subgoal
+- Apply the latest keyboard-saved `CoDriveSmall` init pose and run a local 1h PPO teacher probe.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml` from:
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall_current.yaml`.
+  - `handRootPos: [0.100000, 0.026000, 0.247000]`
+  - `handRootRPY: [3.141500, 0.439627, 3.141500]`
+  - index joints: `[0.3499999940, 0.9252794981, 0.1628971249, 0.2492995113]`
+  - thumb joints: `[0.1299999952, 1.5700000525, 0.4800000787, 0.4119662941]`
+- The `CoDriveSmall` task now uses the RealBulb-style small-object scale setup:
+  - `env.object.type: screw_realbulb`
+  - `baseObjScale: 1.00`
+  - scale randomization window `0.95-1.05`
+  - no init pose noise: `object.init_pos_noise: [0.0, 0.0, 0.0]`, `handRootPosNoise: [0.0, 0.0, 0.0]`, `handRootPosZScaleComp: 0.0`
+- Added local PPO pipeline output:
+  `outputs/local_pipeline_codrive_small_ppo1h/codrive_small_keyboardlatest_s42_20260518_120558/`.
+
+### What was verified (commands + key outcomes)
+- Local 1h PPO command completed under `timeout 3600`:
+  - `ppo_exit_status=124`
+  - `timeout_status=expected_1h_timeout`
+  - `status/phase.txt=done`
+- Training used local RTX 4080 SUPER with:
+  - `task.env.numEnvs=8192`
+  - `train.ppo.num_actors=8192`
+  - `train.ppo.minibatch_size=16384`
+  - observed GPU memory about `11.5GB / 16GB`, FPS about `21.8k`
+- Final best teacher checkpoint:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_small/codrive_small_keyboardlatest_s42_20260518_120558_ppo1h/stage1_nn/best_reward_3985.40.pth`.
+
+### Remaining blocked/risky
+- The reward is close to the historical pure CoDrive 4000-range PPO, but behavior still needs headed visualization to verify whether the index finger assists rotation.
+
+### Single recommended next step
+- Visualize `best_reward_3985.40.pth` for `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall` and decide whether to launch student distillation from this PPO.
+
+---
+
+## v2-2026-05-18 -- CoDriveSmall YAML Derived From Middle1
+
+### Target milestone/subgoal
+- Create a `CoDriveSmall` task variant from the current no-noise Middle1 YAML, changing only the loaded bulb asset to the RealBulb asset path/type.
+
+### What changed (files + behavior impact)
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml`.
+  - Derived from current `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`.
+  - `eval_cache_name: sim2real_twofinger_codrive_small`.
+  - `env.object.type: screw_realbulb`.
+  - All other Middle1 settings are preserved, including:
+    `baseObjScale=1.20`, scale randomization `1.15-1.25`, no init-pose noise, current keyboard-saved hand pose, reward settings, and joint limits.
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml`.
+  - Byte-identical to the Middle1 train YAML.
+
+### What was verified (commands + key outcomes)
+- `diff -u configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml`
+  - Only `eval_cache_name` and `env.object.type` differ.
+- `diff -u configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall.yaml`
+  - No differences.
+
+### Remaining blocked/risky
+- `screw_realbulb` is the real-size URDF asset used by the previous RealBulb task. Keeping Middle1's `baseObjScale=1.20` and `randomizeScale=1.15-1.25` is a literal "only change asset" variant, but it may not match the older RealBulb task's intended `baseObjScale=1.00` and `0.95-1.05` scale window.
+
+### Single recommended next step
+- Run a headed one-env check for `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveSmall` and decide whether the asset-only variant or the RealBulb-style scale window is the desired experiment.
+
+---
+
+## v2-2026-05-18 -- Middle1 KeyboardLatest NoInitNoise PPO1h Cloud Active
+
+### Target milestone/subgoal
+- Apply the latest keyboard-saved Middle1 init pose, force init-pose noise/Z scale compensation to zero, and train a 1h PPO teacher on cloud.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml` from:
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1_current.yaml`.
+  - `handRootPos: [0.092000, 0.020000, 0.245000]`
+  - `handRootRPY: [3.141500, 0.439627, 3.141500]`
+  - index joints: `[0.3499999940, 0.9052795172, 0.1628971249, 0.4492996037]`
+  - thumb joints: `[0.1299999952, 1.5700000525, 0.2999999821, 0.5719662905]`
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosNoise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosZScaleComp: 0.0`
+- Added cloud PPO script:
+  `outputs/cloud_pipeline_codrive_middle1_ppo1h/middle1_keyboardlatest_noinitnoise_s42_20260518_111917/run_middle1_keyboardlatest_noinitnoise_ppo1h_cloud.sh`.
+  - Output:
+    `Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h`.
+  - Uses `timeout 3600`, `task.env.numEnvs=12288`, `train.ppo.num_actors=12288`, `train.ppo.minibatch_size=24576`, `num_threads=22`.
+
+### What was verified (commands + key outcomes)
+- Read cloud handoff before cloud execution.
+- Pure CoDrive reprobe was stopped to free the GPU:
+  - last observed partial best:
+    `best_reward_2848.31.pth`.
+- The first `middle1_keyboardlatest_s42_20260518_111658` cloud run was stopped/restarted because init-pose noise was not zero.
+- Local and cloud YAML were verified for the restarted run:
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosNoise: [0.0, 0.0, 0.0]`
+  - `asset.handRootPosZScaleComp: 0.0`
+- Synced task/train YAML, latest tuner output, and cloud script to `/root/code/dexscrew-repro`.
+- Launched cloud tmux session:
+  `middle1_keyboardlatest_noinitnoise_ppo1h_20260518_111917`.
+- Startup health verified:
+  - `status/phase.txt`: `ppo`
+  - Python active under `timeout 3600`
+  - GPU around `14313 MiB / 24564 MiB`
+  - first best checkpoint:
+    `best_reward_61.34.pth` at about 2.6 minutes elapsed.
+- Mid-run sync for visualization:
+  - Cloud still active: `phase=ppo`.
+  - GPU around `14313 MiB / 24564 MiB`.
+  - Latest synced checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/stage1_nn/best_reward_2807.89.pth`.
+
+### Remaining blocked/risky
+- Training is still running; final `ppo_exit_status` and final best reward are not known yet.
+- Need final sync/visualization after completion.
+
+### Single recommended next step
+- Let this no-noise Middle1 PPO run to the expected 1h timeout, then sync:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1/middle1_keyboardlatest_noinitnoise_s42_20260518_111917_ppo1h/`
+  and visualize the final best checkpoint.
+
+---
+
+## v2-2026-05-18 -- Pure CoDrive Reprobe PPO1h Cloud Active
+
+### Target milestone/subgoal
+- Stop the weak-looking Middle1 `Index112 NoInitNoise` isolation PPO and re-run the original/pure CoDrive PPO for 1h to test whether the historical CoDrive behavior/reward is reproducible.
+
+### What changed (files + behavior impact)
+- Added cloud PPO script:
+  `outputs/cloud_pipeline_codrive_reprobe_ppo1h/codrive_reprobe_s42_20260518_105210/run_codrive_reprobe_ppo1h_cloud.sh`.
+  - Task: `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive`.
+  - Output:
+    `Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/codrive_reprobe_s42_20260518_105210_ppo1h`.
+  - Uses `timeout 3600`, `task.env.numEnvs=12288`, `train.ppo.num_actors=12288`, `train.ppo.minibatch_size=24576`, `num_threads=22`.
+
+### What was verified (commands + key outcomes)
+- User-requested stop of the active `Index112 NoInitNoise` run completed.
+  - Cloud GPU returned to idle before launching pure CoDrive.
+  - Stop status:
+    `outputs/cloud_pipeline_codrive_middle1_index112_noinitnoise_ppo1h/middle1_index112_noinitnoise_s42_20260518_101206/status/phase.txt = stopped_manual`.
+  - Last observed best before stop:
+    `best_reward_3360.56.pth`.
+- Local deployment copy check:
+  - `configs/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml` is byte-identical to `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`.
+  - `configs/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml` is byte-identical to `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml`.
+  - Task SHA256:
+    `019876eaf3de4c8bbc2180886fd90ec406b753a8cdbfce72a198c31b790c6e62`.
+  - Train SHA256:
+    `07f2903dd9aa511c44e358757a322cf361323b2876a5c2e15f507e627ce2a627`.
+- Synced pure CoDrive task/train YAML and cloud script to `/root/code/dexscrew-repro`.
+- Launched cloud tmux session:
+  `codrive_reprobe_ppo1h_20260518_105210`.
+- Startup health verified:
+  - `status/phase.txt`: `ppo`
+  - Python active under `timeout 3600`
+  - GPU around `14329 MiB / 24564 MiB`
+  - first best checkpoint appeared:
+    `best_reward_65.72.pth` at about 3 minutes elapsed.
+
+### Remaining blocked/risky
+- Pure CoDrive reprobe is still running; final `ppo_exit_status` and final best reward are not known yet.
+- Need final sync/visualization after completion.
+
+### Single recommended next step
+- Let pure CoDrive run to the expected 1h timeout, then sync:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive/codrive_reprobe_s42_20260518_105210_ppo1h/`
+  and visualize the final `stage1_nn/best_reward_*.pth`.
+
+---
+
+## v2-2026-05-18 -- CoDriveMiddle1 Index112 NoInitNoise PPO1h Cloud Active
+
+### Target milestone/subgoal
+- Run an isolation PPO teacher experiment on cloud for the Middle1 contact geometry:
+  close initial pose noise and set `right_index_joint_3=1.12`, then inspect behavior around the 30min mark.
+
+### What changed (files + behavior impact)
+- Added isolated task YAML:
+  `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1Index112NoInitNoise.yaml`.
+  - Derived from `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1.yaml`.
+  - `object.init_pos_noise: [0.0, 0.0, 0.0]`.
+  - `asset.handRootPosNoise: [0.0, 0.0, 0.0]`.
+  - `right_index_joint_3: 1.1200000000`.
+  - Preserves `asset.handRootPosZScaleComp: 0.0`.
+  - Preserves scale/mass/friction/PD/reward/action settings from Middle1.
+- Added matching train YAML:
+  `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveMiddle1Index112NoInitNoise.yaml`.
+- Added cloud PPO script:
+  `outputs/cloud_pipeline_codrive_middle1_index112_noinitnoise_ppo1h/middle1_index112_noinitnoise_s42_20260518_101206/run_middle1_index112_noinitnoise_ppo1h_cloud.sh`.
+  - Output:
+    `Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1_index112_noinitnoise/middle1_index112_noinitnoise_s42_20260518_101206_ppo1h`.
+  - Uses `timeout 3600`, `task.env.numEnvs=12288`, `train.ppo.num_actors=12288`, `train.ppo.minibatch_size=24576`, `num_threads=22`.
+
+### What was verified (commands + key outcomes)
+- Read local `docs/session_handoff_v2.md` and `docs/stage_acceptance_summary.md`.
+- Read cloud `/root/code/dexscrew-repro/docs/cloud_session_handoff.md` before launch.
+- Cloud was idle before launch: RTX 4090 D around `1 MiB / 24564 MiB`.
+- Synced task/train YAML and cloud script to `/root/code/dexscrew-repro/`.
+- Launched cloud tmux session:
+  `middle1_index112_noinitnoise_ppo1h_20260518_101206`.
+- Startup health verified:
+  - `status/phase.txt`: `ppo`
+  - Python active under `timeout 3600`
+  - GPU around `14339 MiB / 24564 MiB`
+  - first best checkpoint appeared and advanced to about:
+    `best_reward_117.90.pth` at about 3.6 minutes elapsed.
+- 30min check:
+  - `phase=ppo`, cloud training still active.
+  - best at about 20min: `best_reward_2818.47.pth`.
+  - best at about 30.5min: `best_reward_3237.63.pth`.
+  - Synced active PPO output/pipeline back to local.
+  - Local latest synced checkpoint:
+    `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1_index112_noinitnoise/middle1_index112_noinitnoise_s42_20260518_101206_ppo1h/stage1_nn/best_reward_3255.81.pth`.
+- Updated cloud-visible handoff:
+  `docs/cloud_session_handoff.md`.
+
+### Remaining blocked/risky
+- Training is still running; final `ppo_exit_status` is not known yet.
+- The 30min visual check requires syncing the active output directory and launching a local headed viewer against the newest/best checkpoint.
+
+### Single recommended next step
+- Headed-visualize the 30min synced checkpoint:
+  `outputs/Dexh13HoraLightbulb_teacher_sim2real_twofinger_codrive_middle1_index112_noinitnoise/middle1_index112_noinitnoise_s42_20260518_101206_ppo1h/stage1_nn/best_reward_3255.81.pth`.
+
+---
+
 ## v2-2026-05-18 -- Git Ignore Tightened For Experiment Artifacts
 
 ### Target milestone/subgoal

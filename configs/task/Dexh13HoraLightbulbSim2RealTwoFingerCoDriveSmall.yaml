@@ -1,7 +1,7 @@
 name: Dexh13HoraLightbulb
 physics_engine: ${..physics_engine}
 on_evaluation: False
-eval_cache_name: sim2real_twofinger_codrive_middle1
+eval_cache_name: sim2real_twofinger_codrive_small
 
 env:
   initPose: 'screwdriver_inclined'
@@ -193,7 +193,7 @@ env:
 
   # Start from the current best scaled/positioned bulb geometry, but remove
   # middle/ring as active contributors for a stable thesis two-finger finish.
-  baseObjScale: 1.20
+  baseObjScale: 1.00
   randomization:
     randomizeMass: True
     randomizeMassLower: 0.04
@@ -212,12 +212,12 @@ env:
     randomize_hand_scale: False
     scaleListInit: True
     # Task code samples each listed center with roughly +/-0.025.
-    # These centers therefore cover approximately 1.15-1.25.
-    randomizeScaleList: [1.175, 1.225]
-    randomizeScaleMin: 1.15
-    randomizeScaleMax: 1.25
-    randomizeScaleLower: 1.15
-    randomizeScaleUpper: 1.25
+    # These centers therefore cover approximately 0.95-1.05.
+    randomizeScaleList: [0.975, 1.025]
+    randomizeScaleMin: 0.95
+    randomizeScaleMax: 1.05
+    randomizeScaleLower: 0.95
+    randomizeScaleUpper: 1.05
     randomizePDGains: True
     randomizePGainLower: 2.7
     randomizePGainUpper: 3.3
@@ -263,7 +263,7 @@ env:
     enable_dgain: False
 
   object:
-    type: 'screw_contactviz'
+    type: 'screw_realbulb'
     evalObjectType: null
     sampleProb: [1.0]
     init_pos: [0.012, -0.018, 0.0]
@@ -281,15 +281,15 @@ env:
       - right_middle_tip
       - right_ring_tip
       - right_thumb_tip
-    handRootPos: [0.092000, 0.020000, 0.245000]
+    handRootPos: [0.100000, 0.036000, 0.247000]
     handRootRPY: [3.141500, 0.439627, 3.141500]
     handRootPosZScaleComp: 0.0
     handRootPosNoise: [0.0, 0.0, 0.0]
     handInitPose:
       right_index_joint_0: 0.3499999940
-      right_index_joint_1: 0.9052795172
+      right_index_joint_1: 0.9252794981
       right_index_joint_2: 0.1628971249
-      right_index_joint_3: 0.4492996037
+      right_index_joint_3: 0.2492995113
       right_middle_joint_0: 0.0000000000
       right_middle_joint_1: 0.0000000000
       right_middle_joint_2: 0.0000000000
@@ -300,8 +300,8 @@ env:
       right_ring_joint_3: 0.0000000000
       right_thumb_joint_0: 0.1299999952
       right_thumb_joint_1: 1.5700000525
-      right_thumb_joint_2: 0.2999999821
-      right_thumb_joint_3: 0.5719662905
+      right_thumb_joint_2: 0.5600000024
+      right_thumb_joint_3: 0.3919662833
     dofLowerLimits: [-0.35, 0.0, 0.0, 0.0, -0.001, 0.0, 0.0, 0.0, -0.001, 0.0, 0.0, 0.0, -0.35, 0.0, 0.0, 0.0]
     dofUpperLimits: [0.35, 1.57, 1.57, 1.57, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.35, 1.57, 1.57, 1.57]
 
