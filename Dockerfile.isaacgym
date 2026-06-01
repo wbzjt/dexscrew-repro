@@ -2,6 +2,8 @@ FROM ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_TRUSTED_HOST=pypi.org
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.8 \
@@ -38,9 +40,9 @@ WORKDIR /workspace/dexscrew-repro
 
 COPY requirements.txt /tmp/requirements.txt
 
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install -r /tmp/requirements.txt
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+RUN pip install --index-url "${PIP_INDEX_URL}" --trusted-host "${PIP_TRUSTED_HOST}" --upgrade pip setuptools wheel
+RUN pip install --index-url "${PIP_INDEX_URL}" --trusted-host "${PIP_TRUSTED_HOST}" -r /tmp/requirements.txt
+RUN pip install --index-url "${PIP_INDEX_URL}" --trusted-host "${PIP_TRUSTED_HOST}" torch torchvision torchaudio
 
 ENV PYTHONUNBUFFERED=1
 ENV ISAACGYM_PATH=/opt/isaacgym

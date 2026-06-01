@@ -3,6 +3,215 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-06-01 -- Local CoDrive PPO Viewer Repair
+
+### Target milestone/subgoal
+- Make the local Docker/IsaacGym path usable for inspecting the CoDrive PPO teacher checkpoint with a headed Viewer.
+
+### What changed (files + behavior impact)
+- Updated `Dockerfile.isaacgym`.
+  - Added `PIP_INDEX_URL` and `PIP_TRUSTED_HOST` build args.
+  - Pinned requirements and torch/torchvision/torchaudio installation to the selected pip index, which avoids the local SSL EOF failures seen against the default PyPI/PyTorch hosts.
+- Built local Docker image `dexscrew:ig20-py38`.
+  - The original launch failure was that this image did not exist locally.
+
+### What was verified (commands + key outcomes)
+- Built the image successfully with:
+  - `docker build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple --build-arg PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn -t dexscrew:ig20-py38 -f Dockerfile.isaacgym .`
+- Confirmed the Docker image exists:
+  - `docker image inspect dexscrew:ig20-py38`
+- Confirmed container imports work with IsaacGym first, then torch:
+  - `./docker-run-isaacgym.sh python -c "import isaacgym; import torch, hydra, omegaconf; ..."`
+  - Outcome: IsaacGym binding loaded, `torch 2.4.1+cu121`, `cuda True`.
+- Confirmed CoDrive PPO teacher headless smoke works:
+  - `timeout 180 ./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive headless=True test=True +test_num_steps=2 ... checkpoint=sim2real/codrive/best_reward_4159.37.pth`
+  - Outcome: environment created, checkpoint restored, `Step 1`, `Step 2`, `EvalSummary steps=2 avg_reward=-0.913874 avg_done_rate=0.000000`.
+- Confirmed headed Viewer path works:
+  - `timeout 180 ./docker-run-isaacgym.sh python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive headless=False test=True +test_num_steps=2 ... checkpoint=sim2real/codrive/best_reward_4159.37.pth`
+  - Outcome: same successful two-step evaluation with `headless: False`.
+  - A longer `headless=False` run exposed a visible desktop window named `Isaac Gym` via `xdotool`; it was stopped by `timeout` with expected exit status `124`.
+
+### Remaining blocked/risky
+- The local image now uses torch `2.4.1+cu121` from the mirror rather than the older stack often used with IsaacGym. The tested PPO viewer path works, but long training should still be smoke-tested before relying on this image for large jobs.
+- Rebuilding without the Tsinghua build args may still hit upstream SSL/network issues on this workstation.
+
+### Single recommended next step
+- For manual visual inspection of the 4159 CoDrive PPO teacher, run the verified `headless=False` command without `+test_num_steps=2` and stop it manually when done.
+
+---
+
+## v2-2026-06-01 -- aris-gpu SSH Connectivity Check
+
+### Target milestone/subgoal
+- Check whether the `aris-gpu` SSH target is reachable for future DOTPG algorithm optimization and cloud execution.
+
+### What changed (files + behavior impact)
+- No code or experiment files changed.
+- Recorded that `aris-gpu` is reachable but does not currently expose a standard dexScrew repo path.
+
+### What was verified (commands + key outcomes)
+- Read required bootstrap docs:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- SSH config check:
+  - `aris-gpu` resolves as `llm@219.223.196.130` through proxy jump `aris-jump`.
+- Remote connection check:
+  - Connected successfully with non-interactive SSH.
+  - Remote host: `ar4090`.
+  - Remote user: `llm`.
+  - GPU inventory: 8 x NVIDIA GeForce RTX 4090, each `24564 MiB`.
+  - At check time, all GPUs had some memory in use; GPUs 1/2/4/5/6 were mostly idle by utilization, while GPUs 0/3/7 had active utilization.
+- Repo/handoff check:
+  - Did not find `dexscrew-repro` under `/root/code/dexscrew-repro`, `$HOME/code/dexscrew-repro`, `$HOME/Codefield/py/dexscrew-repro`, `$HOME` to depth 5, or `/data` to depth 4.
+  - Therefore `/root/code/dexscrew-repro/docs/cloud_session_handoff.md` could not be read on this host.
+- Storage/process context:
+  - Remote disk at check time:
+    - `/home`: `7.0T` total, `4.7G` available.
+    - `/data`: `21T` total, `47G` available.
+    - `/` and `/tmp`: `436G` total, `369G` available; `/tmp` is writable.
+  - Local repo size context:
+    - full local working tree is about `36G`, mostly from `outputs/` (`35G`).
+    - code/config/docs/assets/sim2real without `outputs` and `.git` is about `1.2G`.
+    - `sim2real/` is about `348M`; `.git` is about `117M`.
+  - Existing tmux sessions: `qwen_ocean`, `worker-action-ai`.
+  - Existing visible GPU work belongs mainly to other processes/users; no dexScrew job was identified.
+
+### Remaining blocked/risky
+- `aris-gpu` is reachable, but it is not yet prepared as a dexScrew cloud-training repo.
+- Before launching DOTPG training there, create/sync a repo path, establish a cloud-visible `docs/cloud_session_handoff.md`, confirm IsaacGym/conda dependencies, and choose a GPU with enough free memory.
+- Disk headroom is tight on `/home` and `/data`; do not sync full `outputs/`.
+  A minimal code/checkpoint sync should fit well under `20G`, but repeated training
+  outputs should target a path with more headroom, likely `/tmp` if persistence
+  is acceptable or a cleaned/user-approved `/data` subdirectory.
+
+### Single recommended next step
+- If using `aris-gpu` for DOTPG optimization, first provision/sync the repo to a clear path such as `/home/llm/code/dexscrew-repro` or a user-approved `/data` subdirectory, then create/read `docs/cloud_session_handoff.md` before any training/eval launch.
+
+---
+
+## v2-2026-05-26 -- DOTPG Project Overview For Paper Handoff
+
+### Target milestone/subgoal
+- Create a compact, non-code DOTPG/project overview for upload to future paper-writing or algorithm-iteration agents, focused on project context, teacher-student structure, experimental design, and DOTPG's current role.
+
+### What changed (files + behavior impact)
+- Added `docs/dotpg_project_overview.md`.
+  - Summarizes the original HORA-style project lineage and the current `PPO teacher -> DOTPG student distillation -> evaluation/export` framing.
+  - Explains the two-stage architecture: privileged PPO teacher first, then deterministic OT-guided DOTPG student distillation.
+  - Records the current DOTPG baseline as `theory_iter2_20260504_092416 / dual_bc5`.
+  - Keeps non-DOTPG student methods to baseline context only, with PAdapt as the original student baseline and PPO teacher as the upper/reference expert.
+  - Adds an upload bundle recommendation for paper-writing agents: project overview, DOTPG optimization note, code-faithful theory framework, and the DOTPG draft.
+
+### What was verified (commands + key outcomes)
+- Read required bootstrap docs:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Rechecked source context:
+  - `docs/dotpg_codrive_optimization.md`
+  - `docs/dotpg_code_faithful_theory_framework.md`
+- Formatting/static checks:
+  - `rg -n "[ \t]+$" docs/dotpg_project_overview.md` returned no matches.
+  - `git diff --check -- docs/dotpg_project_overview.md` passed.
+
+### Remaining blocked/risky
+- This is a narrative overview, not a replacement for the formula-level DOTPG theory framework.
+- If DOTPG is promoted from baseline to primary thesis method, multi-seed DOTPG evaluation is still needed for stronger paper claims.
+
+### Single recommended next step
+- Use `docs/dotpg_project_overview.md`, `docs/dotpg_codrive_optimization.md`, and `docs/dotpg_code_faithful_theory_framework.md` as the minimal upload bundle before rewriting the DOTPG method/theory section.
+
+---
+
+## v2-2026-05-22 -- CoDrive Figure Bulb Asset
+
+### Target milestone/subgoal
+- Create a screenshot-friendly CoDrive task variant whose bulb visual is smoother while keeping the stable CoDrive collision geometry for init-pose inspection.
+
+### What changed (files + behavior impact)
+- Added `assets/screw/figure/0000_lightbulb.urdf`.
+  - Visual meshes use the original smooth rendered bulb: `assets/lightbulb/lightbulb_head.stl` + `assets/lightbulb/lightbulb_socket.stl`.
+  - Collision stays on the proven CoDrive/contactviz `contact0.stl` + `contact1.stl` geometry.
+- Added `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveFigure.yaml`.
+  - Inherits the current CoDrive task settings.
+  - Changes `eval_cache_name` to `sim2real_twofinger_codrive_figure`.
+  - Changes `env.object.type` to `screw_figure`.
+- Added `configs/train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveFigure.yaml`.
+  - Inherits the current CoDrive train settings.
+  - This fixes Hydra composition for commands that use `task=Dexh13HoraLightbulbSim2RealTwoFingerCoDriveFigure`.
+
+### What was verified (commands + key outcomes)
+- Parsed the new URDF with Python XML parsing.
+- Confirmed the new task YAML points to `screw_figure`.
+- Confirmed the figure visual/collision mesh paths exist:
+  `lightbulb_head.stl`, `lightbulb_socket.stl`, `contact0.stl`, `contact1.stl`.
+- Confirmed object loading will work through existing `assets/screw/<subset>/*.urdf` discovery in `dexscrew/tasks/xhand_hora.py`.
+- Reproduced and fixed the initial launch failure:
+  - Failure was `MissingConfigException: Could not find train/Dexh13HoraLightbulbSim2RealTwoFingerCoDriveFigure`.
+  - After adding the train YAML, the keyboard init-pose tuner started, loaded `screw_figure`, created 1 env, and entered the interactive control loop.
+
+### Remaining blocked/risky
+- No headed IsaacGym viewer was launched in this step; visual appearance still needs human inspection through the keyboard init-pose tuner.
+
+### Single recommended next step
+- Run the keyboard init-pose tuner for `Dexh13HoraLightbulbSim2RealTwoFingerCoDriveFigure` and adjust/save the figure pose if needed.
+
+---
+
+## v2-2026-05-22 -- DOTPG Code-Faithful Theory Review
+
+### Target milestone/subgoal
+- Reverse-engineer the current DOTPG implementation against `thesis_reference/DOTPG-draft.md` so the DOTPG theory, signs, formulas, pseudocode, and theorem claims can be revised from the actual code path.
+
+### What changed (files + behavior impact)
+- Added `docs/dotpg_code_faithful_theory_framework.md`.
+  - Captures the actual algorithm as deterministic off-policy DOTPG with TD3-style twin-Q machinery, direct-dual actor updates, teacher-actor initialization, BC anchoring, online expert refresh, and adapter-based student state construction.
+  - Records the code-faithful sign convention:
+    `W_hat = E_{rho_E}[f_phi] - E_{rho_theta}[f_phi]`, so minimizing Wasserstein distance corresponds to maximizing `f_phi(s, pi_theta(s))` on policy actions.
+  - Rewrites the main actor objective as:
+    `L_pi = -E[f_phi(s, pi_theta(s))] + alpha_BC E[||pi_theta(s_E)-a_E||^2]`.
+  - Marks Q backup as an implemented TD3-style auxiliary/variant rather than the currently selected main actor objective.
+  - Lists theorem-level edits: keep/fix KR duality, rewrite Theorem 3 as a local deterministic semi-gradient proposition, weaken dual/stability claims, and remove or move maximum-entropy/Sinkhorn/strong sim-to-real/sample-complexity claims unless new code/evidence is added.
+
+### What was verified (commands + key outcomes)
+- Read required bootstrap docs:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+- Reviewed DOTPG implementation:
+  - `dexscrew/dotpg/dotpg.py`
+  - `dexscrew/dotpg/networks.py`
+  - `dexscrew/dotpg/buffer.py`
+  - `dexscrew/dotpg/FORMULA_CODE_MAPPING.md`
+- Reviewed DOTPG theory draft:
+  - `thesis_reference/DOTPG-draft.md`
+- Reviewed PAdapt comparison path:
+  - `dexscrew/algo/ppo/padapt.py`
+  - `dexscrew/algo/models/models.py`
+  - `dexscrew/algo/models/block.py`
+  - `train.py`
+- Reviewed current DOTPG evidence/config artifacts:
+  - `docs/dotpg_codrive_optimization.md`
+  - `sim2real/codrive/dotpg_bc5/README.md`
+  - `sim2real/codrive/dotpg_bc5/eval_256_summary.tsv`
+  - `outputs/cloud_pipeline_dotpg_theory_iter1/theory_iter1_20260504_045152/summary.tsv`
+  - `outputs/cloud_pipeline_dotpg_theory_iter2/theory_iter2_20260504_092416/summary.tsv`
+  - `outputs/cloud_pipeline_dotpg_theory_iter3/theory_iter3_bcscan_20260504_123124/summary.tsv`
+  - `outputs/paper_codrive_thesis_full_20260506_210723/aggregate_csv/main_aggregate.csv`
+- Multi-subagent review consensus:
+  - Current DOTPG is not SAC and not stochastic maximum-entropy RL.
+  - Current selected path is `teacher_actor + policy_loss_mode=dual + bc_coef=5`.
+  - Formula 29 in the draft has the wrong sign/role for the selected implementation.
+  - Q-only actor evidence is weak compared with direct dual.
+
+### Remaining blocked/risky
+- `thesis_reference/DOTPG-draft.md` itself was not rewritten in this pass; the new document is the revision blueprint.
+- Strong paper-grade claims still need more evidence, especially multi-seed DOTPG eval if DOTPG is promoted from baseline to method contribution.
+- Existing `sim2real/codrive/dotpg_bc5/*.train.yaml` is a frozen teacher/PPO YAML; the true DOTPG run config lives under the output run directory, so paper/config references must avoid confusing these.
+
+### Single recommended next step
+- Rewrite Section 4 and the theorem section of `thesis_reference/DOTPG-draft.md` using `docs/dotpg_code_faithful_theory_framework.md`, starting with the actor objective/sign correction and the Algorithm 1 replacement.
+
+---
+
 ## v2-2026-05-18 -- Build Middle/Small PAdapt-DOTPG Deploy Packs
 
 ### Target milestone/subgoal
