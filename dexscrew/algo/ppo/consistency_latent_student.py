@@ -118,6 +118,14 @@ class ConsistencyLatentStudent(ProprioAdapt):
         self.train_align_infer = bool(
             self.ppo_config.get("consistency_train_align_infer", False)
         )
+        self.train_align_use_ema = bool(
+            self.ppo_config.get("consistency_train_align_use_ema", False)
+        )
+        self.student_max_agent_steps = int(self.ppo_config.get("student_max_agent_steps", 0))
+        self.student_progress_log_interval_agent_steps = int(
+            self.ppo_config.get("student_progress_log_interval_agent_steps", 0)
+        )
+        self._next_progress_log_agent_steps = self.student_progress_log_interval_agent_steps
         # Optional obs-noise curriculum: linearly/staged ramp env observation noise during training.
         self.obs_noise_curriculum = bool(
             self.ppo_config.get("consistency_obs_noise_curriculum", False)
@@ -151,9 +159,28 @@ class ConsistencyLatentStudent(ProprioAdapt):
         self.obs_noise_t_target = float(
             self.ppo_config.get("consistency_obs_noise_t_target", self.obs_noise_t_base)
         )
+        self.consistency_lr_base = float(self.ppo_config.get("consistency_lr", 3e-4))
+        self.lr_schedule = str(
+            self.ppo_config.get("consistency_lr_schedule", "none")
+        ).lower()
+        self.lr_decay_start_agent_steps = int(
+            self.ppo_config.get("consistency_lr_decay_start_agent_steps", 0)
+        )
+        self.lr_decay_end_agent_steps = int(
+            self.ppo_config.get(
+                "consistency_lr_decay_end_agent_steps",
+                self.student_max_agent_steps,
+            )
+        )
+        self.lr_final_scale = float(
+            self.ppo_config.get("consistency_lr_final_scale", 1.0)
+        )
+        self.lr_final_scale = max(0.0, self.lr_final_scale)
+        if self.lr_decay_end_agent_steps <= self.lr_decay_start_agent_steps:
+            self.lr_decay_end_agent_steps = self.lr_decay_start_agent_steps + 1
         self.optim = torch.optim.Adam(
             self.consistency_model.parameters(),
-            lr=float(self.ppo_config.get("consistency_lr", 3e-4)),
+            lr=self.consistency_lr_base,
         )
         self.consistency_ema_model = None
         if self.consistency_use_ema_target:
@@ -173,8 +200,41 @@ class ConsistencyLatentStudent(ProprioAdapt):
             f"infer_steps={self.consistency_infer_steps}, "
             f"consistency_num_scales={self.consistency_num_scales}, "
             f"infer_use_ema={self.consistency_infer_use_ema}, "
-            f"stochastic_infer={self.stochastic_infer}"
+            f"stochastic_infer={self.stochastic_infer}, "
+            f"train_align_infer={self.train_align_infer}, "
+            f"train_align_use_ema={self.train_align_use_ema}, "
+            f"max_agent_steps={self.student_max_agent_steps}, "
+            f"lr={self.consistency_lr_base}, "
+            f"lr_schedule={self.lr_schedule}, "
+            f"lr_decay_start={self.lr_decay_start_agent_steps}, "
+            f"lr_decay_end={self.lr_decay_end_agent_steps}, "
+            f"lr_final_scale={self.lr_final_scale}"
         )
+
+    def _consistency_lr_scale(self):
+        if self.lr_schedule in ("", "none", "constant"):
+            return 1.0
+        if self.lr_schedule == "step":
+            if self.agent_steps >= self.lr_decay_start_agent_steps:
+                return self.lr_final_scale
+            return 1.0
+        if self.lr_schedule not in ("linear_decay", "linear", "cosine_decay", "cosine"):
+            return 1.0
+
+        denom = float(self.lr_decay_end_agent_steps - self.lr_decay_start_agent_steps)
+        progress = (self.agent_steps - self.lr_decay_start_agent_steps) / denom
+        progress = min(max(progress, 0.0), 1.0)
+        if self.lr_schedule in ("cosine_decay", "cosine"):
+            eased = 0.5 * (1.0 - math.cos(math.pi * progress))
+        else:
+            eased = progress
+        return 1.0 + (self.lr_final_scale - 1.0) * eased
+
+    def _update_consistency_lr(self):
+        lr = self.consistency_lr_base * self._consistency_lr_scale()
+        for group in self.optim.param_groups:
+            group["lr"] = lr
+        return lr
 
     @torch.no_grad()
     def _update_consistency_ema(self):
@@ -280,15 +340,28 @@ class ConsistencyLatentStudent(ProprioAdapt):
             latent = model(proprio_hist, latent, t)
         return latent
 
+    def _sample_latent_with_model_grad(self, model, proprio_hist):
+        batch_size = proprio_hist.shape[0]
+        if self.stochastic_infer:
+            latent = torch.randn(batch_size, self.latent_dim, device=self.device)
+        else:
+            latent = torch.zeros(batch_size, self.latent_dim, device=self.device)
+        for idx in range(self.consistency_infer_steps):
+            t_cur = 1.0 - (float(idx) / float(max(1, self.consistency_infer_steps)))
+            t = torch.full((batch_size,), t_cur, device=self.device, dtype=torch.float32)
+            latent = model(proprio_hist, latent, t)
+        return latent
+
     @torch.no_grad()
     def sample_latent(self, proprio_hist):
         return self._sample_latent_with_model(self._get_infer_consistency_model(), proprio_hist)
 
     def sample_latent_train(self, proprio_hist):
-        infer_model = self.consistency_model
-        if self.train_align_infer and self.consistency_ema_model is not None:
-            infer_model = self.consistency_ema_model
-        return self._sample_latent_with_model(infer_model, proprio_hist)
+        if self.train_align_use_ema and self.consistency_ema_model is not None:
+            return self._sample_latent_with_model(
+                self.consistency_ema_model, proprio_hist
+            )
+        return self._sample_latent_with_model_grad(self.consistency_model, proprio_hist)
 
     def set_eval(self):
         super().set_eval()
@@ -395,6 +468,17 @@ class ConsistencyLatentStudent(ProprioAdapt):
         obs_dict = self.env.reset()
         self.agent_steps += self.batch_size
         while self.agent_steps <= 1e9:
+            if (
+                self.student_max_agent_steps > 0
+                and self.agent_steps >= self.student_max_agent_steps
+            ):
+                self.save(os.path.join(self.nn_dir, "model_last"))
+                tprint(
+                    "ConsistencyLatent reached "
+                    f"student_max_agent_steps={self.student_max_agent_steps}"
+                )
+                break
+
             self._apply_obs_noise_curriculum()
             if self.normalize_point_cloud:
                 point_cloud_info = self.point_cloud_mean_std(
@@ -411,6 +495,7 @@ class ConsistencyLatentStudent(ProprioAdapt):
                 "proprio_hist": self.sa_mean_std(obs_dict["proprio_hist"].detach()),
                 "point_cloud_info": point_cloud_info,
             }
+            current_lr = self._update_consistency_lr()
 
             with torch.no_grad():
                 _, _, _, _, e_gt = self.model._actor_critic(input_dict)
@@ -486,6 +571,17 @@ class ConsistencyLatentStudent(ProprioAdapt):
             )
             self.optim.zero_grad()
             loss.backward()
+            grad_norm_sq = None
+            for p in self.consistency_model.parameters():
+                if p.grad is None:
+                    continue
+                cur = p.grad.detach().pow(2).sum()
+                grad_norm_sq = cur if grad_norm_sq is None else grad_norm_sq + cur
+            consistency_grad_norm = (
+                float(torch.sqrt(grad_norm_sq).detach().cpu())
+                if grad_norm_sq is not None
+                else 0.0
+            )
             self.optim.step()
             self._update_consistency_ema()
 
@@ -512,6 +608,13 @@ class ConsistencyLatentStudent(ProprioAdapt):
             self.direct_info["action_l2_loss"] = float(action_l2_loss.detach().cpu())
             self.direct_info["total_loss"] = float(loss.detach().cpu())
             self.direct_info["done_rate"] = float(done.float().mean().detach().cpu())
+            self.direct_info["consistency_grad_norm"] = consistency_grad_norm
+            self.direct_info["consistency_lr"] = current_lr
+            self.direct_info["train_align_infer"] = 1.0 if self.train_align_infer else 0.0
+            self.direct_info["train_align_use_ema"] = 1.0 if self.train_align_use_ema else 0.0
+            self.direct_info["train_align_latent_requires_grad"] = (
+                1.0 if pred_latent.requires_grad else 0.0
+            )
             self._update_env_info(info)
             self.log_tensorboard()
 
@@ -540,14 +643,43 @@ class ConsistencyLatentStudent(ProprioAdapt):
             last_fps = self.batch_size / (time.time() - _last_t)
             _last_t = time.time()
             tprint(
-                f"Agent Steps: {int(self.agent_steps // 1e6):04}M | FPS: {all_fps:.1f} | "
+                f"Agent Steps: {int(self.agent_steps // 1e6):04}M "
+                f"({int(self.agent_steps)}) | FPS: {all_fps:.1f} | "
                 f"Last FPS: {last_fps:.1f} | Current Best: {self.best_rewards:.2f}"
             )
+            if (
+                self.student_progress_log_interval_agent_steps > 0
+                and self.agent_steps >= self._next_progress_log_agent_steps
+            ):
+                tprint(
+                    "ConsistencyProgress "
+                    f"agent_steps={int(self.agent_steps)} "
+                    f"max_agent_steps={self.student_max_agent_steps} "
+                    f"best_reward={self.best_rewards:.2f} "
+                    f"consistency_lr={current_lr:.8f}"
+                )
+                while self._next_progress_log_agent_steps <= self.agent_steps:
+                    self._next_progress_log_agent_steps += (
+                        self.student_progress_log_interval_agent_steps
+                    )
+
+        final_train_reward = self.mean_eps_reward.get_mean()
+        final_eval_metrics = self._run_final_eval_select(
+            "FINAL/student",
+            train_reward=final_train_reward,
+            eval_best_stem="model_best_eval",
+            alias_stems=("model_best", "model_best_deploy"),
+        )
+        if final_eval_metrics is not None:
+            obs_dict = final_eval_metrics["final_obs_dict"]
+        self._publish_eval_select_deploy_best(
+            "model_best_eval", "model_best_deploy"
+        )
 
     def restore_train(self, fn):
         if not fn:
             return
-        checkpoint = torch.load(fn)
+        checkpoint = torch.load(fn, map_location=self.device)
         cprint("careful, using non-strict matching", "red", attrs=["bold"])
         if "model" in checkpoint:
             self.model.load_state_dict(checkpoint["model"], strict=False)
@@ -588,7 +720,7 @@ class ConsistencyLatentStudent(ProprioAdapt):
     def restore_test(self, fn):
         if not fn:
             return
-        checkpoint = torch.load(fn)
+        checkpoint = torch.load(fn, map_location=self.device)
         if "model" in checkpoint:
             self.model.load_state_dict(checkpoint["model"], strict=False)
         if "consistency_model" in checkpoint:

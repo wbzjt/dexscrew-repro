@@ -46,6 +46,7 @@ from dexscrew.algo.student import (
     PureBC,
     DiffusionLatentStudent,
     ConsistencyLatentStudent,
+    ResidualConsistencyLatentStudent,
     FlowMatchingLatentStudent,
     BC,
     BCStudent,

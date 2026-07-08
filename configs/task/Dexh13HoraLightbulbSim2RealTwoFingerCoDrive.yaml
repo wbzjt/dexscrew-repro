@@ -281,27 +281,27 @@ env:
       - right_middle_tip
       - right_ring_tip
       - right_thumb_tip
-    handRootPos: [0.11, 0.020, 0.217]
-    handRootRPY: [3.1415, 0.3, 3.1415]
+    handRootPos: [0.104000, 0.030000, 0.219000]
+    handRootRPY: [3.141500, 0.300000, 3.141500]
     handRootPosZScaleComp: 0.06
     handRootPosNoise: [0.0, 0.0, 0.0]
     handInitPose:
-      right_index_joint_0: 0.3426670736
-      right_index_joint_1: 0.925279522
-      right_index_joint_2: 0.2828971177
-      right_index_joint_3: 1.1292990017
-      right_middle_joint_0: 0.0
-      right_middle_joint_1: 0.0
-      right_middle_joint_2: 0.0
-      right_middle_joint_3: 0.0
-      right_ring_joint_0: 0.0
-      right_ring_joint_1: 0.0
-      right_ring_joint_2: 0.0
-      right_ring_joint_3: 0.0
-      right_thumb_joint_0: -0.3599407768
+      right_index_joint_0: 0.3499999940
+      right_index_joint_1: 0.9652794600
+      right_index_joint_2: 0.2599999607
+      right_index_joint_3: 0.3892995715
+      right_middle_joint_0: 0.0000000000
+      right_middle_joint_1: 0.0000000000
+      right_middle_joint_2: 0.0000000000
+      right_middle_joint_3: 0.0000000000
+      right_ring_joint_0: 0.0000000000
+      right_ring_joint_1: 0.0000000000
+      right_ring_joint_2: 0.0000000000
+      right_ring_joint_3: 0.0000000000
+      right_thumb_joint_0: -0.3499999940
       right_thumb_joint_1: 1.5656383038
-      right_thumb_joint_2: 0.220286703
-      right_thumb_joint_3: 0.411966312
+      right_thumb_joint_2: 0.2202866971
+      right_thumb_joint_3: 0.4119663239
     dofLowerLimits: [-0.35, 0.0, 0.0, 0.0, -0.001, 0.0, 0.0, 0.0, -0.001, 0.0, 0.0, 0.0, -0.35, 0.0, 0.0, 0.0]
     dofUpperLimits: [0.35, 1.57, 1.57, 1.57, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.35, 1.57, 1.57, 1.57]
 
