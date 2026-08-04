@@ -3,6 +3,38 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-08-04 -- M24 Latest-PPO Headed Viewer Launcher Added
+
+### Target milestone/subgoal
+- Provide a reliable one-command Isaac Gym visualization path for the latest
+  checkpoint from the active M24 Pasini PPO run.
+
+### What changed (files + behavior impact)
+- Added `scripts/vis_pasini_m24_latest_ppo.sh`.
+- The launcher automatically selects the newest `best_reward_*.pth`, copies it
+  to a timestamped evaluation snapshot so ongoing best-checkpoint replacement
+  cannot race model loading, and opens one headed inference environment in the
+  independent container `dexscrew_m24_ppo_viewer`.
+- The active training container is not stopped or modified.
+
+### What was verified (commands + key outcomes)
+- `bash -n scripts/vis_pasini_m24_latest_ppo.sh` and `git diff --check` passed.
+- Host GUI forwarding is available at `DISPLAY=:0` with the GDM Xauthority
+  file, and the intended viewer container name is currently unused.
+- At verification time the auto-selected formal-run checkpoint was
+  `best_reward_4343.02.pth` and was non-empty.
+
+### Remaining blocked/risky
+- Training currently saturates the GPU, so headed inference can reduce training
+  throughput and may render less smoothly, although memory headroom is ample
+  for a one-environment viewer.
+- Visual inspection is still required to confirm that the high reward reflects
+  useful nut rotation and stable contact.
+
+### Single recommended next step
+- Run `./scripts/vis_pasini_m24_latest_ppo.sh` from the Ubuntu desktop terminal
+  and inspect the nut rotation, hand contact, and reset behavior.
+
 ## v2-2026-08-04 -- M24 PPO Capacity Passed And Persistent Training Started
 
 ### Target milestone/subgoal
