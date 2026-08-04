@@ -5,14 +5,15 @@ defaults:
 name: XHandPasiniM24NutBolt
 
 env:
-  # Latest user-confirmed M24 pose from the keyboard tuner:
-  # outputs/initpose_tuning/XHandPasiniM24NutBolt_current.yaml
+  # M24 pose derived from the user-confirmed keyboard pose.  The index
+  # proximal flexion is relaxed from 1.2452791929 to 1.05 rad so the index
+  # finger keeps useful closing travel during nut rotation.
   asset:
     handRootPos: [0.096000, 0.096000, 0.261000]
     handRootRPY: [3.089140, 0.352360, 3.141500]
     handInitPose:
       right_index_joint_0: 0.1299999803
-      right_index_joint_1: 1.2452791929
+      right_index_joint_1: 1.0500000000
       right_index_joint_2: 0.2599999607
       right_index_joint_3: 0.3892995715
       right_middle_joint_0: 0.0000000000
