@@ -107,5 +107,8 @@ Completion conditions:
 
 ## 6. Current next step
 
-Commit and push the completed M0/M1 migration baseline, then run the monitored
-8192-environment capacity probe. Back off only on observed allocation failure.
+Monitor the active 8192-environment PPO run at
+`outputs/XHandPasiniM24NutBolt_teacher/m24_latestpose_s42_20260804_141618_ppo8192`.
+Track reward, reset stability, GPU utilization, and best checkpoints; after a
+meaningful checkpoint is available, run headed evaluation before starting any
+student or diffusion follow-up.

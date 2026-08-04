@@ -3,6 +3,55 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-08-04 -- M24 PPO Capacity Passed And Persistent Training Started
+
+### Target milestone/subgoal
+- Prove the largest planned local capacity for the M24 Pasini task and launch
+  its PPO teacher training persistently without a wall-clock timeout.
+
+### What changed (files + behavior impact)
+- Added `scripts/run_pasini_m24_ppo_local.sh` as the reproducible local launcher.
+  It records the git commit, exact command, capacity, timestamps, container
+  name, launcher PID, status, exit code, output directory, and training log.
+- Started the formal run at `2026-08-04T14:17:23+08:00`:
+  - run ID: `m24_latestpose_s42_20260804_141618_ppo8192`;
+  - launcher PID: `769918` in its own session via `nohup setsid`;
+  - Docker container: `dexscrew_m24_ppo_8192`;
+  - source commit: `15ad4a9e31ec7c2960a983aed379ec3b762790c8`;
+  - capacity: 8192 envs/actors, minibatch 16384, 16 CPU threads;
+  - PPO output: `outputs/XHandPasiniM24NutBolt_teacher/m24_latestpose_s42_20260804_141618_ppo8192/`;
+  - run metadata/log: `outputs/local_pipeline_m24_ppo/m24_latestpose_s42_20260804_141618_ppo8192/`.
+- The formal run has no timeout and remains active independently of the
+  launching terminal.
+
+### What was verified (commands + key outcomes)
+- The separate 8192-env capacity probe completed cleanly at its configured
+  196608-agent-step limit:
+  - all 8192 environments loaded;
+  - initial aggregate FPS `41540.4` and last FPS `20770.2`;
+  - finite initial mean reward `0.3967` and a valid best checkpoint;
+  - no capacity backoff was needed.
+- `bash -n scripts/run_pasini_m24_ppo_local.sh` and `git diff --check` passed.
+- Formal-run health check confirmed:
+  - named Docker container and launcher PID alive;
+  - all 8192 environments created and PPO iterations running;
+  - recent per-iteration throughput approximately 26000 FPS;
+  - GPU usage approximately 10164 MiB of 16376 MiB;
+  - mean reward rose from `0.40` to `18.38` in the first observed iterations;
+  - `stage1_nn/best_reward_18.38.pth` exists and is non-empty;
+  - no OOM, NaN, or traceback appeared in the log.
+
+### Remaining blocked/risky
+- Early positive reward growth proves execution health, not successful nut
+  rotation; reward/reset trends need continued monitoring.
+- Headed behavior evaluation has not yet been run and should use a later,
+  meaningful best checkpoint rather than this startup checkpoint.
+
+### Single recommended next step
+- Keep the active PPO process running and monitor its best reward/checkpoints;
+  once learning has matured, run headed evaluation of nut rotation and contact
+  behavior before any student-policy work.
+
 ## v2-2026-08-04 -- M24 Pasini Migration Authorized And Smoke-Passed
 
 ### Target milestone/subgoal
