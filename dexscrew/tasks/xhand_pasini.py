@@ -312,9 +312,9 @@ class XHandPasini(VecTask):
             )
 
         # Optional: override the initial DOF pose from config to support pose bootstrapping.
-        # Example override (length must match DOF count, i.e. 16 for Pasini):
-        #   env:
-        #     customInitDofPos: [..16 floats..]
+        # `customInitDofPos` remains the highest-priority legacy override.  The
+        # named `asset.handInitPose` form is what the interactive pose tuner
+        # writes, and avoids silently depending on the URDF DOF order.
         custom_init = self.config["env"].get("customInitDofPos", None)
         if custom_init is not None:
             if len(custom_init) != len(dof_names):
@@ -322,6 +322,28 @@ class XHandPasini(VecTask):
                     f"env.customInitDofPos must have length {len(dof_names)}; got {len(custom_init)}"
                 )
             joint_values = OrderedDict(zip(dof_names, [float(x) for x in custom_init]))
+        else:
+            hand_init_pose = self.hand_asset_cfg.get("handInitPose")
+            if hand_init_pose is not None:
+                if hasattr(hand_init_pose, "items"):
+                    pose_map = {str(k): float(v) for k, v in hand_init_pose.items()}
+                    missing = [name for name in dof_names if name not in pose_map]
+                    extra = [name for name in pose_map if name not in dof_names]
+                    if missing or extra:
+                        raise ValueError(
+                            "env.asset.handInitPose keys must match Pasini DOF names. "
+                            f"Missing={missing}, Extra={extra}"
+                        )
+                    joint_values = OrderedDict(
+                        (name, pose_map[name]) for name in dof_names
+                    )
+                else:
+                    values = self._resolve_numeric_vector(
+                        hand_init_pose,
+                        len(dof_names),
+                        "env.asset.handInitPose",
+                    )
+                    joint_values = OrderedDict(zip(dof_names, values))
 
         self.joint_values_lst = list(joint_values.values())
         hand_dof_dim = self.num_xhand_hand_dofs
@@ -954,6 +976,10 @@ class XHandPasini(VecTask):
             dim=1,
         )
 
+        configured_quats = self._configured_hand_root_quats(len(env_ids))
+        if configured_quats is not None:
+            quats = configured_quats
+
         hand_env_indices = self.hand_indices[env_ids]
         self.root_state_tensor[hand_env_indices, 3:7] = quats
         self._update_priv_buf(env_id=env_ids, name="hand_orientation", value=quats)
@@ -967,14 +993,12 @@ class XHandPasini(VecTask):
         # # 相对于isaacgym环境坐标系作偏移，绿y反红x正
 
         # position randomization
-        original_pos = torch.zeros_like(self.root_state_tensor[hand_env_indices, :3])
-        original_pos[:, :3] = torch.as_tensor(
-            # [0.14, 0.073, 0.175], device=self.device, dtype=original_pos.dtype
-
-            [0.14, 0.072, 0.177], device=self.device, dtype=original_pos.dtype
-        )  # Target XYZ position for the palm center
-        pos = original_pos
-        # + torch.rand_like(original_pos) * 0.001
+        pos = self._configured_hand_root_positions(len(env_ids))
+        if pos is None:
+            pos = torch.zeros_like(self.root_state_tensor[hand_env_indices, :3])
+            pos[:, :3] = torch.as_tensor(
+                [0.14, 0.072, 0.177], device=self.device, dtype=pos.dtype
+            )
 
         self.root_state_tensor[hand_env_indices, :3] = pos
         self._update_priv_buf(env_id=env_ids, name="hand_position", value=pos)
@@ -2516,14 +2540,81 @@ class XHandPasini(VecTask):
             )
         return values
 
-    def _init_object_pose(self):
-        hand_asset_file = self.config["env"]["asset"]["handAsset"]
-
-        xhand_hand_start_pose = gymapi.Transform()
-        xhand_hand_start_pose.p = gymapi.Vec3(0, 0, 0.21)
-        xhand_hand_start_pose.r = gymapi.Quat.from_axis_angle(
-            gymapi.Vec3(1, 0, 0), np.pi / 2 - 25 * (np.pi / 180)
+    def _configured_hand_root_quats(self, batch_size):
+        hand_root_quat = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootQuat"), 4, "env.asset.handRootQuat"
         )
+        if hand_root_quat is not None:
+            quat = torch.tensor(hand_root_quat, device=self.device, dtype=torch.float)
+            quat = quat / torch.norm(quat)
+            return quat.unsqueeze(0).repeat(batch_size, 1)
+
+        hand_root_rpy = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootRPY"), 3, "env.asset.handRootRPY"
+        )
+        if hand_root_rpy is None:
+            return None
+        roll = torch.full(
+            (batch_size,), hand_root_rpy[0], device=self.device, dtype=torch.float
+        )
+        pitch = torch.full(
+            (batch_size,), hand_root_rpy[1], device=self.device, dtype=torch.float
+        )
+        yaw = torch.full(
+            (batch_size,), hand_root_rpy[2], device=self.device, dtype=torch.float
+        )
+        return quat_from_euler_xyz(roll, pitch, yaw)
+
+    def _configured_hand_root_positions(self, batch_size):
+        hand_root_pos = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootPos"), 3, "env.asset.handRootPos"
+        )
+        if hand_root_pos is None:
+            return None
+        pos = torch.tensor(
+            hand_root_pos, device=self.device, dtype=torch.float
+        ).unsqueeze(0).repeat(batch_size, 1)
+        pos_noise = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootPosNoise", [0.0, 0.0, 0.0]),
+            3,
+            "env.asset.handRootPosNoise",
+        )
+        if any(abs(value) > 0.0 for value in pos_noise):
+            pos += torch.rand_like(pos) * torch.tensor(
+                pos_noise, device=self.device, dtype=torch.float
+            )
+        return pos
+
+    def _init_object_pose(self):
+        xhand_hand_start_pose = gymapi.Transform()
+        hand_root_pos = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootPos"), 3, "env.asset.handRootPos"
+        )
+        xhand_hand_start_pose.p = gymapi.Vec3(
+            *(hand_root_pos if hand_root_pos is not None else [0.0, 0.0, 0.21])
+        )
+
+        hand_root_quat = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootQuat"), 4, "env.asset.handRootQuat"
+        )
+        hand_root_rpy = self._resolve_numeric_vector(
+            self.hand_asset_cfg.get("handRootRPY"), 3, "env.asset.handRootRPY"
+        )
+        if hand_root_quat is not None:
+            xhand_hand_start_pose.r = gymapi.Quat(*hand_root_quat)
+        elif hand_root_rpy is not None:
+            quat = quat_from_euler_xyz(
+                torch.tensor([hand_root_rpy[0]], dtype=torch.float),
+                torch.tensor([hand_root_rpy[1]], dtype=torch.float),
+                torch.tensor([hand_root_rpy[2]], dtype=torch.float),
+            )[0]
+            xhand_hand_start_pose.r = gymapi.Quat(
+                float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])
+            )
+        else:
+            xhand_hand_start_pose.r = gymapi.Quat.from_axis_angle(
+                gymapi.Vec3(1, 0, 0), np.pi / 2 - 25 * (np.pi / 180)
+            )
 
         # Object position relative to hand
         pose_dx, pose_dy, pose_dz = 0.00, 0.00, 0.00

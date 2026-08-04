@@ -1,0 +1,40 @@
+defaults:
+  - XHandPasiniNutBolt
+  - _self_
+
+name: XHandPasiniM24NutBolt
+
+env:
+  # Latest user-confirmed M24 pose from the keyboard tuner:
+  # outputs/initpose_tuning/XHandPasiniM24NutBolt_current.yaml
+  asset:
+    handRootPos: [0.096000, 0.096000, 0.261000]
+    handRootRPY: [3.089140, 0.352360, 3.141500]
+    handInitPose:
+      right_index_joint_0: 0.1299999803
+      right_index_joint_1: 1.2452791929
+      right_index_joint_2: 0.2599999607
+      right_index_joint_3: 0.3892995715
+      right_middle_joint_0: 0.0000000000
+      right_middle_joint_1: 0.0000000000
+      right_middle_joint_2: 0.0000000000
+      right_middle_joint_3: 0.0000000000
+      right_ring_joint_0: 0.0000000000
+      right_ring_joint_1: 0.0000000000
+      right_ring_joint_2: 0.0000000000
+      right_ring_joint_3: 0.0000000000
+      right_thumb_joint_0: -0.1699999720
+      right_thumb_joint_1: 1.4100002050
+      right_thumb_joint_2: 0.2199999690
+      right_thumb_joint_3: 0.9919658899
+
+  object:
+    type: 'screw_m24hex'
+    evalObjectType: null
+    sampleProb: [1.0]
+    init_pos_noise: [0.0075, 0.0075, 0.0]
+    nut_termination_history_len: 70
+    nut_stagnation_eps: 0.003
+    screw_upper_limit: 628.3185
+    thumb_range_limit: False
+    object_tilt: False

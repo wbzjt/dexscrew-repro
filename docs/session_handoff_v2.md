@@ -3,6 +3,92 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-08-04 -- M24 Pasini Migration Authorized And Smoke-Passed
+
+### Target milestone/subgoal
+- Change the diffusion branch objective to M24 Pasini PPO, selectively import
+  the training task from `sim2sim@159d994`, and complete the pre-training scene
+  and configuration gate.
+
+### What changed (files + behavior impact)
+- Updated `AGENTS.md` to make
+  `XHandPasiniM24NutBolt -> PPO teacher -> checkpoint/evaluation` the canonical
+  path and pause MuJoCo sim2sim plus student diffusion work.
+- Added `PLANS_m24_ppo.md` with selective-migration, smoke, 8192-env capacity,
+  persistent-run, and monitoring milestones.
+- Selectively imported M24/Pasini files from `sim2sim@159d994`:
+  - M24 nut, 160 mm bolt, head meshes, URDF, and point cloud;
+  - base and M24 task/train YAMLs;
+  - Pasini task registration and config-driven root/joint init-pose support;
+  - asset generator and keyboard-tuner utilities.
+- Removed only ignored leftover sim2sim Python bytecode caches after branch
+  switching; no tracked MuJoCo file was imported.
+- Marked the M24 Pasini migration escalation resolved after explicit user
+  authorization.
+- No PPO process has started yet.
+
+### What was verified (commands + key outcomes)
+- Python compile, launcher `bash -n`, URDF parse, binary STL structure, NPY
+  shape/finite checks, and `git diff --check` passed.
+- Import-scope guard confirmed the `sim2sim/` directory is absent.
+- Docker one-environment GPU PhysX smoke passed:
+  - task `XHandPasiniM24NutBolt`, algorithm PPO, proprio dimension 32;
+  - 16 Paxini hand DOFs;
+  - exact asset `assets/screw/m24hex/0000_m24x3_160.urdf`;
+  - three object rigid bodies and one object DOF;
+  - finite configured hand root and all 16 user-saved nominal init values.
+- One initial test command failed before scene creation because Torch was
+  imported before IsaacGym; correcting the test-only import order produced the
+  successful smoke above.
+
+### Remaining blocked/risky
+- The 8192-environment setting has not yet been proven to fit the local 16 GB
+  RTX 4080 SUPER with this detailed asset and contact allocation.
+- A scene-load smoke does not yet prove PPO reward stability, absence of reset
+  explosions, or useful nut rotation.
+
+### Single recommended next step
+- Commit/push this M0/M1 baseline, then attempt the monitored 8192-env PPO
+  capacity probe with minibatch 16384.
+
+## v2-2026-08-04 -- Switched From Sim2Sim, M24 Pasini Migration Escalated
+
+### Target milestone/subgoal
+- Save the completed sim2sim work, switch to `diffusion`, and inventory the
+  minimum M24 PPO training migration without bringing MuJoCo work into the
+  diffusion branch.
+
+### What changed (files + behavior impact)
+- On `sim2sim`, committed and pushed the full accumulated snapshot as
+  `159d994` (`保存sim2sim验证进展并新增M24螺母任务`).
+- Switched the worktree to `diffusion` at `2864631`, synchronized with
+  `origin/diffusion`.
+- Added the mandatory Pasini-stage escalation to `codeagent_issue.md`.
+- No M24 runtime/config/asset file was migrated into `diffusion`, and no PPO
+  process was started.
+
+### What was verified (commands + key outcomes)
+- `git fetch`, branch ahead/behind checks, commit, and
+  `git push origin sim2sim` completed successfully.
+- DOTPG checkpoint relocation was staged as 100% Git renames rather than model
+  deletion.
+- `git switch diffusion` and `git pull --ff-only origin diffusion` left the
+  branch synchronized and initially clean.
+- Compared `diffusion..sim2sim` and confirmed a valid M24 migration requires
+  Pasini runtime changes, not only asset copies.
+
+### Remaining blocked/risky
+- The diffusion branch explicitly requires escalation when Pasini becomes
+  necessary for the current stage. The requested M24 PPO path also replaces
+  the branch's canonical Hora student objective.
+- Selectively copying files before governance is updated would create an
+  undocumented branch-goal change.
+
+### Single recommended next step
+- Authorize and record `XHandPasiniM24NutBolt -> PPO teacher` as the new active
+  diffusion-branch training objective, then perform the bounded selective
+  import from sim2sim commit `159d994`.
+
 ## v2-2026-05-18 -- Build Middle/Small PAdapt-DOTPG Deploy Packs
 
 ### Target milestone/subgoal

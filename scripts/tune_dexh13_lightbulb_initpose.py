@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive DexH13 hand root pose and joint init-pose tuner.
+"""Interactive hand root pose and joint init-pose tuner.
 
 This script starts a single Isaac Gym viewer env, lets the user adjust the
 hand root position/orientation and the 16 hand DOF positions, then dumps a YAML
@@ -96,10 +96,6 @@ class InitPoseTuner:
             "print": gymapi.KEY_C,
             "step_down": gymapi.KEY_MINUS,
             "step_up": gymapi.KEY_EQUAL,
-            "x_neg": gymapi.KEY_A,
-            "x_pos": gymapi.KEY_D,
-            "y_pos": gymapi.KEY_W,
-            "y_neg": gymapi.KEY_S,
             "z_pos": gymapi.KEY_E,
             "z_neg": gymapi.KEY_Q,
             "roll_pos": gymapi.KEY_R,
@@ -122,8 +118,11 @@ class InitPoseTuner:
             gym.subscribe_viewer_keyboard_event(viewer, key, action)
 
         for i in range(10):
-            key = getattr(gymapi, f"KEY_{i}")
-            gym.subscribe_viewer_keyboard_event(viewer, key, f"select_{i}")
+            action = f"select_{i}"
+            main_key = getattr(gymapi, f"KEY_{i}")
+            numpad_key = getattr(gymapi, f"KEY_NUMPAD_{i}")
+            gym.subscribe_viewer_keyboard_event(viewer, main_key, action)
+            gym.subscribe_viewer_keyboard_event(viewer, numpad_key, action)
 
     def _apply_state(self) -> None:
         env = self.env
@@ -166,12 +165,13 @@ class InitPoseTuner:
 
     def _print_help(self) -> None:
         print(
-            "\nInteractive DexH13 init-pose tuner\n"
+            "\nInteractive hand init-pose tuner\n"
             "  M: toggle hand/joint mode\n"
             "  O: save YAML snippet, C: print current values, ESC: quit\n"
             "  -/=: decrease/increase active step size\n"
             "\nHand mode:\n"
-            "  A/D: x -/+    S/W: y -/+    Q/E: z -/+\n"
+            "  1/3: x -/+    2/5: y -/+    Q/E: z -/+\n"
+            "  (main-row and numpad digits are both supported)\n"
             "  F/R: roll -/+ G/T: pitch -/+ H/Y: yaw -/+\n"
             "\nJoint mode:\n"
             "  Left/Right or [/]: select DOF\n"
@@ -238,10 +238,10 @@ class InitPoseTuner:
 
         if self.mode == "hand":
             delta_pos = {
-                "x_neg": (0, -self.pos_step),
-                "x_pos": (0, self.pos_step),
-                "y_neg": (1, -self.pos_step),
-                "y_pos": (1, self.pos_step),
+                "select_1": (0, -self.pos_step),
+                "select_3": (0, self.pos_step),
+                "select_2": (1, -self.pos_step),
+                "select_5": (1, self.pos_step),
                 "z_neg": (2, -self.pos_step),
                 "z_pos": (2, self.pos_step),
             }

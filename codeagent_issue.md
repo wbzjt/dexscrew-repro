@@ -1,5 +1,91 @@
 # codeagent_issue.md
 
+## 2026-08-04 Resolved Escalation: M24 Pasini PPO Migration
+
+- status: `resolved_authorized`
+- resolved_on: `2026-08-04`
+- resolution: the user explicitly authorized changing the diffusion branch
+  objective to `XHandPasiniM24NutBolt -> PPO teacher` and updating governance.
+
+### Task Background
+- The user paused MuJoCo sim2sim work, saved commit `159d994` on the
+  `sim2sim` branch, and switched the active worktree to `diffusion`.
+- The requested next task is to migrate the M24x3, 160 mm nut-and-bolt PPO
+  candidate from `sim2sim` into `diffusion` and prepare local PPO training.
+- The M24 task uses the 16-DOF Paxini/Pasini hand and a user-confirmed keyboard
+  init pose.
+
+### Current Blocker
+- The `diffusion` branch `AGENTS.md` defines
+  `XHandHoraScrewDriver -> PPO teacher -> current student -> evaluation/export`
+  as the canonical path.
+- The same file requires codeagent to stop and write `codeagent_issue.md` when
+  “Pasini or external repos become necessary for the current stage.”
+- A correct M24 migration necessarily modifies the Pasini runtime, task map,
+  task/train configs, and assets. It cannot be implemented as an asset-only
+  copy while preserving the saved init-pose semantics.
+
+### Evidence
+- Source snapshot: `sim2sim` commit `159d994`, already pushed to
+  `origin/sim2sim`.
+- Required new M24 files include:
+  - `assets/meshes/m24_hex_bolt_head_36x15.stl`
+  - `assets/meshes/m24x3_bolt_thread_160.stl`
+  - `assets/meshes/m24x3_hex_nut_36x21p5.stl`
+  - `assets/screw/m24hex/0000_m24x3_160.{urdf,npy}`
+  - `configs/task/XHandPasini{,M24}NutBolt.yaml`
+  - `configs/train/XHandPasini{,M24}NutBolt.yaml`
+  - M24 asset generator and keyboard-tuner launchers.
+- Required shared runtime changes are visible in
+  `diffusion..sim2sim`:
+  - `dexscrew/tasks/__init__.py`: register `XHandPasiniNutBolt` and
+    `XHandPasiniM24NutBolt`;
+  - `dexscrew/tasks/xhand_pasini.py`: 123 changed lines so
+    `asset.handInitPose`, `handRootPos`, and `handRootRPY` are consumed during
+    actor creation and reset;
+  - `scripts/tune_dexh13_lightbulb_initpose.py`: generic Paxini-compatible
+    numeric keyboard controls.
+- The active `diffusion` worktree was clean before this issue entry and is at
+  commit `2864631`, synchronized with `origin/diffusion`.
+
+### What Has Been Tried
+- Updated and pushed the full sim2sim snapshot without losing moved DOTPG
+  checkpoints.
+- Switched to the clean `diffusion` branch and pulled it fast-forward.
+- Read the branch-specific `AGENTS.md`, `PLANS_v2.md`, current session handoff,
+  and stage acceptance summary.
+- Audited the exact M24 files and shared runtime diff against `sim2sim`.
+- Did not copy M24 files, modify Pasini runtime, or launch PPO after confirming
+  the escalation boundary.
+
+### Local Conclusion
+- The migration is technically bounded and the source artifacts are preserved,
+  but it changes the active diffusion stage from the canonical Hora student
+  path to a new Pasini M24 PPO teacher task.
+- This is a governance/plan transition, not a missing-asset or implementation
+  blocker. Continuing without revising the active plan would violate the
+  branch's explicit escalation rule.
+
+### Recommended Next Action
+1. Explicitly authorize a new training-stage objective on `diffusion` for
+   `XHandPasiniM24NutBolt -> PPO teacher` and update the active plan/governance
+   files accordingly.
+2. Then selectively import only the M24 assets/configs, Pasini pose support,
+   task registration, and tuner utilities from commit `159d994`; do not import
+   `sim2sim/` or MuJoCo documentation.
+3. Run compile/Hydra/one-env GPU PhysX checks, followed by a monitored
+   8192-environment allocation probe on the local RTX 4080 SUPER before
+   starting the long PPO run.
+
+### Resolution Evidence
+- `AGENTS.md` now names M24 Pasini PPO as the canonical path.
+- `PLANS_m24_ppo.md` defines migration, smoke, capacity, and persistent-run
+  milestones.
+- The selective import contains no `sim2sim/` directory or MuJoCo files.
+- Static checks and a one-environment Docker GPU PhysX smoke passed with 16
+  hand DOFs, three object bodies, one nut DOF, finite reset state, and the
+  user-saved M24 init pose.
+
 ## Status
 - status_now: `open`
 - opened_on: `2026-04-16`

@@ -8,23 +8,22 @@ Do not restate long project summaries or stage plans here.
 ## Canonical path
 Default experiment path:
 
-`XHandHoraScrewDriver -> PPO teacher -> current student -> evaluation/export`
+`XHandPasiniM24NutBolt -> PPO teacher -> checkpoint/evaluation -> optional student follow-up`
 
-Current student is **not** a second-stage RL policy.
-It is an imitation-distillation student built from:
-- action BC
-- latent distillation
-- adapter-based adaptation
+The current objective is local IsaacGym PPO teacher training for the
+user-specified M24x3, 160 mm nut-and-bolt task with the 16-DOF Paxini/Pasini
+hand. Do not resume MuJoCo sim2sim work or start student diffusion/distillation
+unless the user explicitly changes the objective again.
 
 ## What codeagent should do
 Codeagent should focus on local execution work:
 
 - read only the files needed for the current task
-- preserve the current teacher-student pipeline unless the task explicitly requires otherwise
+- preserve existing train/eval/export entrypoints while adding the M24 task
 - prefer small, reversible changes over broad refactors
 - keep existing train/eval/export entrypoints usable
-- treat Hora as the default active path unless told otherwise
-- use `PLANS_v2.md` for current priorities and milestones, not this file
+- treat `XHandPasiniM24NutBolt` PPO as the default active path
+- use `PLANS_m24_ppo.md` for current priorities and milestones, not this file
 
 ## Cloud training execution
 When working on a remote/cloud development machine, or preparing commands to run there, codeagent should treat cloud execution as a first-class training target.
@@ -76,6 +75,7 @@ Codeagent may directly do:
 
 - local bug fixes
 - config wiring
+- M24/Pasini PPO launch, capacity probing, monitoring, and checkpoint handling
 - training/eval/export script fixes
 - student-side implementation changes inside the current pipeline
 - baseline reproduction
@@ -92,13 +92,12 @@ Fast-as-possible playback is only the default for headless numeric eval or when 
 ## When codeagent must escalate
 Codeagent must stop and write `codeagent_issue.md` if any of the following happens:
 
-- the canonical path no longer seems valid
-- the current student design is misunderstood or conflicts with implementation
-- diffusion work requires changing the project goal, milestone, or baseline set
+- the M24/Pasini joint order or saved init pose cannot be matched to the task
+- the M24 asset cannot load with three object bodies and one nut DOF
+- PPO startup requires an algorithm-level redesign rather than a bounded fix
 - the change is no longer local and would require major refactor
 - teacher-student compatibility breaks in a nontrivial way
-- Pasini or external repos become necessary for the current stage
-- diffusion cannot show value beyond the current student baseline
+- external proprietary assets/repos become necessary and are unavailable
 
 ## Required issue format
 If escalation is needed, `codeagent_issue.md` must contain:
@@ -112,15 +111,15 @@ If escalation is needed, `codeagent_issue.md` must contain:
 
 ## Governance boundary
 `AGENTS.md` is for stable workflow rules only.
-`PLANS_v2.md` is for current-stage goals, milestones, priorities, and acceptance criteria.
-If something is stage-specific, put it in `PLANS_v2.md`, not here.
+`PLANS_m24_ppo.md` is for current-stage goals, milestones, priorities, and acceptance criteria.
+If something is stage-specific, put it in `PLANS_m24_ppo.md`, not here.
 
 ## Session Handoff (Required)
 After each meaningful execution session, codeagent must update:
 
-- `docs/session_handoff_v2.md` (the only running handoff for Plan v2 execution)
+- `docs/session_handoff_v2.md` (the running handoff for the active M24 PPO work)
 
-`docs/session_handoff.md` is reserved for Plan v1 historical indexing/archive only, not for ongoing Plan v2 logging.
+`docs/session_handoff.md` remains historical archive only.
 
 The handoff update must include:
 
@@ -139,9 +138,10 @@ Purpose:
 At the beginning of a new execution session, codeagent must read:
 
 - `docs/session_handoff_v2.md`
-- `docs/stage_acceptance_summary.md`
+- `PLANS_m24_ppo.md`
 
 Optional historical context only (when needed):
+- `docs/stage_acceptance_summary.md`
 - `docs/session_handoff.md`
 
 Before any code change or new experiment, codeagent must also do a quick bootstrap check:
