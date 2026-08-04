@@ -1,74 +1,98 @@
 # codeagent_issue.md
 
+## 2026-08-04 Active Escalation: New M24 PPO Training Request
+
+### Task background
+The repository is currently governed by `AGENTS.md` and
+`PLANS_sim2sim.md`, which define the active branch objective as MuJoCo
+sim2sim validation of the frozen CoDrive PPO + PAdapt policy. The user has now
+requested a new local PPO training campaign for the newly created
+`XHandPasiniM24NutBolt` IsaacGym task.
+
+The M24 candidate uses:
+
+- Paxini/Pasini 16-DOF hand;
+- M24x3 nut and 160 mm bolt assembly;
+- latest user-saved keyboard pose from
+  `outputs/initpose_tuning/XHandPasiniM24NutBolt_current.yaml`;
+- PPO config `configs/train/XHandPasiniM24NutBolt.yaml`.
+
+### Current blocker
+Starting PPO would change the project goal from frozen-policy MuJoCo sim2sim
+validation back to new IsaacGym training. `AGENTS.md` lists exactly this goal
+change as a mandatory escalation boundary and instructs codeagent to stop and
+write this issue instead of launching training.
+
+### Evidence
+- The user explicitly requested: update the task from the newly saved pose and
+  start local PPO using as many environments as possible.
+- The saved pose was written at `2026-08-04 12:01:05` and contains a root pose
+  plus all 16 named Paxini joint values.
+- `configs/task/XHandPasiniM24NutBolt.yaml` now contains that exact pose:
+  - root position `[0.096, 0.096, 0.261]`;
+  - root RPY `[3.08914, 0.35236, 3.1415]`;
+  - 16 joint values from index through thumb.
+- Docker Hydra preflight resolved:
+  - task `XHandPasiniM24NutBolt`;
+  - algorithm `PPO`;
+  - `numEnvs=8192`;
+  - `num_actors=8192`;
+  - `sim_device=cuda:0`, `rl_device=cuda:0`.
+- Local GPU inventory is an NVIDIA GeForce RTX 4080 SUPER with 16,376 MiB
+  total memory; 14,929 MiB was free during preflight.
+- The M24 asset previously passed a one-environment GPU PhysX load smoke with
+  three object bodies and one object DOF.
+
+### What has been tried
+- Imported the latest saved pose into the M24 task YAML.
+- Verified all 16 values resolve through Hydra and remain within the configured
+  hand joint range.
+- Verified the inherited training config resolves to PPO with the repository's
+  high-throughput default of 8192 environments.
+- Verified the GPU and available memory.
+- Did not launch `train.py`, create a checkpoint, or start a background
+  container after the escalation boundary was identified.
+
+### Local conclusion
+The task, asset, pose, and PPO configuration are ready for a bounded local
+capacity probe, but starting a new training campaign is outside the active
+sim2sim branch objective. No technical load blocker has been found; this is a
+project-goal/governance blocker.
+
+### Recommended next action
+Move the M24 PPO work to an explicitly training-scoped branch/plan, or revise
+the current `AGENTS.md` objective to authorize this training campaign. Once
+that scope change is recorded, begin with an 8192-environment launch attempt
+on CUDA 0, watch peak GPU memory and PhysX allocation during startup, and only
+reduce to 6144 or 4096 environments if the 16 GB GPU reports OOM or contact-pair
+allocation failure.
+
 ## Status
-- status_now: `open`
-- opened_on: `2026-04-16`
-- last_updated_on: `2026-04-17`
-- trigger: `flow_after_v8_not_continue_worthy_under_current_scope`
+- status_now: `closed_superseded`
+- closed_on: `2026-07-08`
+- reason: `current_branch_retargeted_to_mujoco_sim2sim`
 
-## Task Background
-- 当前执行计划已推进到：`PLANS_v8.md`。
-- V8 的定位不是替代 `padapt`，而是：
-  - 给 `FlowMatchingLatentStudent` 做一次 bounded recovery sprint；
-  - 先判断它是否有资格继续进入扩时或 multiseed，而不是直接冲 accepted branch。
-- 已完成：
-  - `V8-M0` flow 工程闭环补丁（latent init / rollout helper / restore-save closure）
-  - `V8-M1` 旧 flow artifact 的 `infer2 / infer4` eval-only probe
-  - `V8-M2` 5 个 bounded single-seed fresh candidates
-- 统一评测口径：`seed=42`, `steps=256`, `nominal + light_v2 + hard`。
+## Summary
+The previous open issue concerned whether the old Flow Matching / diffusion
+recovery branch should continue under earlier IsaacGym training plans.
 
-## Current Blocker
-- 在 V8 的 recovery sprint 与 bounded sweep 内，仍没有任何 flow candidate 达到“继续投入”的 single-seed continue gate：
-  - `nominal_reward >= 1.95`
-  - `light_v2_reward >= 1.70`
-  - `hard_reward >= 1.55`
-  - `hard_done <= 0.002372`
-- 因此：
-  - `V8-M2.5` 30min 扩时未触发；
-  - `V8-M3` multiseed 未触发；
-  - 当前范围内仍无法证明 Flow Matching diffusion 值得继续投入。
+That issue is no longer active for the current branch. The branch objective has
+been retargeted to MuJoCo sim2sim validation of the frozen CoDrive PPO +
+PAdapt policy.
 
-## Evidence
-- `PLANS_v8.md`
-- `docs/plansv8_final_verdict.md`
-- `docs/stage_acceptance_summary.md`
-- 关键结果（seed42, steps256）：
-  - M1 eval-only probes:
-    - `infer2`: nominal `1.805502`, light_v2 `1.681982`, hard `1.428555`
-    - `infer4`: nominal `1.885794`, light_v2 `1.640372`, hard `1.189338`
-  - M2 fresh candidates:
-    - `zeroinit_bc12`: nominal `0.992769`, light_v2 `0.921589`, hard `1.020256`
-    - `align2_rollout`: nominal `1.082436`, light_v2 `1.108353`, hard `0.750190`
-    - `align2_anchor`: nominal `1.000670`, light_v2 `0.923009`, hard `0.953265`
-    - `align2_bcheavy`: nominal `1.124580`, light_v2 `1.055061`, hard `1.053348`
-    - `align4_rollout`: nominal `1.114895`, light_v2 `1.152107`, hard `1.079496`
-- 参考 baseline：
-  - current flow baseline:
-    - nominal `1.782656`
-    - light_v2 `1.587523`
-    - hard `1.367413`
-  - strongest accepted diffusion reference:
-    - `V5.5 consistency_boundary_bc_tuned`
+## Active Workflow
+- Current rules: `AGENTS.md`
+- Current plan: `PLANS_sim2sim.md`
+- Running handoff: `docs/session_handoff_v2.md`
+- Frozen policy package: `sim2real/codrive/`
 
-## What Has Been Tried
-- V8 已尝试：
-  - `flow_train_init_mode`
-  - train-time rollout BC (`flow_train_align_infer + flow_rollout_bc_coef`)
-  - `infer_steps=2 / 4`
-  - heavier BC weighting
-  - small base action anchor
-  - restore/save closure for `sa_mean_std` and `agent_steps`
-- 每个候选均完成必要评测，并记录 run_dir / ckpt sha1 / verdict 文档。
+## Reopen Conditions
+Create a new issue in this file only if a current sim2sim escalation boundary
+from `AGENTS.md` is reached, such as:
 
-## Local Conclusion
-- 在当前 V8 范围与预算下，Flow Matching 已完成 recovery sprint，但仍未证明自己具备继续投入的价值。
-- 按 AGENTS escalation 边界，“diffusion 无法展现超越当前 student baseline 的价值”条件继续成立。
-- 当前最合理的本地定位是：
-  - `padapt` 继续作为主线 baseline；
-  - `V5.5 consistency_boundary_bc_tuned` 保留为最强已接受 diffusion 参考；
-  - `V8` 作为 flow recovery sprint 的负结果收口。
-
-## Recommended Next Action
-1. 治理层确认：接受 `PLANS_v8 completed_conclude`，冻结当前 flow matching 扩张线。
-2. 若继续：必须新开计划，并明确授权**超出 V8 边界**的新假设；仅重复当前 bounded sweep、继续加时长、或在 `infer2/infer4 + rollout BC` family 内换小系数，不建议再做。
-3. 若不继续：保留 `padapt` 为主线，`V5.5 consistency_boundary_bc_tuned` 为 diffusion 次优参考，`V8` 作为论文中的负结果与边界说明。
+- selected Pasini/Paxini hand joint order cannot be matched to the policy,
+- frozen PAdapt policy loading/input-output contract is ambiguous,
+- MuJoCo cannot represent the required hand/object/screw joint setup without a
+  major asset rewrite,
+- the task would need to switch back from sim2sim validation to training or
+  algorithm research.

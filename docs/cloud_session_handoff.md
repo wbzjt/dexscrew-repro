@@ -1,8 +1,14 @@
 # Cloud Session Handoff
 
-Scope: live cloud execution state for `/root/code/dexscrew-repro`.
+Archived for the current branch. Active work has moved to local MuJoCo sim2sim
+validation; see `AGENTS.md`, `PLANS_sim2sim.md`, and
+`docs/session_handoff_v2.md`. Do not launch cloud training from this file unless
+the user explicitly reopens cloud execution.
 
-Use this file as the first stop when switching between Ubuntu-side and Windows-side Codex sessions. It records what the cloud machine has already done and what should happen next.
+Scope: historical cloud execution state for `/root/code/dexscrew-repro`.
+
+Use this file only if the user explicitly reopens cloud execution. It records
+what the cloud machine previously did and preserves artifact provenance.
 
 ---
 

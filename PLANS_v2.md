@@ -1,5 +1,10 @@
 # PLANS_v2.md
 
+> Archived plan. The active branch workflow is now MuJoCo sim2sim validation in
+> `PLANS_sim2sim.md`. Keep this file for historical IsaacGym/diffusion-stage
+> context only; do not use it as the current task plan unless the user
+> explicitly reopens Plan v2.
+
 ## 1. 当前阶段定义
 当前阶段不是继续扩大 diffusion 路线，而是：
 

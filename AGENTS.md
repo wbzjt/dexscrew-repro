@@ -3,102 +3,122 @@
 ## Scope
 This file tells codeagent how to work in this repo.
 Keep it short, stable, and execution-oriented.
-Do not restate long project summaries or stage plans here.
+
+The active branch task is now **MuJoCo sim2sim validation**, not new IsaacGym
+training or algorithm development.
 
 ## Canonical path
-Default experiment path:
+Default active path:
 
-`XHandHoraScrewDriver -> PPO teacher -> current student -> evaluation/export`
+`sim2real/codrive PPO teacher + PAdapt student -> Pasini/Paxini hand MuJoCo runner -> sim2sim validation`
 
-Current student is **not** a second-stage RL policy.
-It is an imitation-distillation student built from:
-- action BC
-- latent distillation
-- adapter-based adaptation
+The frozen reference policy package is:
+
+- `sim2real/codrive/`
+  - teacher PPO: `best_reward_4159.37.pth`
+  - primary PAdapt student: `model_best_codrive.ckpt`
+  - task YAML: `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - train YAML: `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+
+`sim2real/codrive/dotpg_bc5/` is a useful deploy-eval reference, but the
+default branch objective is PPO + PAdapt unless the user explicitly switches
+policy.
+
+## Current objective
+The goal is to validate the frozen CoDrive policy in MuJoCo.
+
+Do not restart PPO, retrain PAdapt, run new student distillation, or continue
+old diffusion/robustness sweeps unless the user explicitly asks for training.
+
+## Current plan file
+Use `PLANS_sim2sim.md` for current priorities, milestones, and acceptance
+criteria.
+
+Historical files such as `PLANS_v*.md`, `docs/stage_acceptance_summary.md`,
+and old cloud handoffs are archive context only. Read them only when needed to
+explain provenance or recover a specific artifact.
 
 ## What codeagent should do
-Codeagent should focus on local execution work:
+Focus on local sim2sim execution work:
 
 - read only the files needed for the current task
-- preserve the current teacher-student pipeline unless the task explicitly requires otherwise
-- prefer small, reversible changes over broad refactors
-- keep existing train/eval/export entrypoints usable
-- treat Hora as the default active path unless told otherwise
-- use `PLANS_v2.md` for current priorities and milestones, not this file
+- protect frozen artifacts under `sim2real/codrive/`
+- prefer small, reversible changes
+- build MuJoCo runner code in a separate sim2sim area rather than changing
+  IsaacGym training code
+- preserve existing train/eval/export entrypoints
+- reference `xhand-deploy/xhand_deploy.py` for deployment semantics:
+  normalization, proprio history, action masking, target integration, and
+  joint-order handling
+- treat the Pasini/Paxini hand naming and joint order as a must-confirm
+  integration contract before control code is finalized
 
-## Cloud training execution
-When working on a remote/cloud development machine, or preparing commands to run there, codeagent should treat cloud execution as a first-class training target.
+## MuJoCo sim2sim contract
+The MuJoCo runner should reproduce the IsaacGym policy interface before
+tuning physics:
 
-Cloud machine detection can be based on explicit user wording, SSH aliases, remote paths such as `/root/code/dexscrew-repro`, or GPU checks such as `nvidia-smi`.
+- policy rate: 20 Hz
+- physics step: 200 Hz (`dt=0.005`, 10 physics steps per policy step)
+- policy action is normalized and clamped to `[-1, 1]`
+- action updates target position, not direct torque:
+  `target = prev_target + action_scale * action`
+- low-level control should initially be explicit PD torque:
+  `tau = pgain * (target - q) - dgain * qvel`
+- clamp targets to the selected hand joint limits
+- mask inactive CoDrive fingers as defined by the frozen task YAML
+- maintain the same observation/history convention used by the PAdapt policy
 
-Before cloud execution or preparing cloud commands, codeagent must read cloud-side documentation as needed, not only local notes. At minimum, when the cloud repo is reachable, check `/root/code/dexscrew-repro/docs/cloud_session_handoff.md` before starting or modifying cloud training/eval/sync work. Also read any cloud-side docs, manifests, status files, or pipeline logs referenced there when they are relevant to the requested task.
+If using a TorchScript export, remember that external runtimes may need to
+perform observation normalization explicitly. Confirm this from the model and
+reference runtime before assuming the traced module normalizes inputs.
 
-For user requests like "train PPO for N hours, then train/distill student for M hours", codeagent must:
+## Validation order
+For MuJoCo work, prefer this order:
 
-- generate exact, copy-runnable commands or a remote script that implements the requested sequence
-- wrap **each** time-limited phase in its own `timeout`, including both PPO teacher and student/distillation phases
-- treat `timeout` exit status `124` as expected when the requested wall-clock limit is reached
-- record start/end timestamps, exact command lines, selected checkpoint paths, and `teacher_exit_status` / `student_exit_status` in a persistent log
-- select the teacher checkpoint explicitly before launching the student, usually the newest or best `stage1_nn/best_reward_*.pth`
-- preserve and sync the best student checkpoint after completion or manual stop
-- avoid relying on `max_agent_steps: 10000000000` as a substitute for a requested wall-clock limit
-
-Remote long-running jobs should normally be launched from a script under `outputs/cloud_pipeline_*` and run in `tmux`, with logs under the same output directory.
-
-When cloud execution is used, codeagent must also update a cloud-visible handoff:
-
-- `docs/cloud_session_handoff.md`
-
-This file should live on the cloud repo as the source of truth for active/recent cloud work, so Ubuntu-side and Windows-side agents can quickly see:
-
-- active tmux sessions or confirmation that no cloud job is running
-- latest cloud pipeline path and phase/status files
-- exact teacher/student checkpoints being evaluated or trained
-- key result tables and known invalid/polluted summaries
-- the single recommended next cloud action
-
-For cloud work, update both `docs/session_handoff_v2.md` locally and `docs/cloud_session_handoff.md` on/synced to the cloud when the session produces meaningful results or changes the cloud state.
-
-Because the cloud machine usually has stronger resources than the local workstation, codeagent may choose more aggressive training settings there when the user has not pinned them exactly:
-
-- prefer higher `task.env.numEnvs` and compatible `train.ppo.minibatch_size` values to better use a 24GB GPU, large RAM, and fast CPU
-- for IsaacGym Hora PPO teacher runs on the current 24GB cloud GPU, prefer probing resource pairs in this order when the user wants aggressive cloud utilization and has not pinned exact values:
-  - `task.env.numEnvs=12288`, `train.ppo.minibatch_size=24576`
-  - `task.env.numEnvs=8192`, `train.ppo.minibatch_size=16384`
-  - `task.env.numEnvs=6144`, `train.ppo.minibatch_size=12288`
-- use the first probe that allocates, reaches stable startup, and is expected to leave meaningful training time inside the requested wall-clock budget
-- verify GPU model, memory headroom, CUDA visibility, and initial FPS/VRAM usage before committing to a long run
-- back off if startup memory use is close to the GPU limit, if IsaacGym fails to allocate buffers, or if FPS collapses
-- keep the chosen cloud settings explicit in the launch command or script so the run is reproducible
+1. Artifact inventory: confirm selected teacher/student/config files exist.
+2. Scene load: Pasini/Paxini hand + CoDrive object load in MuJoCo.
+3. Zero-action smoke: stable reset and no exploding physics.
+4. Policy I/O parity: same synthetic or recorded inputs produce expected
+   policy action shapes and ranges.
+5. Closed-loop smoke: policy runs for a short rollout without NaN or actuator
+   saturation.
+6. Behavior metrics: record nut angle/velocity, contact summaries, action and
+   target traces, reset reasons, and video when available.
+7. Only after the above, tune MuJoCo contact/friction/actuator parameters.
 
 ## What codeagent can handle directly
 Codeagent may directly do:
 
-- local bug fixes
-- config wiring
-- training/eval/export script fixes
-- student-side implementation changes inside the current pipeline
-- baseline reproduction
-- small ablations and logging improvements
-- documentation updates tied to real code changes
+- MuJoCo scene and runner scaffolding
+- policy loader and observation/history builder wiring
+- action scaling, masking, target integration, and PD controller code
+- asset path fixes and joint-order mapping
+- smoke tests, logging, plotting, and small validation scripts
+- documentation updates tied to real sim2sim changes
 
-No GPT escalation is needed for these if the work stays inside the current plan.
+## What codeagent should avoid
+Avoid by default:
 
-## Visualization execution
-For headed IsaacGym visualization intended for human inspection, codeagent should default to normal real-time playback.
-Use algorithm-specific realtime or sleep flags when available, and avoid changing physics `dt` or controller `controlFrequencyInv` just to slow visualization.
-Fast-as-possible playback is only the default for headless numeric eval or when the user explicitly asks for speed.
+- new IsaacGym training
+- cloud training orchestration
+- new PPO/PAdapt/DOTPG/diffusion sweeps
+- changing frozen `sim2real/codrive/` artifacts
+- using old Plan v2 diffusion gates as current decision rules
+- judging MuJoCo success from reward alone before policy I/O and control
+  parity are confirmed
 
 ## When codeagent must escalate
-Codeagent must stop and write `codeagent_issue.md` if any of the following happens:
+Stop and write `codeagent_issue.md` if any of the following happens:
 
-- the canonical path no longer seems valid
-- the current student design is misunderstood or conflicts with implementation
-- diffusion work requires changing the project goal, milestone, or baseline set
-- the change is no longer local and would require major refactor
-- teacher-student compatibility breaks in a nontrivial way
-- Pasini or external repos become necessary for the current stage
-- diffusion cannot show value beyond the current student baseline
+- the selected Pasini/Paxini hand asset cannot be matched to the frozen
+  CoDrive policy action/joint order
+- the frozen PAdapt policy cannot be loaded or its input/output contract is
+  ambiguous after direct inspection
+- MuJoCo cannot represent the required hand/object/screw joint setup without a
+  major asset rewrite
+- the task would require changing the project goal from sim2sim validation back
+  to training or algorithm research
+- external proprietary assets/repos become necessary and are not present
 
 ## Required issue format
 If escalation is needed, `codeagent_issue.md` must contain:
@@ -110,58 +130,40 @@ If escalation is needed, `codeagent_issue.md` must contain:
 - local conclusion
 - recommended next action
 
-## Governance boundary
-`AGENTS.md` is for stable workflow rules only.
-`PLANS_v2.md` is for current-stage goals, milestones, priorities, and acceptance criteria.
-If something is stage-specific, put it in `PLANS_v2.md`, not here.
+## Session handoff
+After each meaningful execution session, update:
 
-## Session Handoff (Required)
-After each meaningful execution session, codeagent must update:
-
-- `docs/session_handoff_v2.md` (the only running handoff for Plan v2 execution)
-
-`docs/session_handoff.md` is reserved for Plan v1 historical indexing/archive only, not for ongoing Plan v2 logging.
+- `docs/session_handoff_v2.md`
 
 The handoff update must include:
 
-- what milestone/subgoal was targeted
-- what changed (files + behavior impact)
-- what was verified (commands + key outcomes)
+- target milestone/subgoal
+- what changed, including files and behavior impact
+- what was verified, including commands and key outcomes
 - what remains blocked/risky
 - the single recommended next step
 
-Purpose:
-
-- allow the user to track progress quickly
-- let a new session agent onboard fast without replaying full history
-
-## Session Bootstrap (Required)
-At the beginning of a new execution session, codeagent must read:
+## Session bootstrap
+At the beginning of a new execution session, read:
 
 - `docs/session_handoff_v2.md`
-- `docs/stage_acceptance_summary.md`
+- `PLANS_sim2sim.md`
 
-Optional historical context only (when needed):
-- `docs/session_handoff.md`
+Before code changes or new experiments:
 
-Before any code change or new experiment, codeagent must also do a quick bootstrap check:
+- confirm the latest single recommended next step
+- confirm the selected frozen policy artifact
+- avoid rerunning already-failed MuJoCo settings unless testing a clear fix
+  hypothesis
+- record the current sim2sim milestone/subgoal in the first execution update
 
-- confirm the latest "single recommended next step" from `docs/session_handoff_v2.md`
-- avoid rerunning already-failed settings unless testing a clear fix hypothesis
-- record the current target milestone/subgoal in the first execution update
+## Continuous execution preference
+Unless the user explicitly pauses or redirects, continue routine local sim2sim
+validation work without asking for per-probe confirmation.
 
-Purpose:
+Stop and report when:
 
-- recover the latest experiment state before new changes
-- avoid repeating already-failed settings or redundant runs
-
-## Continuous Execution Preference
-Unless the user explicitly pauses or redirects, codeagent should run in continuous execution mode:
-
-- continue plan-aligned local validation/probe work across multiple ideas in one stretch
-- do not stop for per-probe confirmation when the work is routine and inside current governance
-- stop and report when one of the following is true:
-  - a significant experimental breakthrough appears
-  - a clearly acceptable engineering/code optimization progress is achieved
-  - an escalation boundary in this file is triggered
-  - user asks to stop or re-prioritize
+- a MuJoCo runner milestone is clearly achieved
+- a significant behavior/parity result appears
+- an escalation boundary is triggered
+- the user asks to stop or reprioritize

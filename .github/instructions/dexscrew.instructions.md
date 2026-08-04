@@ -2,66 +2,87 @@
 applyTo: '**'
 ---
 
-# DexScrew Quick Context (for future code agents)
+# DexScrew Quick Context For Code Agents
 
-## 1) Repo identity
-- Type: Isaac Gym based secondary development project (custom tasks + custom PPO/ProprioAdapt).
-- Core stack in code: `isaacgym`, `torch`, `hydra`, `omegaconf`, `wandb` (optional), `tensorboardX`.
-- Not found as runtime dependency in code: `rl_games`, `isaacgymenvs`, `legged_gym`, `rsl_rl`, `mujoco`.
+## 1. Current branch identity
+- Active task: MuJoCo sim2sim validation.
+- Goal: deploy and inspect the frozen CoDrive PPO + PAdapt policy in MuJoCo.
+- Non-goal: new IsaacGym training, new distillation, diffusion/flow sweeps, or
+  cloud training.
 
-## 2) Main entry points
-- Training entry: `train.py`
-- Student export/eval helper: `student_eval.py`
-- Task mapping: `dexscrew/tasks/__init__.py` (`isaacgym_task_map`)
-- Core envs: `dexscrew/tasks/xhand_hora.py`, `dexscrew/tasks/xhand_pasini.py`
-- Core algos: `dexscrew/algo/ppo/ppo.py`, `dexscrew/algo/ppo/padapt.py`
+## 2. Current workflow files
+- Stable agent rules: `AGENTS.md`
+- Current plan: `PLANS_sim2sim.md`
+- Running handoff: `docs/session_handoff_v2.md`
+- Historical plans: `PLANS_v*.md` and old stage summaries are archive context
+  only.
 
-## 3) Most used run commands
-- Teacher train: `scripts/screwdriver_teacher.sh 0 42 <exp_name>`
-- Student train: `scripts/screwdriver_student_padapt.sh 0 42 <exp_name>`
-- Teacher vis: `scripts/vis_screwdriver_teacher.sh 0 42 <exp_name>`
-- Student vis: `scripts/vis_screwdriver_student_padapt.sh 0 42 <exp_name>`
-- JIT export: `scripts/convert_student_jit.sh 0 42 <exp_name> screwdriver.pt`
+## 3. Frozen policy package
+Primary package:
 
-## 4) Runtime behavior facts
-- Hydra config root: `configs/config.yaml`
-- Headless supported: yes (`headless=True` widely used in training scripts).
-- GUI needed only for `vis_*` scripts (`headless=False`).
-- Frequent env args: `sim_device`, `rl_device`, `graphics_device_id`, `physics_engine=physx`.
-- Env var used by scripts: `CUDA_VISIBLE_DEVICES` (required in practice for GPU selection).
-- `PYTHONPATH` / `LD_LIBRARY_PATH` hard requirements in this repo: not found.
+- `sim2real/codrive/`
 
-## 5) Minimal reproducible env (from repo docs + code)
-- Python: `3.8` (explicit in `docs/install.md`)
-- Isaac Gym: **Preview 4.0** (explicit in `docs/install.md`)
-- PyTorch: install with CUDA (`pytorch-cuda=12.1` shown in docs)
-- Required python packages (root): from `requirements.txt`
-  - `hydra-core>=1.1`
-  - `termcolor`
-  - `omegaconf`
-  - `gym`
-  - `tensorboard`, `tensorboardx`
-  - `gdown`
-  - `trimesh`
-  - `numpy==1.22.4`
-  - `wandb`
-- Isaac Gym python binding install mode: `pip install -e` under `isaacgym/python` (docs requirement).
+Primary artifacts:
 
-## 6) Migration target note (Host Ubuntu 22.04 + Docker Ubuntu 20.04)
-- Feasible approach: container uses Ubuntu 20.04 + Python 3.8 + CUDA-compatible torch + Isaac Gym Preview 4.
-- Keep training headless first; add GUI/X11 path only if visualization is needed.
-- Keep `CUDA_VISIBLE_DEVICES` pass-through in run scripts.
+- PPO teacher: `sim2real/codrive/best_reward_4159.37.pth`
+- PAdapt student: `sim2real/codrive/model_best_codrive.ckpt`
+- task YAML:
+  `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+- train YAML:
+  `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
 
-## 7) Suggested minimal porting plan
-1. Build base image (Ubuntu 20.04 + Python 3.8 + pip/conda).
-2. Install Python deps from `requirements.txt`.
-3. Install Isaac Gym Preview 4.0 and run `pip install -e isaacgym/python`.
-4. Run smoke test headless:
-   - `python train.py task=XHandHoraScrewDriver headless=True train.algo=PPO test=True checkpoint=<ckpt>`
-5. Then run script-level test:
-   - `scripts/screwdriver_teacher.sh 0 42 smoke`
+Reference-only package:
 
-## 8) Still-missing hard facts (must verify during port)
-- Exact NVIDIA driver minimum version.
-- Exact torch/torchvision/torchaudio pinned versions compatible with Isaac Gym Preview 4 in this environment.
-- Full system package list for rendering/EGL/Vulkan in container when GUI visualization is required.
+- `sim2real/codrive/dotpg_bc5/`
+
+DOTPG BC5 can be used later for comparison. The default target is PPO +
+PAdapt.
+
+## 4. Main code references
+- IsaacGym training/eval entry, preserved but not default for this branch:
+  `train.py`
+- PAdapt implementation:
+  `dexscrew/algo/ppo/padapt.py`
+- PPO/teacher implementation:
+  `dexscrew/algo/ppo/ppo.py`
+- Shared Hora task contract:
+  `dexscrew/tasks/xhand_hora.py`
+- Pasini/Paxini-related task code:
+  `dexscrew/tasks/xhand_pasini.py`
+- External deployment runtime reference:
+  `xhand-deploy/xhand_deploy.py`
+
+## 5. Deployment semantics to preserve
+The MuJoCo runner should reproduce the policy runtime contract:
+
+- 20 Hz policy loop.
+- 200 Hz physics loop.
+- policy action clamped to `[-1, 1]`.
+- CoDrive action mask from the frozen task YAML.
+- target integration:
+  `target = prev_target + action_scale * action`.
+- explicit PD torque:
+  `tau = pgain * (target - q) - dgain * qvel`.
+- target clipping to joint limits.
+- PAdapt-compatible observation/history buffers.
+
+Use `xhand-deploy/xhand_deploy.py` for reference on normalization, history
+buffers, action masking, target integration, and joint-order mapping, but adapt
+it to the selected Pasini/Paxini MuJoCo body and CoDrive policy dimensions.
+
+## 6. First sim2sim implementation path
+1. Inventory the frozen CoDrive artifacts.
+2. Confirm selected Pasini/Paxini hand asset and joint order.
+3. Build a minimal MuJoCo scene and log joint/actuator names.
+4. Run zero-action stability smoke.
+5. Add PAdapt policy loading.
+6. Run action/target/controller trace logging.
+7. Add behavior metrics and video/plot outputs.
+
+## 7. Environment notes
+- Existing root `requirements.txt` is IsaacGym-oriented and does not include
+  MuJoCo.
+- Add MuJoCo-specific dependencies in a sim2sim-local requirements file if a
+  runner is created.
+- Keep IsaacGym scripts usable, but do not treat them as the active workflow
+  unless the user explicitly asks.

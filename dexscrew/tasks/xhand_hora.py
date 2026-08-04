@@ -11,6 +11,7 @@
 # --------------------------------------------------------
 
 import os
+import json
 from typing import Optional
 import torch
 import omegaconf
@@ -1563,6 +1564,7 @@ class XHandHora(VecTask):
 
     def step(self, actions, extrin_record: Optional[torch.Tensor] = None):
         # Save extrinsics if evaluating on just one object.
+        policy_actions = actions.clone()
         action_mask = torch.ones_like(actions)
         if self.apply_action_mask:
             if self.custom_action_mask_indices is not None:
@@ -1572,10 +1574,14 @@ class XHandHora(VecTask):
                 action_mask[:, 5:7] = 0.0
             else:
                 action_mask[:, 5:9] = 0.0  # mask out pinky, and ring finger actions
-        actions = actions * action_mask
-        actions = F.pad(
-            actions, (0, 1), value=0.0
+        masked_actions = actions * action_mask
+        padded_actions = F.pad(
+            masked_actions, (0, 1), value=0.0
         )  # pad the last dim with 0.0 for the nut joint
+        self.last_policy_actions = policy_actions.detach().clone()
+        self.last_action_mask = action_mask.detach().clone()
+        self.last_masked_actions = masked_actions.detach().clone()
+        self.last_padded_actions = padded_actions.detach().clone()
 
         if (
             extrin_record is not None
@@ -1590,13 +1596,171 @@ class XHandHora(VecTask):
             )
 
         self.pre_state = self.xhand_hand_dof_pos[0]
-        super().step(actions)
+        super().step(padded_actions)
         self.obs_dict["priv_info"] = self.priv_info_buf.to(self.rl_device)
         # stage 2 buffer
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
         self.obs_dict["point_cloud_info"] = self.point_cloud_buf.to(self.rl_device)
         self.obs_dict["rot_axis_buf"] = self.rot_axis_buf.to(self.rl_device)
         return self.obs_dict, self.rew_buf, self.reset_buf, self.extras
+
+    def dump_sim2sim_reference_state(
+        self,
+        env_id: int = 0,
+        out_dir: str = "outputs/sim2sim_isaacgym_reference",
+        step: int = 0,
+        phase: str = "pre_step",
+        obs_dict: Optional[dict] = None,
+        normalized_input: Optional[dict] = None,
+        policy_action: Optional[torch.Tensor] = None,
+        extrin: Optional[torch.Tensor] = None,
+        extrin_gt: Optional[torch.Tensor] = None,
+        reward: Optional[torch.Tensor] = None,
+        done: Optional[torch.Tensor] = None,
+        info: Optional[dict] = None,
+    ) -> str:
+        """Dump a compact IsaacGym state/action snapshot for MuJoCo replay."""
+
+        env_id = int(env_id)
+        os.makedirs(out_dir, exist_ok=True)
+        self._refresh_gym()
+
+        def tensor_slice(value, env_index: Optional[int] = env_id):
+            if value is None:
+                return None
+            if torch.is_tensor(value):
+                tensor = value.detach()
+                if env_index is not None and tensor.ndim > 0 and tensor.shape[0] > env_index:
+                    tensor = tensor[env_index]
+                return tensor.cpu().numpy().tolist()
+            if isinstance(value, np.ndarray):
+                array = value
+                if env_index is not None and array.ndim > 0 and array.shape[0] > env_index:
+                    array = array[env_index]
+                return array.tolist()
+            if isinstance(value, (float, int, bool, str)):
+                return value
+            return value
+
+        def dict_slice(values: Optional[dict]):
+            if not isinstance(values, dict):
+                return None
+            out = {}
+            for key, value in values.items():
+                try:
+                    out[str(key)] = tensor_slice(value)
+                except Exception:
+                    continue
+            return out
+
+        def scalar_mean(value):
+            if value is None:
+                return None
+            if torch.is_tensor(value):
+                return float(value.detach().float().mean().cpu())
+            if isinstance(value, (float, int, bool, np.number)):
+                return float(value)
+            return None
+
+        hand_actor = int(self.hand_indices[env_id].item())
+        object_actor = int(self.object_indices[env_id].item())
+        body_names = list(getattr(self, "hand_rigid_body_names", [])) + [
+            "codrive_object_base",
+            "codrive_object_bolt",
+            "codrive_object_nut",
+        ]
+        contact_norm = torch.norm(self.contact_forces[env_id], dim=-1)
+        top_k = min(16, int(contact_norm.numel()))
+        top_values, top_indices = torch.topk(contact_norm, k=top_k)
+        top_contact_bodies = [
+            {
+                "index": int(idx.item()),
+                "name": body_names[int(idx.item())]
+                if int(idx.item()) < len(body_names)
+                else str(int(idx.item())),
+                "force_norm": float(value.detach().cpu()),
+            }
+            for value, idx in zip(top_values, top_indices)
+            if float(value.detach().cpu()) > 1e-6
+        ]
+        payload = {
+            "schema_version": 1,
+            "source": "isaacgym",
+            "task_name": str(self.config.get("name", "")),
+            "phase": str(phase),
+            "step": int(step),
+            "env_id": env_id,
+            "dt": float(self.dt),
+            "control_freq_inv": int(self.control_freq_inv),
+            "action_scale": float(self.action_scale),
+            "pgain": tensor_slice(self.p_gain),
+            "dgain": tensor_slice(self.d_gain),
+            "torque_limit": float(self.torque_limit),
+            "base_obj_scale": float(self.base_obj_scale),
+            "object_scale": tensor_slice(getattr(self, "object_scale_buf", None)),
+            "object_type": str(self.config["env"]["object"]["type"]),
+            "object_init_xyz": [
+                float(getattr(self, "object_x", 0.0)),
+                float(getattr(self, "object_y", 0.0)),
+                float(getattr(self, "object_z", 0.0)),
+            ],
+            "hand_dof_names": getattr(self, "hand_dof_names", None),
+            "rigid_body_names": body_names,
+            "fingertip_body_names": list(getattr(self, "fingertip_body_names", [])),
+            "fingertip_handles": [int(v) for v in list(getattr(self, "fingertip_handles", []))],
+            "object_rb_handles": tensor_slice(getattr(self, "object_rb_handles", None), env_index=None),
+            "screw_nut_rb_handle": int(getattr(self, "screw_nut_rb_handle", -1)),
+            "hand_root_state_xyzw": tensor_slice(self.root_state_tensor[hand_actor, 0:13], env_index=None),
+            "object_root_state_xyzw": tensor_slice(self.root_state_tensor[object_actor, 0:13], env_index=None),
+            "hand_dof_pos": tensor_slice(self.xhand_hand_dof_pos),
+            "hand_dof_vel": tensor_slice(self.xhand_hand_dof_vel),
+            "cur_targets": tensor_slice(self.cur_targets),
+            "prev_targets": tensor_slice(self.prev_targets),
+            "init_pose_buf": tensor_slice(self.init_pose_buf),
+            "nut_dof_pos": tensor_slice(getattr(self, "nut_dof_pos", None)),
+            "nut_dof_vel": tensor_slice(getattr(self, "nut_dof_vel", None)),
+            "nut_dof_vel_cf": tensor_slice(getattr(self, "nut_dof_vel_cf", None)),
+            "nut_pos": tensor_slice(getattr(self, "nut_pos", None)),
+            "object_pos": tensor_slice(getattr(self, "object_pos", None)),
+            "object_rot_xyzw": tensor_slice(getattr(self, "object_rot", None)),
+            "object_linvel": tensor_slice(getattr(self, "object_linvel", None)),
+            "object_angvel": tensor_slice(getattr(self, "object_angvel", None)),
+            "fingertip_states": tensor_slice(getattr(self, "fingertip_states", None)),
+            "fingertip_contact_forces": tensor_slice(self.contact_forces[:, self.fingertip_handles, :]),
+            "fingertip_contact_force_norm": tensor_slice(
+                torch.norm(self.contact_forces[:, self.fingertip_handles, :], dim=-1)
+            ),
+            "all_body_contact_force_norm": tensor_slice(contact_norm, env_index=None),
+            "top_contact_bodies": top_contact_bodies,
+            "nut_contact_force": tensor_slice(self.contact_forces[:, self.screw_nut_rb_handle, :]),
+            "nut_contact_force_norm": tensor_slice(
+                torch.norm(self.contact_forces[:, self.screw_nut_rb_handle, :], dim=-1)
+            ),
+            "last_torque": tensor_slice(self.torques[:, -1, :]),
+            "torque_buffer": tensor_slice(self.torques),
+            "policy_action": tensor_slice(policy_action),
+            "env_last_policy_action": tensor_slice(getattr(self, "last_policy_actions", None)),
+            "env_last_action_mask": tensor_slice(getattr(self, "last_action_mask", None)),
+            "env_last_masked_action": tensor_slice(getattr(self, "last_masked_actions", None)),
+            "env_last_padded_action": tensor_slice(getattr(self, "last_padded_actions", None)),
+            "extrin": tensor_slice(extrin),
+            "extrin_gt": tensor_slice(extrin_gt),
+            "reward": scalar_mean(reward),
+            "done": scalar_mean(done),
+            "obs_dict": dict_slice(obs_dict),
+            "normalized_input": dict_slice(normalized_input),
+            "info_scalars": {
+                str(k): scalar_mean(v)
+                for k, v in (info or {}).items()
+                if scalar_mean(v) is not None
+            },
+        }
+
+        out_path = os.path.join(out_dir, f"isaacgym_ref_env{env_id}_step{int(step):04d}_{phase}.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        print(f"[sim2sim_reference] wrote: {out_path}")
+        return out_path
 
     def capture_frame(self) -> np.ndarray:
         assert self.enable_camera_sensors  # camera sensors should be enabled
@@ -3593,6 +3757,9 @@ class XHandHora(VecTask):
             hand_asset_options.default_dof_drive_mode = int(gymapi.DOF_MODE_POS)
         self.hand_asset = self.gym.load_asset(
             self.sim, asset_root, hand_asset_file, hand_asset_options
+        )
+        self.hand_rigid_body_names = list(
+            self.gym.get_asset_rigid_body_names(self.hand_asset)
         )
         self.fingertip_handles = [
             self.gym.find_asset_rigid_body_index(self.hand_asset, name)

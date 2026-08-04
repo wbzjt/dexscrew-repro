@@ -122,7 +122,47 @@ class ProprioAdapt(EvalSelectMixin, object):
         self.step_reward = torch.zeros(batch_size, dtype=torch.float32, device=self.device)
         self.step_length = torch.zeros(batch_size, dtype=torch.float32, device=self.device)
         self.test_num_steps = int(full_config.get("test_num_steps", 0))
+        self.sim2sim_reference_out = str(
+            full_config.get("sim2sim_reference_out", "")
+            or os.environ.get("DEXSCREW_SIM2SIM_REFERENCE_OUT", "")
+        )
+        self.sim2sim_reference_steps = self._parse_sim2sim_reference_steps(
+            full_config.get(
+                "sim2sim_reference_steps",
+                os.environ.get("DEXSCREW_SIM2SIM_REFERENCE_STEPS", "0"),
+            )
+        )
+        self.sim2sim_reference_env_id = int(
+            full_config.get(
+                "sim2sim_reference_env_id",
+                os.environ.get("DEXSCREW_SIM2SIM_REFERENCE_ENV_ID", 0),
+            )
+        )
+        self.sim2sim_reference_post_step = self._as_bool(
+            full_config.get(
+                "sim2sim_reference_post_step",
+                os.environ.get("DEXSCREW_SIM2SIM_REFERENCE_POST_STEP", "1"),
+            )
+        )
         self._init_eval_select(role="student", artifact_ext="ckpt")
+
+    @staticmethod
+    def _as_bool(value):
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+
+    @staticmethod
+    def _parse_sim2sim_reference_steps(value):
+        if value is None:
+            return {0}
+        if isinstance(value, (int, np.integer)):
+            return {int(value)}
+        if isinstance(value, str):
+            items = [v.strip() for v in value.split(",") if v.strip()]
+        else:
+            items = list(value)
+        return {int(v) for v in items}
 
     def _resolve_trainable_param_patterns(self):
         patterns = self.ppo_config.get("student_trainable_param_patterns", ["adapt_tconv"])
@@ -215,7 +255,37 @@ class ProprioAdapt(EvalSelectMixin, object):
             }
             mu, extrin, extrin_gt = self.model.act_inference(input_dict)
             mu = torch.clamp(mu, -1.0, 1.0)
+            if self.sim2sim_reference_out and c in self.sim2sim_reference_steps:
+                self.env.dump_sim2sim_reference_state(
+                    env_id=self.sim2sim_reference_env_id,
+                    out_dir=self.sim2sim_reference_out,
+                    step=c,
+                    phase="pre_step",
+                    obs_dict=obs_dict,
+                    normalized_input=input_dict,
+                    policy_action=mu,
+                    extrin=extrin,
+                    extrin_gt=extrin_gt,
+                )
             obs_dict, r, done, info = self.env.step(mu)
+            if (
+                self.sim2sim_reference_out
+                and self.sim2sim_reference_post_step
+                and c in self.sim2sim_reference_steps
+            ):
+                self.env.dump_sim2sim_reference_state(
+                    env_id=self.sim2sim_reference_env_id,
+                    out_dir=self.sim2sim_reference_out,
+                    step=c,
+                    phase="post_step",
+                    obs_dict=obs_dict,
+                    policy_action=mu,
+                    extrin=extrin,
+                    extrin_gt=extrin_gt,
+                    reward=r,
+                    done=done,
+                    info=info,
+                )
             c += 1
             if self.test_num_steps > 0:
                 eval_reward_sum += float(r.float().mean().detach().cpu())
@@ -422,7 +492,7 @@ class ProprioAdapt(EvalSelectMixin, object):
             self.writer.add_scalar(f'{k}/frame', v, self.agent_steps)
 
     def restore_train(self, fn):
-        checkpoint = torch.load(fn)
+        checkpoint = torch.load(fn, map_location=self.device)
         cprint('careful, using non-strict matching', 'red', attrs=['bold'])
         self.model.load_state_dict(checkpoint['model'], strict=False)
         self.running_mean_std.load_state_dict(checkpoint['running_mean_std'])
@@ -434,7 +504,7 @@ class ProprioAdapt(EvalSelectMixin, object):
     def restore_test(self, fn):
         if not fn:
             return
-        checkpoint = torch.load(fn)
+        checkpoint = torch.load(fn, map_location=self.device)
         self.running_mean_std.load_state_dict(checkpoint['running_mean_std'])
         self.model.load_state_dict(checkpoint['model'])
         self.sa_mean_std.load_state_dict(checkpoint['sa_mean_std'])

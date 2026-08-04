@@ -8,6 +8,16 @@ This note records the local keyboard-control workflow for tuning the
 Run this from the repo root on the local machine, not on the cloud machine:
 
 ```bash
+./scripts/run_codrive_initpose_tuner.sh
+```
+
+This launcher activates the existing `Isaac Gym` window when the named tuner
+container is already running. Otherwise, it starts the current CoDrive task in
+the rebuilt `dexscrew:ig20-py38` image.
+
+The original generic task command is:
+
+```bash
 ./docker-run-isaacgym.sh python scripts/tune_dexh13_lightbulb_initpose.py \
   --task Dexh13HoraLightbulb \
   --gpu 0 \
@@ -52,8 +62,11 @@ General:
 
 Hand mode:
 
-- `A` / `D`: move hand root `x` negative / positive.
-- `S` / `W`: move hand root `y` negative / positive.
+- `1` / `3`: move hand root `x` negative / positive.
+- `2` / `5`: move hand root `y` negative / positive.
+- Both the main keyboard number row and numeric keypad are supported. These
+  controls move the hand only while the printed mode is `hand`; press `M` if
+  the tuner is currently in `joint` mode.
 - `Q` / `E`: move hand root `z` negative / positive.
 - `F` / `R`: roll negative / positive.
 - `G` / `T`: pitch negative / positive.
@@ -65,7 +78,8 @@ Joint mode:
 - `[` / `]`: select previous / next DOF.
 - `Down` / `Up`: decrease / increase selected DOF.
 - `,` / `.`: decrease / increase selected DOF.
-- `0` to `9`: select DOF index 0 to 9.
+- `0` to `9`: select DOF index 0 to 9. In hand mode, `1/3` and `2/5`
+  instead move the hand root in `x` and `y`.
 - `Space`: set selected DOF to `0.0`.
 
 Joint values are clamped by the task's configured DOF limits.

@@ -1,7 +1,1520 @@
-# Session Handoff v2
+# Session Handoff
 
-Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
+Scope: current running execution handoff. The active plan is now
+`PLANS_sim2sim.md`; older Plan v2 entries below remain historical context.
 Start date: 2026-03-24.
+
+## 2026-08-04 -- M24 Pose Accepted, PPO Request Escalated
+
+### Target milestone/subgoal
+- Apply the user's latest keyboard-saved M24 hand pose and preflight a
+  maximum-throughput local PPO launch.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/XHandPasiniM24NutBolt.yaml` from
+  `outputs/initpose_tuning/XHandPasiniM24NutBolt_current.yaml`:
+  - hand root position `[0.096, 0.096, 0.261]`;
+  - hand root RPY `[3.08914, 0.35236, 3.1415]`;
+  - all 16 named Paxini joint values.
+- Added the mandatory goal-change escalation to `codeagent_issue.md`.
+- No PPO process was launched and no checkpoint/output run was created.
+
+### What was verified (commands + key outcomes)
+- Docker Hydra training preflight resolved:
+  - `XHandPasiniM24NutBolt`;
+  - PPO;
+  - 8192 environments and 8192 actors;
+  - CUDA 0 for simulation and RL;
+  - all 16 saved joint values.
+- `git diff --check` passed for the updated task YAML.
+- GPU inventory: RTX 4080 SUPER, 16,376 MiB total and 14,929 MiB free at the
+  time of inspection.
+
+### Remaining blocked/risky
+- `AGENTS.md` requires escalation when work changes the current objective from
+  frozen-policy MuJoCo sim2sim validation back to new training. Starting PPO
+  is therefore blocked until the repository objective/branch scope is revised.
+- 8192 environments is the desired first capacity probe, not a guaranteed fit
+  on 16 GB; startup must be monitored and reduced to 6144/4096 only on actual
+  OOM or PhysX allocation evidence.
+
+### Single recommended next step
+- Explicitly move this work to a training-scoped branch/plan or revise the
+  active repository objective, then launch the monitored 8192-environment PPO
+  capacity probe.
+
+## 2026-08-04 -- M24x3 160 mm Nut And Bolt Candidate Added
+
+### Target milestone/subgoal
+- Build a user-specified M24x3 black-oxide hex nut and 160 mm bolt assembly,
+  wire it to a separate Paxini IsaacGym task, and validate asset loading before
+  handing over the keyboard init-pose viewer command.
+
+### What changed (files + behavior impact)
+- Added reproducible generator `scripts/generate_m24_nutbolt_assets.py`.
+- Added generated mesh assets under `assets/meshes/`:
+  - `m24x3_hex_nut_36x21p5.stl`: 36 mm across flats, 21.5 mm thick, through
+    bore and edge chamfers;
+  - `m24x3_bolt_thread_160.stl`: M24x3 thread appearance over a 160 mm shaft;
+  - `m24_hex_bolt_head_36x15.stl`: 36 mm across-flats hex head.
+- Added `assets/screw/m24hex/0000_m24x3_160.urdf` and its generated
+  `0000_m24x3_160.npy` 100-point cloud.
+  - Preserves the existing `base`, `bolt`, `nut`, and one-DOF `nut_joint`
+    contract.
+  - Uses a stable 24 mm cylinder for shaft collision and the detailed thread
+    mesh for visualization.
+  - Places the nut center at 125 mm on the 160 mm shaft.
+- Added task/train configs `XHandPasiniM24NutBolt.yaml` by inheriting the
+  validated Paxini NutBolt candidate and selecting `screw_m24hex`.
+- Updated the M24 task's hand root and named 16-DOF `handInitPose` to inherit
+  the visually confirmed values from
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive_latest.yaml`
+  after the first M24 viewer pose was rejected.
+- Registered `XHandPasiniM24NutBolt` and added the short headed launcher
+  `scripts/run_pasini_m24_nut_initpose_tuner.sh`.
+- Added `assets/screw/m24hex/README.md` with dimensions, modeling assumptions,
+  and regeneration instructions.
+- No training was started and no frozen `sim2real/codrive/` artifact changed.
+
+### What was verified (commands + key outcomes)
+- Ran `python scripts/generate_m24_nutbolt_assets.py` successfully.
+  - Nut mesh: 768 triangles.
+  - Thread visual mesh: 40,992 triangles.
+  - Head mesh: 24 triangles.
+  - Point cloud: `(100, 3)` float32 spanning the 160 mm assembly.
+- Python compilation, launcher `bash -n`, XML/config parsing, and targeted
+  `git diff --check` passed.
+- Docker Hydra composition resolved `XHandPasiniM24NutBolt`, 16 actions,
+  `screw_m24hex`, the Paxini hand asset, and PPO `proprio_dim=32`.
+- A follow-up Hydra check confirmed the inherited root position
+  `[0.104, 0.030, 0.219]`, root RPY `[3.1415, 0.3, 3.1415]`, and all 16 named
+  CoDrive joint values resolve in the M24 task.
+- A one-environment GPU PhysX smoke completed with:
+  - exact asset `assets/screw/m24hex/0000_m24x3_160.urdf`;
+  - three object rigid bodies;
+  - one object DOF;
+  - 16 Paxini hand DOFs;
+  - no asset or tensor creation error.
+
+### Remaining blocked/risky
+- The 160 mm bolt length is user-confirmed, but bolt-head height and nut start
+  height were inferred for the simulation fixture and may need adjustment.
+- The original task is rotational only. It does not implement true 3 mm axial
+  nut travel per revolution.
+- Visual pose/contact still requires user inspection in the keyboard tuner;
+  training should not start until pose and collision placement are accepted.
+
+### Single recommended next step
+- Close the old triangular-nut viewer, run
+  `./scripts/run_pasini_m24_nut_initpose_tuner.sh`, and visually tune/save the
+  Paxini hand pose around the M24 nut before a zero-action contact rollout.
+
+## 2026-08-04 -- Paxini NutBolt Init-Pose Viewer Added
+
+### Target milestone/subgoal
+- Create a direct-load NutBolt task candidate using the repository's 16-DOF
+  Paxini/Pasini hand asset and open a single-environment IsaacGym init-pose
+  viewer before any new PPO training is started.
+
+### What changed (files + behavior impact)
+- Added `configs/task/XHandPasiniNutBolt.yaml`.
+  - Retains the original `XHandHoraNutBolt` reward, randomization, timing, and
+    triangular-nut task settings.
+  - Uses the 16-DOF Pasini asset
+    `assets/dexh13_right_description/urdf/dexh13_right_fix_path.urdf`.
+  - Makes the original launch-script override explicit as
+    `object.type: screw_trinut`, which resolves to
+    `assets/screw/trinut/0003_stripe.urdf`.
+  - Records a deterministic hand root and the named 16-DOF nominal NutBolt
+    init pose for interactive tuning.
+- Added `configs/train/XHandPasiniNutBolt.yaml` with the original PPO settings
+  and the required `proprio_dim: 32` for 16 DOF.
+- Registered `XHandPasiniNutBolt` in `dexscrew/tasks/__init__.py`.
+- Updated `dexscrew/tasks/xhand_pasini.py` so named
+  `env.asset.handInitPose`, `handRootPos`, and `handRootRPY` fields are honored
+  during actor creation and episode reset. The legacy
+  `env.customInitDofPos` remains the highest-priority pose override.
+- Added `scripts/run_pasini_nut_initpose_tuner.sh` as the short headed Docker
+  launcher, saving adjustments to
+  `outputs/initpose_tuning/XHandPasiniNutBolt_current.yaml`.
+- Corrected the active triangular-nut URDF mesh reference in
+  `assets/screw/trinut/0003_stripe.urdf` from the nonexistent
+  `assets/screw/meshes/tri.stl` location to `assets/meshes/tri.stl`.
+- Generalized the visible title in
+  `scripts/tune_dexh13_lightbulb_initpose.py` from DexH13-specific wording to
+  a hand init-pose tuner. Existing numeric keyboard controls are unchanged.
+- No PPO/PAdapt training was started and no frozen artifact under
+  `sim2real/codrive/` was changed.
+
+### What was verified (commands + key outcomes)
+- `python -m py_compile dexscrew/tasks/xhand_pasini.py scripts/tune_dexh13_lightbulb_initpose.py`
+  - Outcome: passed.
+- `bash -n scripts/run_pasini_nut_initpose_tuner.sh` and targeted
+  `git diff --check`
+  - Outcome: passed.
+- Docker Hydra composition resolved:
+  - task `XHandPasiniNutBolt`
+  - `numActions=16`
+  - object type `screw_trinut`
+  - Pasini hand asset path
+  - PPO `proprio_dim=32`.
+- A one-environment headless GPU PhysX smoke loaded successfully:
+  - exact 16-DOF order matched `right_index`, `right_middle`, `right_ring`,
+    then `right_thumb`, four joints each;
+  - internal object list was `screw_0`;
+  - asset resolved to `assets/screw/trinut/0003_stripe.urdf`;
+  - configured hand root resolved to approximately
+    `[0.140, 0.072, 0.177]` and its configured quaternion.
+- `./scripts/run_pasini_nut_initpose_tuner.sh`
+  - Outcome: the named container `dexscrew_pasini_nut_tuner` remained running,
+    the `Isaac Gym` viewer was visible, and the tuner reported the expected
+    root pose and 16-DOF NutBolt nominal pose.
+- Captured and inspected the live viewer after reloading the corrected URDF:
+  the brown triangular `nut` link, central bolt, and circular base were all
+  visible. Repository inventory confirmed there is no standalone conventional
+  hex-nut URDF; the available original composite variants are `trinut`,
+  `boxnut`, and `crossnut`.
+
+### Remaining blocked/risky
+- This is an init-pose and asset-load candidate, not an accepted training
+  environment. Contact quality, reset termination, action masking, and reward
+  behavior still need a bounded rollout check after the user approves the
+  visual pose.
+- The original Pasini reset added unconditional per-joint noise; the tuner
+  deliberately reapplies the named nominal joint pose while it is open.
+- Starting a new training campaign changes the repository's active objective
+  away from the current MuJoCo sim2sim plan and should be treated as a separate
+  explicit execution decision after visual validation.
+
+### Single recommended next step
+- Visually adjust and save the Paxini NutBolt pose in the live viewer, then run
+  a zero-action/contact/reset diagnostic before deciding whether to launch PPO.
+
+## 2026-08-04 -- IsaacGym Keyboard Init-Pose Tuner Runtime Restored
+
+### Target milestone/subgoal
+- Restore the local headed IsaacGym keyboard tuner and load the latest
+  `Dexh13HoraLightbulbSim2RealTwoFingerCoDrive` task pose without modifying
+  the task YAML or frozen CoDrive artifacts.
+
+### What changed (files + behavior impact)
+- Rebuilt the missing local Docker image `dexscrew:ig20-py38` from
+  `Dockerfile.isaacgym`.
+- Updated `scripts/tune_dexh13_lightbulb_initpose.py` so hand-root XY tuning
+  no longer uses IsaacGym camera keys:
+  - `1/3`: hand root X negative/positive.
+  - `2/5`: hand root Y negative/positive.
+  - both main-row and numpad digits are subscribed.
+  - numeric keys still select DOFs while in joint mode.
+- Updated `tele_readme.md` with the new key bindings.
+- Added `scripts/run_codrive_initpose_tuner.sh` as the supported short launcher.
+  It activates the existing `Isaac Gym` window when the named container is
+  already running and starts a new tuner only when needed.
+- Started a named headed container `dexscrew_initpose_tuner` with the current
+  CoDrive task YAML and output target
+  `outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive_latest.yaml`.
+- No task YAML, runtime code, or frozen policy artifact was changed.
+
+### What was verified (commands + key outcomes)
+- Host Conda diagnosis reproduced a viewer failure after successful GPU PhysX
+  scene creation: `X connection to :0 broken`; import-only checks were not a
+  sufficient viewer validation.
+- `docker build -t dexscrew:ig20-py38 -f Dockerfile.isaacgym .`
+  - Outcome: image built successfully with Python 3.8, Torch 2.4.1+cu121,
+    IsaacGym Preview 4 bindings, and CUDA access to the RTX 4080 SUPER.
+- `ISAACGYM_DIR=/data/Codefield/third_party/isaacgym_preview4_py38_clean DEXSCREW_CONTAINER_NAME=dexscrew_initpose_tuner ./docker-run-isaacgym.sh python scripts/tune_dexh13_lightbulb_initpose.py --task Dexh13HoraLightbulbSim2RealTwoFingerCoDrive --gpu 0 --seed 42 --out outputs/initpose_tuning/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive_latest.yaml`
+  - Outcome: full GPU PhysX scene loaded, the interactive key help printed,
+    the latest root pose resolved as `[0.104, 0.030, 0.219]`, and the container
+    remained running with the viewer active.
+- Rebuilt the tuner process after the key change and confirmed its live help
+  reports `1/3: x -/+` and `2/5: y -/+` while the viewer stays active.
+- Injected real X11 key events into the live viewer and observed tuner output:
+  - main-row `1` changed root X from `0.104000` to `0.102000`;
+  - main-row `3` restored root X to `0.104000`;
+  - numpad `1` also changed root X to `0.102000`;
+  - the pose was restored to X `0.104000` after the check.
+- Compiled the tuner source with Python `compile()` and ran `git diff --check`
+  for the tuner and keyboard-control documentation successfully.
+- Ran `bash -n scripts/run_codrive_initpose_tuner.sh` and executed the helper
+  while the tuner was active; it detected the running container, activated the
+  existing viewer, and exited without creating a duplicate container.
+
+### Remaining blocked/risky
+- The host Conda viewer path remains graphically incompatible; use the rebuilt
+  Docker image for headed IsaacGym work.
+- The tuner writes a separate YAML snippet only after `O` or `ESC`; it does
+  not overwrite the source task YAML automatically.
+
+### Single recommended next step
+- Adjust the pose in the live viewer, press `O` to save the snippet, and review
+  the generated values before adapting them to a DexH13 nut task.
+
+## 2026-07-29 -- Product Naming And Structure Revision
+
+### Target milestone/subgoal
+- Revise the product document so the platform is defined as a general
+  dexterous-hand fine-manipulation training and real-hardware transfer system,
+  with screw rotation described as the first implemented task rather than the
+  overall product boundary.
+
+### What changed (files + behavior impact)
+- Rewrote `PRODUCT.md`.
+  - Renamed the product to
+    `灵巧手精细操作仿真训练及真机迁移系统`.
+  - Described the current achievement as the rotation task plus an end-to-end
+    Sim2Real software/reference deployment chain.
+  - Converted functional descriptions and parameter sections from tables to
+    numbered `1/2/3/4` prose.
+  - Preserved the distinction between the reusable product platform, the
+    currently demonstrable rotation task, and future task/productization work.
+- No runtime code, scene, configuration, or frozen artifact was changed.
+
+### What was verified (commands + key outcomes)
+- Confirmed the revised document contains no Markdown tables.
+- Confirmed the four requested top-level sections and numbered functional
+  descriptions are present.
+- Confirmed the referenced product screenshot, rollout video, upstream
+  hardware GIF, and frozen CoDrive artifacts still exist.
+
+### Remaining blocked/risky
+- The general product name is broader than the currently implemented task
+  portfolio; only the rotation task should be described as implemented today.
+- The Sim2Real chain is present, but final product-grade calibration and safety
+  acceptance remain hardware-specific.
+- MuJoCo contact behavior parity remains an active technical task.
+
+### Single recommended next step
+- Keep the product platform definition broad, but use the rotation task as the
+  only current acceptance example while completing active distal contact parity
+  and target-hardware calibration.
+
+## 2026-07-29 -- Product Definition And Readiness Audit
+
+### Target milestone/subgoal
+- Convert the repository's current IsaacGym-to-MuJoCo CoDrive work into an
+  evidence-based embodied-intelligence product definition without overstating
+  sim2sim, real-hardware, VR, or multi-task readiness.
+
+### What changed (files + behavior impact)
+- Added `PRODUCT.md`.
+  - Defines the product as
+    `DexScrew-CoDrive 灵巧手旋拧策略训练与跨仿真迁移验证系统`.
+  - Records the carrier, task scope, policy I/O, control timing, domain
+    randomization, user interaction, deliverables, current screenshot, and
+    module-level readiness.
+  - Classifies the overall product as `待开发发布`, while marking the frozen
+    policy runtime and MuJoCo diagnostic toolchain as demonstrable.
+  - Explicitly separates the 12-DOF `xhand-deploy` reference from the current
+    16-DOF CoDrive/Pasini contract and records VR teleoperation as an external,
+    not locally delivered, capability.
+- No runtime code, scene, training configuration, or frozen artifact was
+  changed.
+
+### What was verified (commands + key outcomes)
+- Read `PLANS_sim2sim.md`, the latest session handoff, the frozen CoDrive task
+  and train YAMLs, `docs/sim2sim_policy_io_audit.md`,
+  `docs/sim2sim_validation_status.md`, `docs/sim2sim_asset_parity.md`,
+  `sim2sim/mujoco/README.md`, and `xhand-deploy/README.md`.
+- Confirmed the selected frozen student exists:
+  `sim2real/codrive/model_best_codrive.ckpt`.
+- Confirmed all four frozen package artifacts exist and recorded that the
+  policy contract is 16-DOF, while the existing hardware reference runtime is
+  12-DOF.
+- `python sim2sim/mujoco/run_codrive_sim2sim.py --help`
+  - Outcome: runner exposes audit, zero, poke, policy, reference replay,
+    viewer, video, trace, contact profile, and proxy diagnostic interfaces.
+- Confirmed `docs/images/codrive_mujoco_product.png` is a 960x720 MuJoCo
+  product screenshot and that local policy rollout MP4 artifacts exist.
+- Repository search found no local VR/teleoperation implementation; the root
+  README points to the external `skill-teleop` repository.
+
+### Remaining blocked/risky
+- The product document does not change the current technical verdict:
+  MuJoCo policy runtime is functional, but final IsaacGym-like two-finger
+  contact parity is not achieved.
+- The 16-DOF CoDrive/Pasini hardware mapping, calibration, safety controls, and
+  closed-loop acceptance remain incomplete.
+- Bottle-cap, knob, nut-bolt, screwdriver, VR, force-hybrid control, and GUI
+  capabilities must not be advertised as released features until separately
+  integrated and validated.
+
+### Single recommended next step
+- Build or import a closer IsaacGym/PhysX-style active distal collision
+  approximation for the index and thumb, then rerun the same 20-step
+  IsaacGym-reference policy/zero gates before starting 16-DOF hardware
+  integration.
+
+## 2026-07-09 -- Active Proxy Sweep After Viewer Rubbing Report
+
+### Target milestone/subgoal
+- Test the user's observation that MuJoCo still looks like a finger rubbing the
+  lightbulb in place by isolating active distal contact proxies from raw
+  fingertip/mesh collision.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Added per-finger proxy geometry controls:
+    `--index-proxy-size`, `--thumb-proxy-size`,
+    `--index-proxy-margin`, and `--thumb-proxy-margin`.
+  - The previous shared `--active-proxy-size` and
+    `--active-proxy-margin` remain as defaults.
+  - Rollout/model summaries now record the per-finger proxy parameters.
+- Updated `sim2sim/mujoco/sweep_active_proxy.py`.
+  - The sweep can now vary index and thumb proxy sizes/margins separately.
+- Updated `PLANS_sim2sim.md` and `docs/sim2sim_isaacgym_reference.md` with the
+  new proxy-only evidence.
+- No frozen `sim2real/codrive/` artifact was changed.
+
+### What was verified (commands + key outcomes)
+- Syntax and CLI:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/sweep_active_proxy.py`
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --help`
+- Shared proxy-only index-bias sweep:
+  - output:
+    `outputs/sim2sim_mujoco_contact_sweeps/active_proxy_only_index_bias_24/`
+  - 24/24 runs completed.
+  - Best run kept zero-action axis drift low but was still thumb-proxy
+    dominant: axis `0.825356`, zero axis `0.006899`, dominant pair fraction
+    `0.722222`, index fraction `0.40`, thumb fraction `0.65`.
+- Strong index-biased proxy-only sweep:
+  - output:
+    `outputs/sim2sim_mujoco_contact_sweeps/active_proxy_only_strong_index_36/`
+  - 36/36 runs completed.
+  - Best diagnostic candidate:
+    `0015_idx0x0p01x0p0035_th0x0p001x0p0035_size0p0085_pm0p002_is0p0085_ts0p0035_im0p002_tmarg0p0005_om0p002_tm0p001`
+  - policy axis delta: `0.977056`
+  - zero-action axis delta: `0.012909`
+  - dominant pair:
+    `right_index_tactile_link_2/right_index_distal_proxy<->codrive_lightbulb_nut/codrive_lightbulb_contact0`
+  - dominant pair fraction: `0.705882`
+  - index contact fraction: `0.60`
+  - thumb contact fraction: `0.55`
+  - sequence match: `0.60`
+- Hinge frictionloss probes on the best strong-index proxy:
+  - `--hinge-frictionloss 0.15`: axis stayed `0.977056`, zero axis
+    `0.012909`.
+  - `--hinge-frictionloss 0.10`: axis increased slightly to `1.003267`, but
+    index contact fraction rose to `0.75` and dominant pair fraction to
+    `0.789474`.
+
+### Remaining blocked/risky
+- The policy/control loop is still behaving coherently: active proxy-only mode
+  removes raw fingertip/mesh shortcuts and keeps zero-action rotation low.
+- The current proxy geometry family is not enough for parity. Weak/shared
+  proxies become thumb-dominant; strong index-biased proxies rebalance contact
+  but still keep one contact pair dominant too long and undershoot the
+  IsaacGym axis delta `1.161540`.
+- Lowering hinge frictionloss is not a clean fix because it increases single
+  index-proxy dominance.
+
+### Single recommended next step
+- Stop treating sphere proxy tuning as the final asset fix. Build or import a
+  closer IsaacGym-style active distal collision approximation for
+  `right_index_tactile_link_2` and `right_thumb_tactile_link_1`, then rerun the
+  same 20-step reference replay gates.
+
+## 2026-07-09 -- Contact Offset And Collision Proxy Evidence
+
+### Target milestone/subgoal
+- Move beyond visual diagnosis of index rubbing by checking whether the
+  remaining MuJoCo mismatch is collision-geometry/contact-offset parity rather
+  than policy/control failure.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Added `--finger-contact-mode no_index_tactile2`.
+    This disables only `right_index_tactile_link_2`.
+  - Added `--finger-contact-mode index_tip_thumb_pad_proxy`.
+    This keeps the index tip sphere and thumb pad/tip contacts while disabling
+    active index structural/tactile mesh contacts.
+  - Added contact-offset diagnostics:
+    `--object-margin`, `--object-gap`,
+    `--active-tactile-margin`, and `--active-tip-margin`.
+  - Added `--active-proxy-profile distal_spheres` and
+    `--finger-contact-mode active_distal_proxy`.
+    The runner now generates a temporary hand include XML with local index and
+    thumb distal proxy sphere geoms, then disables the raw active finger mesh
+    contacts while keeping active tips/proxies.
+  - `contact_geom_table` now records MuJoCo `margin` and `gap`.
+- No frozen policy or frozen YAML artifacts were changed.
+
+### What was verified (commands + key outcomes)
+- Syntax/help:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py`
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --help`
+  - `git diff --check -- sim2sim/mujoco/run_codrive_sim2sim.py PLANS_sim2sim.md docs/session_handoff_v2.md docs/sim2sim_isaacgym_reference.md`
+- Subagent read-only audit found:
+  - IsaacGym hand actor uses `create_actor(..., i, -1, 1)` so asset collision
+    filters are used.
+  - IsaacGym hand asset options include
+    `convex_decomposition_from_submeshes=True`, `thickness=0.001`,
+    `collapse_fixed_joints=False`.
+  - Frozen CoDrive training uses
+    `assets/dexh13_hand/urdf/dexh13_hand_right_sim.urdf`.
+  - The task config uses `contact_offset: 0.002` and `rest_offset: 0.0`.
+  - The current parity MuJoCo scene includes
+    `dexh13_right_isaacgym_parity_fingertips.xml`; tactile and fingertip
+    body origins match the URDF values for the checked index/thumb distal
+    tactile links and tip spheres.
+- `no_index_tactile2` fixed the immediate reset precontact:
+  - policy output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_no_index_tactile2_policy_20/`
+  - reset object contacts: `0`
+  - axis delta: `1.260622`
+  - index contact fraction: `0.25`
+  - thumb contact fraction: `0.85`
+  - dominant pair is thumb/contact0, so the failure shifts from index rubbing
+    to thumb dominance.
+- `no_index_tactile2` zero-action control:
+  - output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_no_index_tactile2_zero_20/`
+  - zero axis delta: `0.001607`
+  - dynamic contacts move to index structural/tip contacts but do not rotate
+    the object meaningfully.
+- `index_tip_thumb_pad_proxy` policy/zero:
+  - policy output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_index_tip_thumb_pad_proxy_policy_20/`
+  - zero output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_index_tip_thumb_pad_proxy_zero_20/`
+  - policy axis delta: `1.323993`
+  - zero axis delta: `0.001267`
+  - the proxy removes meaningful zero-action rotation but still switches to
+    thumb too early.
+- Small XY offset sweep over the two proxy modes:
+  - output:
+    `outputs/sim2sim_mujoco_contact_sweeps/proxy_contact_xyoffset_18/`
+  - no offset solved the early thumb-dominance problem.
+- Margin/contact-offset probes:
+  - `index_tip_thumb_pad_proxy` with
+    `--object-margin 0.002 --active-tip-margin 0.001 --active-tactile-margin 0.001`:
+    axis `1.016932`, zero axis `0.011418`, index contact fraction `0.45`,
+    thumb contact fraction `0.85`.
+  - active-only margin:
+    axis `1.065819`, still thumb dominated.
+  - `no_index_tactile2` plus object/active margin:
+    axis `1.035041`, index contact fraction `0.55`, thumb contact fraction
+    `0.80`.
+- Generated active distal proxy probe:
+  - audit output:
+    `outputs/sim2sim_mujoco_contact_sweeps/audit_active_distal_proxy_fixed/`
+  - policy output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_active_distal_proxy_policy_20/`
+  - zero output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_active_distal_proxy_zero_20/`
+  - generated geoms:
+    `right_index_distal_proxy` and `right_thumb_distal_proxy`
+  - disabled active finger raw mesh geoms: `13`
+  - reset object contacts: `0`
+  - policy axis delta: `1.276058`
+  - zero axis delta: `0.012049`
+  - policy-minus-zero gain: `1.264009`
+  - sequence match: `0.40`
+  - dominant pair: `right_thumb_tip <-> codrive_lightbulb_contact0`
+  - interpretation: proxy generation works and removes raw-mesh rubbing, but
+    this first sphere placement makes thumb tip/contact0 take over too early.
+
+### Remaining blocked/risky
+- Removing or proxying the index tactile mesh eliminates the viewer's strongest
+  index-rubbing channel, but the policy then transitions to thumb too early.
+- Adding MuJoCo margin/contact offset increases index-tip participation and
+  keeps zero-action axis drift low, but still does not reproduce the IsaacGym
+  sequence. The remaining issue is likely the exact collision proxy/convex
+  decomposition/contact-offset interaction, not action I/O or PD control.
+- The current best contact-offset/proxy candidates are useful diagnostics, not
+  final sim2sim parity.
+
+### Single recommended next step
+- Sweep the generated distal proxy geometry itself: index/thumb proxy sphere
+  positions, sizes, and margin values. The target is an early index contact
+  window followed by mid-rollout thumb contact and late release, while keeping
+  zero-action axis drift near zero. Avoid more raw mesh friction sweeps until
+  this proxy geometry is characterized.
+
+## 2026-07-09 -- Active Pair Profile Probe For Index Rubbing
+
+### Target milestone/subgoal
+- Test the user's viewer observation that the index finger is rubbing the
+  lightbulb in place by adding explicit local MuJoCo pair profiles for the
+  active tactile/contact0 contacts.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Added `--active-pair-profile`.
+  - The runner can now generate temporary XML with explicit MuJoCo
+    `<contact><pair ...>` entries for:
+    `balanced_soft`, `index_release`, `index_only_release`,
+    `index_only_soft`, `thumb_guard`, `thumb_only_guard`, and `low_pair`.
+  - Profiles affect only the generated output scene. The source XML, frozen
+    CoDrive policy, and frozen YAML artifacts are unchanged.
+  - `active_pair_profile` is recorded in audit and rollout summaries.
+
+### What was verified (commands + key outcomes)
+- Syntax and CLI:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py`
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --help`
+- All probes used:
+  - original frozen task YAML:
+    `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - IsaacGym step-0 pre-state:
+    `outputs/sim2sim_isaacgym_reference/codrive_ref_cpu_20_bodycontacts/isaacgym_ref_env0_step0000_pre_step.json`
+  - diagnostic object profile:
+    `--object-friction 0.8 0.005 0.0001 --object-solref 0.015 1 --object-solimp 0.8 0.98 0.001`
+- Pair-profile policy probes:
+  - `balanced_soft`: axis `1.903807`, sequence match `0.65`, too much axis
+    gain and thumb dominance.
+  - `index_release`: axis `1.719542`, sequence match `0.65`, too much axis
+    gain.
+  - `index_only_release`: axis `1.468651`, sequence match `0.70`, better
+    sequence but still too much axis gain and dominant thumb contact.
+  - `index_only_soft`: axis `1.411557`, sequence match `0.55`, not better.
+  - `thumb_only_guard`: axis `1.374623`, sequence match `0.50`, not better.
+  - `thumb_guard`: axis `1.024232`, zero-action axis `0.039458`,
+    policy-minus-zero gain `0.984774`, sequence match `0.60`.
+  - `low_pair`: axis `1.052727`, zero-action axis `0.052390`,
+    policy-minus-zero gain `1.000338`, sequence match `0.65`.
+- Hinge frictionloss probes on `low_pair`:
+  - `0.15`: axis `1.051487`, dominant pair fraction `0.75`.
+  - `0.10`: axis `1.330518`, dominant pair fraction `0.85`.
+  - `0.05`: axis `1.967451`, dominant pair fraction `0.85`.
+
+### Remaining blocked/risky
+- The pair profiles confirm that the policy is running and that the visible
+  rubbing is mostly a MuJoCo contact-model issue. They do not yet produce
+  IsaacGym parity.
+- The local pair profiles can push the system from index-dominant rubbing to
+  thumb-dominant contact. That is diagnostic progress, not a valid final
+  sim2sim result.
+- `low_pair` is the best current viewer candidate for reduced index rubbing,
+  but it still lacks the IsaacGym late release phase and undershoots the
+  policy-minus-zero axis gain.
+- Hinge frictionloss is contact-state sensitive and not a smooth single knob;
+  lowering it can abruptly over-rotate the object.
+
+### Single recommended next step
+- Use `low_pair` only as the current watch/debug candidate, then implement a
+  local contact proxy or contact-exclusion strategy that removes the reset
+  index precontact persistence without forcing thumb dominance. Do not call the
+  pair-profile result successful yet.
+
+## 2026-07-09 -- CPU Reference Sequence Baseline And MuJoCo Contact Mismatch
+
+### Target milestone/subgoal
+- Convert the viewer complaint ("the index finger seems to rub the bulb in
+  place") into a measured IsaacGym-vs-MuJoCo contact sequence comparison.
+
+### What changed (files + behavior impact)
+- Added `sim2sim/mujoco/analyze_isaacgym_reference.py`.
+  - Reads `isaacgym_ref_env*_step*_pre_step.json` packs.
+  - Infers the active nut contact partner from exported rigid-body contact
+    force norms when the nut force matches an active hand body.
+  - Writes `isaacgym_reference_summary.json` and
+    `isaacgym_reference_steps.tsv`.
+- Updated `PLANS_sim2sim.md`.
+  - M6 now records the CPU/headless IsaacGym reference baseline.
+  - The next step is now M8/M9 contact/hinge repair against the reference
+    sequence, not more blind pose sweeps.
+- The MuJoCo runner/export path now carries IsaacGym `object_scale`; replay
+  writes a scale-matched generated scene XML under the output directory when
+  needed.
+- Extended `sim2sim/mujoco/run_codrive_sim2sim.py` with reversible contact
+  parameter overrides:
+  - `--object-friction SLIDE TORSION ROLL`
+  - `--object-solref TIMECONST DAMPING`
+  - `--object-solimp MIN MAX WIDTH`
+  - `--object-condim 1|3|4|6`
+  - `--object-contact-pos-offset X Y Z`
+  - `--object-contact-z-offset VALUE`
+  - `--object-contact0-mesh PATH`
+  - `--object-contact1-mesh PATH`
+  - `--active-tactile-friction SLIDE TORSION ROLL`
+  - `--active-tactile-solref TIMECONST DAMPING`
+  - `--active-tactile-solimp MIN MAX WIDTH`
+  - `--hinge-frictionloss VALUE`
+  These overrides are recorded in summaries and do not modify frozen artifacts
+  or source XML files.
+- Added `sim2sim/mujoco/sweep_object_contact.py`.
+  - Runs fixed-reference-state MuJoCo policy replays over object friction,
+    solref, solimp, condim, hinge frictionloss, and finger contact mode.
+  - Ranks candidates by axis closeness, dominant-pair concentration, active
+    finger balance, sequence match, and contract violation.
+- Added `docs/sim2sim_isaacgym_reference.md`.
+  - Records the CPU IsaacGym reference, MuJoCo baseline replay, best current
+    contact-sweep candidate, and remaining risks.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile sim2sim/mujoco/analyze_isaacgym_reference.py`
+- IsaacGym reference summary:
+  - `python sim2sim/mujoco/analyze_isaacgym_reference.py outputs/sim2sim_isaacgym_reference/codrive_ref_cpu_20_bodycontacts --output-json outputs/sim2sim_isaacgym_reference/codrive_ref_cpu_20_bodycontacts/isaacgym_reference_summary.json --output-tsv outputs/sim2sim_isaacgym_reference/codrive_ref_cpu_20_bodycontacts/isaacgym_reference_steps.tsv`
+  - 20 pre-step snapshots, `dt ~= 0.005`, `control_freq_inv = 10`, policy
+    rate `20 Hz`.
+  - `object_scale = 1.1938252449035645`.
+  - nut axis delta over 20 policy steps: `1.161540`.
+  - nut partner counts:
+    `right_index_tactile_link_2 = 6`,
+    `right_thumb_tactile_link_1 = 7`,
+    `none = 7`.
+  - Contact sequence: steps 0-4 are index tactile, steps 7-13 are thumb
+    tactile, step 19 returns to index tactile.
+- MuJoCo policy replay from the same exported step-0 pre-state:
+  - output:
+    `outputs/sim2sim_mujoco_reference_replay/latest_cpu_bodycontacts_step0000_policy_20/`
+  - axis delta over 20 policy steps: `1.482288`.
+  - dominant object-contact pair:
+    `right_index_tactile_link_2/right_index_tactile_link_2<->codrive_lightbulb_nut/codrive_lightbulb_contact0`.
+  - dominant pair step fraction: `0.722222`.
+  - index contact fraction: `0.65`.
+  - thumb contact fraction: `0.60`.
+  - index+thumb overlap fraction: `0.35`.
+- Zero-action replay from the same exported reset:
+  - output:
+    `outputs/sim2sim_mujoco_reference_replay/latest_cpu_bodycontacts_step0000_zero_20/`
+  - axis delta: `0.040023`.
+  - contact is index-only, so the reset has an index-side precontact bias but
+    the policy contributes most of the observed MuJoCo rotation.
+- Contact-profile probes from the same exported reset:
+  - outputs:
+    `outputs/sim2sim_mujoco_contact_profiles/`
+  - default/full mesh:
+    axis `1.482`, dominant fraction `0.722`, dominant pair index tactile.
+  - `--object-friction 1.0 0.005 0.0001`:
+    axis `1.224`, closer to IsaacGym `1.162`, but dominant fraction `0.842`
+    and dominant pair thumb tactile.
+  - `--object-friction 2.0 0.005 0.0001`:
+    axis `1.470`, dominant fraction `0.722`, dominant pair thumb tactile.
+  - `--object-friction 2.5 0.005 0.0001`:
+    axis `1.500`, dominant fraction `0.722`, dominant pair index tactile.
+  - `--finger-contact-mode tip_proxy`:
+    axis `0.998`, but becomes thumb-tip dominant and is a shortcut, not a
+    parity result.
+  - `--object-condim 3` did not solve the mismatch and can raise contract
+    violation or axis gain.
+- Targeted object-contact sweeps:
+  - coarse output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_fric_solref_16/`
+  - focused output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_fric_solref_solimp_48/`
+  - best current diagnostic candidate:
+    `--object-friction 0.8 0.005 0.0001 --object-solref 0.015 1 --object-solimp 0.8 0.98 0.001`
+  - policy axis delta: `1.230929`
+  - zero-action axis delta with the same contact settings:
+    `0.070188`
+  - policy-minus-zero axis gain: about `1.160742`, close to IsaacGym
+    reference axis delta `1.161540`
+  - dominant pair fraction: `0.684211`
+  - sequence match fraction: `0.50`
+  - max policy contract violation: `0.017278`
+  - min active contact distance in the policy rollout:
+    `-0.001852`
+- Contact detail instrumentation:
+  - `run_codrive_sim2sim.py` trace rows now include
+    `object_contact_details`, `min_object_contact_dist`, and
+    `min_active_contact_dist`.
+  - A short zero-action probe of the current best candidate shows the initial
+    index tactile precontact is light but real:
+    `dist ~= -7.97e-05 m`, with comparable normal/tangent force.
+- Object contact z-offset probe:
+  - output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_best_zoffset_7/`
+  - small `--object-contact-z-offset` values changed the contact sequence but
+    did not improve the best parity score or remove sustained single-pair
+    dominance.
+- Object contact xy-offset probe:
+  - output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_best_xyoffset_9/`
+  - small `--object-contact-pos-offset` values did not improve the best parity
+    score. Whole contact-mesh translation is unlikely to be the main fix.
+- Contact0 mesh probe:
+  - output:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_mesh_fric_solref_18/`
+  - `smooth_head_collision.stl` can remove reset contact, but becomes
+    thumb-dominant.
+  - `rounded_contact_head.stl` can make axis delta closer and lower contract
+    violation, but does not improve the contact sequence match.
+  - default `contact0.stl` is still the best-ranked diagnostic profile in the
+    tested grid, though it remains non-parity.
+- Active tactile override probes:
+  - outputs:
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_active_tactile_stiff_20/`
+    and
+    `outputs/sim2sim_mujoco_contact_sweeps/object_contact_refstep0_active_tactile_lowfric_stiff_20/`
+  - shared active tactile solver/friction changes reduce penetration in one
+    case but worsen thumb dominance or axis gain. This does not solve parity.
+
+### Remaining blocked/risky
+- GPU IsaacGym reference export was not completed because the RTX 4080S VRAM
+  was almost fully occupied by another Python process. The CPU/headless pack is
+  enough to guide repair, but the final reference should be rerun with the
+  headed/GPU viewer path once VRAM is available.
+- Initial index contact is not, by itself, evidence of failure: the IsaacGym
+  reference also starts with index tactile contact. The current MuJoCo failure
+  is sustained index-pair dominance, excessive 20-step axis gain, and weaker
+  index-to-thumb contact transition.
+- Lowering object friction can make the 20-step axis delta closer to IsaacGym,
+  but the contact sequence becomes too thumb-dominant. The next repair should
+  tune contact persistence/solver/contact geometry balance, not simply disable
+  the index contact or accept a thumb-only replacement shortcut.
+- The best current contact sweep candidate proves that policy-minus-zero axis
+  gain can be matched numerically, but the contact rhythm is still wrong. This
+  is a diagnostic baseline, not a success state.
+- `--object-contact-z-offset` is useful for diagnosis, but the first sweep does
+  not support using it as the main repair.
+- Whole contact0 mesh replacement and whole-mesh translation do not solve the
+  parity gap. The next repair should be more local: active tactile/contact0
+  filtering, local proxy contact geometry, or hand tactile mesh contact
+  treatment.
+- Shared active tactile overrides are too blunt in the first probes; a more
+  selective pair/local proxy strategy is likely needed.
+- The next likely fix is MuJoCo contact/hinge/asset tuning, not retraining.
+
+### Single recommended next step
+- Build a local active tactile/contact0 contact-profile experiment rather than
+  translating or replacing the whole lightbulb mesh. The target is not only
+  axis gain near `1.161540`, but lower dominant-pair concentration and a closer
+  index-to-thumb-to-release sequence.
+
+## 2026-07-09 -- IsaacGym Reference Export And MuJoCo Replay Path
+
+### Target milestone/subgoal
+- Stop diagnosing the MuJoCo twitching from viewer impressions alone by
+  exporting an exact IsaacGym reset/action snapshot and replaying it in MuJoCo.
+
+### What changed (files + behavior impact)
+- Updated `dexscrew/tasks/xhand_hora.py`.
+  - Added `dump_sim2sim_reference_state()`.
+  - The exporter records hand/object root states, hand q/qd, current/previous
+    targets, nut DOF state, object/fingertip states, contact forces, policy
+    action, action mask, masked action, padded action, extrinsics, reward/done,
+    and selected observation inputs.
+  - `XHandHora.step()` now keeps detached copies of the policy action and
+    masked/padded action for reference export. The actual control path still
+    passes the padded masked action to the base task.
+- Updated `dexscrew/algo/ppo/padapt.py`.
+  - `ProprioAdapt.test()` can export reference JSON when
+    `DEXSCREW_SIM2SIM_REFERENCE_OUT` or `++sim2sim_reference_out=...` is set.
+  - The recommended command uses `DEXSCREW_SIM2SIM_REFERENCE_STEPS=0` and
+    `DEXSCREW_SIM2SIM_REFERENCE_POST_STEP=0` so replay consumes only pre-step
+    snapshots.
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Added `--reference-state-json`.
+  - Added `--mode reference_action` to replay the exported IsaacGym policy
+    action from the exported hand/object/root/target state.
+  - Reference replay now rejects non-`pre_step` snapshots, validates exported
+    IsaacGym DOF order against `POLICY_JOINT_NAMES`, and applies exported hand
+    qvel/object velocity/nut velocity where the MuJoCo scene can represent it.
+  - The runner records reference root quaternion, object axis position,
+    init target, and reference action in summaries.
+- Updated `sim2sim/mujoco/README.md` and `PLANS_sim2sim.md`.
+  - The recommended next step is now M6 reference export/replay before more
+    pose sweeps or contact asset edits.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile dexscrew/tasks/xhand_hora.py dexscrew/tasks/dexh13_hora.py dexscrew/algo/ppo/padapt.py sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/sweep_env_alignment.py sim2sim/mujoco/sweep_reset_contact.py`
+- CLI:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --help | rg -n "reference|mode|viewer|policy-steps"`
+  - Confirms `reference_action`, `--reference-state-json`, and live viewer
+    options are exposed.
+
+### Remaining blocked/risky
+- The IsaacGym export command has not yet been run in this session because it
+  requires the IsaacGym viewer/runtime path.
+- The previous MuJoCo viewer result is still not a successful sim2sim result:
+  it appears dominated by single-index rubbing.
+- If exported IsaacGym state/action still produces immediate single-index
+  shortcut behavior in MuJoCo, the next likely fix is contact/asset parity
+  rather than policy or YAML changes.
+
+### Single recommended next step
+- Run the documented IsaacGym reference export command, then replay
+  `isaacgym_ref_env0_step0000_pre_step.json` with
+  `run_codrive_sim2sim.py --mode reference_action --no-clamp-init-q`, followed
+  by the same JSON with `--mode zero` as a reset/contact control.
+
+## 2026-07-09 -- Reset-Source And Single-Finger Twitch Diagnosis
+
+### Target milestone/subgoal
+- Determine whether the MuJoCo twitching/single-finger rubbing is a policy
+  loading problem or a reset/contact parity problem.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Added `--reset-source yaml|isaacgym_screwdriver`.
+  - `isaacgym_screwdriver` mirrors the hardcoded
+    `xhand_pasini.py` `screwdriver_inclined` active init q and midpoint hand
+    root pose for diagnostics.
+  - Rollout/audit summaries now record `reset_source`.
+- Updated `sim2sim/mujoco/sweep_env_alignment.py` and
+  `sim2sim/mujoco/sweep_reset_contact.py`.
+  - Both can pass `--reset-source`.
+  - Policy sweeps now carry tip-distance metrics in their TSV outputs.
+- Updated `PLANS_sim2sim.md` and `docs/sim2sim_asset_parity.md`.
+  - Recorded that YAML init/root pose is not the complete IsaacGym reset
+    contract.
+  - Recorded the current conclusion that the policy loop runs, but MuJoCo
+    behavior is still a reset/contact parity failure.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/sweep_env_alignment.py sim2sim/mujoco/sweep_reset_contact.py`
+- Policy sweep with fixed-body parity tip scene:
+  - `outputs/sim2sim_mujoco_alignment/parity_policy_tipdistance_grid_dt001_80/alignment_summary.tsv`
+  - 63/63 policy rollouts produced zero index tip contact under `tip_proxy`.
+  - 44/63 produced thumb tip contact; no rollout produced tip overlap.
+  - Top candidates were single-thumb shortcuts with dominant pair
+    `right_thumb_tip<->codrive_lightbulb_contact0`.
+- Raw IsaacGym reset-source run:
+  - `outputs/sim2sim_mujoco_debug/isaacgym_reset_source_full_policy_120/`
+  - No contact for 120 policy steps, so the raw IsaacGym hand root is not in
+    the same usable MuJoCo root frame.
+- IsaacGym init q with MuJoCo/YAML root:
+  - `outputs/sim2sim_mujoco_debug/isaacgym_initq_yaml_root_full_policy_120/`
+  - Reset already has 10 active index contacts.
+  - Max active contact force reaches about `17132 N`.
+  - This explains visible twitching and should not be treated as a normal
+    policy rollout.
+- Best no-reset-contact candidate with IsaacGym init q:
+  - `outputs/sim2sim_mujoco_debug/isaacinitq_noresetcontact_candidate_full_policy_160/`
+  - Reset contact count is zero.
+  - Policy still becomes thumb-only:
+    `thumb_only_contact_fraction ~= 0.994`, `index_contact_fraction = 0.0`.
+  - Dominant pair:
+    `right_thumb_tactile_link_0<->codrive_lightbulb_contact0`.
+
+### Remaining blocked/risky
+- The policy is loading and running, but MuJoCo visual behavior is not yet a
+  faithful IsaacGym reproduction.
+- The current problem is not solved by retraining evidence; it is reset frame,
+  init q, and contact/asset parity.
+- Direct raw IsaacGym root coordinates do not map to the current MuJoCo scene.
+- Using only the IsaacGym init q at the current MuJoCo root can create severe
+  precontact impulses.
+
+### Single recommended next step
+- Export one IsaacGym reference reset/rollout state from the working viewer
+  run using `dump_debug_state` or an equivalent hook, then replay that exact
+  hand root, object root, q, target, and first-step action in MuJoCo. Do this
+  before more broad pose/contact sweeps.
+
+## 2026-07-09 -- Sim2Sim Anti-Shortcut Plan And Gate
+
+### Target milestone/subgoal
+- Convert the visual failure report ("index finger rubs the bulb and rotates it
+  in place") into an executable plan and validation gate so MuJoCo sim2sim can
+  move toward reproducing IsaacGym behavior instead of accepting single-finger
+  friction shortcuts.
+
+### What changed (files + behavior impact)
+- Updated `PLANS_sim2sim.md`.
+  - Current stage is now MuJoCo sim2sim behavior parity, not basic MVP
+    validation.
+  - Added M6-M10:
+    - IsaacGym reference behavior pack
+    - anti-single-finger contact gate
+    - MuJoCo hand contact asset repair
+    - object/hinge contact constraint repair
+    - behavior-parity sweep and final verdict
+  - Added explicit non-success conditions: hinge rotation alone, loose
+    two-finger overlap, and one dominant index contact pair are not sufficient.
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Rollout summaries now include:
+    - `dominant_object_contact_pair`
+    - `dominant_object_contact_pair_step_fraction`
+    - `dominant_object_contact_pair_event_fraction`
+    - `index_only_contact_fraction`
+    - `thumb_only_contact_fraction`
+    - `no_active_contact_fraction`
+- Updated `sim2sim/mujoco/analyze_trace.py`.
+  - Trace analysis now reports the same anti-shortcut metrics from existing
+    CSVs.
+- Updated `sim2sim/mujoco/validate_codrive_sim2sim.py`.
+  - Added `--anti-shortcut-gate`.
+  - Added threshold args:
+    - `--max-dominant-contact-pair-fraction`
+    - `--max-index-only-fraction`
+    - `--min-thumb-contact-fraction`
+    - `--min-index-thumb-tip-overlap-fraction`
+    - `--require-tip-overlap`
+  - New verdict: `validation_failed_single_finger_shortcut`.
+- Updated `sim2sim/mujoco/sweep_env_alignment.py`.
+  - Sweep TSVs now carry the anti-shortcut metrics.
+- Updated docs:
+  - `docs/sim2sim_env_alignment.md`
+  - `docs/sim2sim_asset_parity.md`
+  - `sim2sim/mujoco/README.md`
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/analyze_trace.py sim2sim/mujoco/validate_codrive_sim2sim.py sim2sim/mujoco/sweep_env_alignment.py`
+- Trace analysis on the visually bad softer full-mesh policy trace:
+  - `python sim2sim/mujoco/analyze_trace.py outputs/sim2sim_mujoco_debug/visual_softer_contact_pairs_policy_200/policy_trace.csv --output-json outputs/sim2sim_mujoco_debug/visual_softer_contact_pairs_policy_200/analysis_anti_shortcut.json`
+  - Dominant pair:
+    `right_index_link_3/geom_8@right_index_link_3<->codrive_lightbulb_nut/codrive_lightbulb_contact0`
+  - Dominant pair step fraction: `0.98`
+  - Index-only contact fraction: `0.61`
+- Anti-shortcut validation on the known-bad full-mesh pose:
+  - `python sim2sim/mujoco/validate_codrive_sim2sim.py --scene sim2sim/mujoco/scene_dexh13_lightbulb_hinge_fingertips.xml --task-config sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml --dt 0.001 --policy-hz 20 --object-pos 0.014 -0.023 0.022 --hand-root-pos 0.106 0.028 0.245 --hand-root-rpy 3.1415 0.370 3.1415 --joint-limit-mode task --policy-steps 120 --max-contract-violation 0.02 --max-zero-active-contact-fraction 1.0 --min-axis-gain 0.2 --min-two-finger-contact-fraction 0.1 --min-index-thumb-overlap-fraction 0.1 --anti-shortcut-gate --output-dir outputs/sim2sim_mujoco_validation/anti_shortcut_gate_fullmesh_known_bad_120`
+  - Verdict: `validation_failed_single_finger_shortcut`.
+  - It still had policy-minus-zero axis gain `0.991287` and loose overlap
+    `0.45`, proving the new gate catches a false positive that old validation
+    would accept.
+
+### Remaining blocked/risky
+- The gate rejects known-bad single-index rubbing, but it does not yet make a
+  good MuJoCo behavior. It is a guardrail.
+- Current MuJoCo hand/object contact still permits single-index/tip-driven
+  hinge rotation.
+- The next work should repair the contact model rather than continue broad pose
+  sweeps around a known false-positive mechanism.
+
+### Single recommended next step
+- Implement M8/M9 from `PLANS_sim2sim.md`: add a stricter hand contact profile
+  or new MJCF include plus object/contact diagnostic so single-index rubbing
+  cannot produce a successful visual verdict, then run validation with
+  `--anti-shortcut-gate`.
+
+## 2026-07-08 -- MuJoCo DexH13 Asset Passive-Parity Fix
+
+### Target milestone/subgoal
+- Confirm whether the MuJoCo DexH13/Pasini hand asset is physically aligned
+  with the special IsaacGym `dexh13_hand_right_sim.urdf`, especially palm
+  collision, self-collision side effects, fingertip representation, and DOF
+  passive dynamics.
+
+### What changed (files + behavior impact)
+- Updated `assets/dexh13_right_description2/urdf/dexh13_right_fixed.xml` and
+  `assets/dexh13_right_description2/urdf/dexh13_right_fixed_fingertips.xml`.
+  - All hand joint defaults now use `damping=0`, `stiffness=0`,
+    `frictionloss=0.01`, and `armature=0.001`.
+  - This matches `xhand_hora.py` torque-control loading, where IsaacGym effort
+    mode clears DOF stiffness/damping and sets friction/armature explicitly.
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - `model_summary` now records compiled `dof_damping`, `dof_armature`,
+    `dof_frictionloss`, and `joint_stiffness` per policy joint.
+  - `--mode audit` now writes `audit_summary.json` under the requested output
+    directory instead of only printing JSON.
+- Updated `sim2sim/mujoco/validate_codrive_sim2sim.py`.
+  - Added `--hand-root-pos` and `--hand-root-rpy` forwarding so validation can
+    reproduce the exact aligned hand/object pose.
+- Added `docs/sim2sim_asset_parity.md`.
+  - Records URDF-vs-MJCF alignment, remaining differences, and the current
+    passive-parity validation command.
+- Updated `docs/sim2sim_env_alignment.md` with the current passive-parity
+  viewer and validation commands.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/validate_codrive_sim2sim.py sim2sim/mujoco/sweep_env_alignment.py sim2sim/mujoco/analyze_trace.py`
+- Asset audit:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --mode audit --scene sim2sim/mujoco/scene_dexh13_lightbulb_hinge_fingertips.xml --task-config sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml --dt 0.001 --policy-hz 20 --joint-limit-mode task --output-dir outputs/sim2sim_mujoco_debug/passive_parity_audit`
+  - All 16 policy joints compile to `dof_damping=0`,
+    `joint_stiffness=0`, `dof_frictionloss=0.01`, and
+    `dof_armature=0.001`.
+- Policy-vs-zero validation:
+  - `python sim2sim/mujoco/validate_codrive_sim2sim.py --scene sim2sim/mujoco/scene_dexh13_lightbulb_hinge_fingertips.xml --task-config sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml --dt 0.001 --policy-hz 20 --object-pos 0.014 -0.020 0.020 --hand-root-pos 0.106 0.028 0.253 --hand-root-rpy 3.1415 0.390 3.1415 --joint-limit-mode task --policy-steps 200 --max-contract-violation 0.02 --max-zero-active-contact-fraction 1.0 --min-axis-gain 0.2 --min-two-finger-contact-fraction 0.1 --min-index-thumb-overlap-fraction 0.1 --output-dir outputs/sim2sim_mujoco_validation/passive_parity_aligned_validation_dt001_200`
+  - Verdict: `policy_runs_with_two_finger_contact`.
+  - Policy/zero `object_axis_delta`: `0.873338 / -0.020660`.
+  - Policy-minus-zero axis gain: `0.893997`.
+  - Policy index/thumb contact fraction: `0.990 / 0.610`.
+  - Policy index-thumb simultaneous overlap: `0.605`.
+  - Zero index-thumb simultaneous overlap: `0.000`.
+- Follow-up visual-twitch diagnosis:
+  - The high-overlap viewer pose is confirmed to be contact-heavy, not a
+    policy-loading failure. Its 200-step policy trace has saturated active
+    actions and active contact force peaks around `32.7`.
+  - The old higher object pose `0.020 -0.020 0.045` became worse after passive
+    parity, with thumb-only contact and active contact force peaks around
+    `253`; do not use it as the calm visual baseline.
+  - Ran a 165-run short visual-calm sweep:
+    `outputs/sim2sim_mujoco_alignment/passive_parity_visual_calm_grid_dt001_120/alignment_summary.tsv`.
+  - Softer viewer candidate:
+    object `0.014 -0.023 0.022`, hand root `0.106 0.028 0.245`, RPY
+    `3.1415 0.370 3.1415`.
+  - This softer candidate has `object_axis_delta ~= 0.967`,
+    index/thumb contact fraction `~= 0.97 / 0.48`, overlap `~= 0.45`,
+    mean/max active contact force `~= 8.93 / 36.77`, and
+    `max_contract_violation ~= 2.3e-4`.
+  - User visual inspection still found it looked like the index finger rubbing
+    the bulb and rotating the hinge in place.
+  - Contact-pair logging confirms the full-mesh softer pose is dominated by
+    `right_index_link_3/geom_8 <-> codrive_lightbulb_contact0`.
+  - `tip_proxy` at the same pose lowers contact forces but remains mostly
+    index-tip-driven: index/thumb tip contact `0.565 / 0.045`.
+  - Ran a 225-run `tip_proxy` thumb-participation sweep:
+    `outputs/sim2sim_mujoco_alignment/tipproxy_thumb_participation_grid_dt001_160/alignment_summary.tsv`.
+  - Best current `tip_proxy` diagnostic: object `0.016 -0.026 0.020`, hand
+    root `0.108 0.026 0.249`, RPY `3.1415 0.370 3.1415`, with axis delta
+    `~= 1.65`, index/thumb contact `~= 0.80 / 0.42`, overlap `~= 0.275`,
+    mean/max active force `~= 4.15 / 15.86`, and violation `~= 2.3e-4`.
+
+### Remaining blocked/risky
+- The frozen policy and original YAML are now strongly de-risked; retraining is
+  not indicated by this evidence.
+- MuJoCo still is not a perfect URDF rigid-body replica:
+  - IsaacGym keeps fixed tactile/tip links as rigid bodies
+    (`collapse_fixed_joints=False`).
+  - MuJoCo collapses tactile links into parent-body geoms and represents tips
+    as sphere geoms rather than separate bodies.
+  - Fingertip-sphere contact remains `0.000`; current contact is carried by
+    distal/tactile mesh geoms.
+- Self-collision parity is still not proven 1:1 because PhysX URDF import,
+  convex decomposition, contact thickness, and MJCF mesh contact semantics are
+  inherently different.
+- The current MuJoCo hinge scene is too permissive to single-index frictional
+  rotation. It validates policy I/O and actuation, but not final visual
+  CoDrive two-finger behavior parity.
+
+### Single recommended next step
+- Do not present the current MuJoCo run as solved visual parity. Next, either
+  rebuild/filter the MuJoCo hand contact model to match URDF fingertip/tactile
+  bodies more closely, or revise the object/contact constraint so single-index
+  rubbing cannot count visually as successful screw motion.
+
+## 2026-07-08 -- Tip-Aware Hinge Validation And Contact Diagnosis
+
+### Target milestone/subgoal
+- Continue MuJoCo sim2sim until the frozen CoDrive PAdapt policy can be verified end-to-end, with init pose, rate, limits, and contact geometry confounders explicitly diagnosed.
+
+### What changed (files + behavior impact)
+- Added `assets/dexh13_right_description2/urdf/dexh13_right_fixed_fingertips.xml`.
+  - Starts from the existing fixed Pasini/DexH13 MJCF hand.
+  - Adds 5 mm `right_index_tip`, `right_middle_tip`, `right_ring_tip`, and `right_thumb_tip` sphere geoms matching the training URDF fingertip links.
+- Added `sim2sim/mujoco/scene_dexh13_lightbulb_hinge_fingertips.xml`.
+  - Uses the tip-aware hand with the 1-DOF lightbulb/nut hinge scene.
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Logs object-contact geom pairs per policy step.
+  - Adds active/index/thumb fingertip contact fractions and forces separately from body-level finger contact.
+  - Adds `--viewer`, `--viewer-sync-every`, and `--viewer-realtime-factor` for live MuJoCo GUI playback of the same policy rollout.
+  - Supports `--policy-steps 0` as an infinite viewer rollout until the MuJoCo window is closed or Ctrl+C is pressed.
+- Updated `sim2sim/mujoco/sweep_env_alignment.py`, `sim2sim/mujoco/analyze_trace.py`, and `sim2sim/mujoco/validate_codrive_sim2sim.py`.
+  - Carries fingertip contact metrics into sweeps, trace summaries, and validation reports.
+  - Default validation scene is now the tip-aware hinge scene.
+  - Validation markdown now describes thumb-dominant, index-dominant, partial two-finger, or two-finger-pass contact mode from metrics.
+- Updated `docs/sim2sim_validation_status.md`, `docs/sim2sim_env_alignment.md`, and `sim2sim/mujoco/README.md`.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/analyze_trace.py sim2sim/mujoco/sweep_env_alignment.py sim2sim/mujoco/validate_codrive_sim2sim.py`
+- Viewer CLI exposure:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --help | rg -n "viewer|render-video"`
+  - confirms `--viewer`, `--viewer-sync-every`, and `--viewer-realtime-factor` are available.
+- Infinite viewer smoke at CLI/help level:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --help | rg -n "policy-steps|viewer"`
+  - confirms `--policy-steps 0` is documented as run-until-close/Ctrl+C.
+- Tip-aware scene audit:
+  - `sim2sim/mujoco/scene_dexh13_lightbulb_hinge_fingertips.xml` loads with `nq=17`, `nv=17`, `ngeom=36`, `nu=13`.
+  - Four fingertip sphere geoms are present on the distal finger bodies.
+- Coarse/fine pose sweeps:
+  - coarse: `outputs/sim2sim_mujoco_hinge_tip/pose_sweep_policy_80/alignment_summary.tsv`
+  - fine: `outputs/sim2sim_mujoco_hinge_tip/pose_sweep_fine_policy_80/alignment_summary.tsv`
+  - `x ~= 0.006-0.008` gives index-dominant contact.
+  - `x ~= 0.014-0.016` gives thumb-dominant contact.
+  - `x ~= 0.010-0.012` is the narrow partial index+thumb overlap region.
+- Current strict policy-vs-zero validation:
+  - command:
+    `python sim2sim/mujoco/validate_codrive_sim2sim.py --scene sim2sim/mujoco/scene_dexh13_lightbulb_hinge_fingertips.xml --object-pos 0.008 -0.020 0.040 --policy-steps 200 --render-video --render-every 2 --output-dir outputs/sim2sim_mujoco_validation/codrive_hinge_fingertips_index_active_video`
+  - verdict: `policy_runs_and_drives_hinge`
+  - policy/zero hinge `object_axis_delta`: `0.982306 / 0.078251`
+  - policy-minus-zero axis gain: `0.904055`
+  - max contract violation: `0.000488`
+  - policy active/index/thumb contact fraction: `0.645 / 0.640 / 0.005`
+  - zero active contact fraction: `0.005`
+  - two-finger contact check still fails.
+  - videos verified by `ffprobe`: H.264, 960x720, 100 frames, 5 seconds each.
+- Partial two-finger diagnostic:
+  - `outputs/sim2sim_mujoco_validation/codrive_hinge_fingertips_fine_best/validation_report.md`
+  - pose `0.010 -0.025 0.035`
+  - policy/zero hinge `object_axis_delta`: `1.297471 / 0.055919`
+  - policy active/index/thumb contact fraction: `0.390 / 0.210 / 0.185`
+  - fails only the default active-contact threshold; it is useful diagnostic evidence but not the strict pass candidate.
+
+### Remaining blocked/risky
+- The frozen policy is verified to run normally in MuJoCo and drive a screw-like hinge from multiple contact regimes.
+- Stable CoDrive-style index+thumb two-finger contact is not yet recovered in the faithful hinge scene.
+- Added fingertip spheres do not currently become the main contact geoms; MuJoCo contacts are dominated by distal/tactile mesh geoms such as `right_index_link_3/geom_8` and `right_thumb_link_3/geom_31`.
+- This points to contact/geometry parity, not policy I/O, rate, action integration, or joint-limit wiring.
+
+### Single recommended next step
+- If continuing sim2sim fidelity work, tune hand/object contact geometry around the narrow overlap region (`object-pos` near `0.010 -0.025 0.035`) and inspect tactile mesh versus fingertip sphere placement; do not retrain or change the frozen policy/control contract.
+
+## 2026-07-08 -- Hinge Sim2Sim Validation Pack Added
+
+### Target milestone/subgoal
+- Continue until the frozen CoDrive PAdapt policy can be validated end-to-end in MuJoCo, with environment pose, initpose, rate, and joint limits checked.
+
+### What changed (files + behavior impact)
+- Added `sim2sim/mujoco/scene_dexh13_lightbulb_hinge.xml`.
+  - Uses the existing DexH13/Pasini MuJoCo hand.
+  - Replaces the freejoint bulb with a screw-like 1-DOF hinge.
+  - Hinge axis is `0 0 -1`, matching `assets/screw/contactviz/0000_lightbulb.urdf`.
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Supports both freejoint and hinge bulb scenes.
+  - Logs `object_axis_pos`, `object_axis_vel`, `object_axis_delta`, and geometry-center pose/drift.
+  - Adds `--init-pose-file` for standalone handRootPos/handRootRPY/handInitPose YAML overrides.
+  - Adds `--render-video` MP4 export via MuJoCo offscreen rendering and ffmpeg.
+- Updated `sim2sim/mujoco/sweep_env_alignment.py`.
+  - Supports `--scene`, `--task-config`, `--init-pose-file`, hand-root position/RPY sweeps, and new axis/geometry metrics.
+- Updated `sim2sim/mujoco/analyze_trace.py`.
+  - Reports object axis metrics and geometry-center drift.
+- Added `sim2sim/mujoco/validate_codrive_sim2sim.py`.
+  - Runs policy-vs-zero validation and emits JSON/Markdown verdict reports.
+- Added `docs/sim2sim_validation_status.md`.
+  - Records current policy-runtime pass and remaining two-finger contact gap.
+- Updated `docs/sim2sim_env_alignment.md` and `sim2sim/mujoco/README.md`.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/analyze_trace.py sim2sim/mujoco/sweep_env_alignment.py sim2sim/mujoco/validate_codrive_sim2sim.py`
+- Hinge scene audit:
+  - `sim2sim/mujoco/scene_dexh13_lightbulb_hinge.xml`
+  - `nq=17`, `nv=17`, `nu=13`
+  - all 16 policy joints map by name
+  - 20 Hz policy rate derived correctly at `dt=0.001`, decimation `50`
+- Standard validation:
+  - `python sim2sim/mujoco/validate_codrive_sim2sim.py --output-dir outputs/sim2sim_mujoco_validation/codrive_hinge_current`
+  - report: `outputs/sim2sim_mujoco_validation/codrive_hinge_current/validation_report.md`
+  - verdict: `policy_runs_and_drives_hinge`
+  - policy hinge `object_axis_delta=0.400842`
+  - zero hinge `object_axis_delta=0.001885`
+  - policy-minus-zero axis gain `0.398957`
+  - max contract violation `0.000488`
+  - policy active contact fraction `0.985`
+  - zero active contact fraction `0.0`
+  - two-finger contact check still fails: index `0.0`, thumb `0.985`
+- Video export:
+  - policy video: `outputs/sim2sim_mujoco_hinge/exper_policy_root_002_m002_004_200_video/policy_rollout.mp4`
+  - zero video: `outputs/sim2sim_mujoco_hinge/exper_zero_root_002_m002_004_200_video/zero_rollout.mp4`
+  - verified by `ffprobe`: 960x720 H.264, 100 frames, 5 s each.
+- Initpose checks:
+  - CoDriveExper initpose gives the cleanest policy-vs-zero hinge separation.
+  - `outputs/initpose_tuning/codrive4159_initpose.yaml` also drives the hinge (`object_axis_delta ~= 0.3946` over 80 steps) while zero is static, but remains thumb-only and has higher soft-limit violation (`~= 0.0156`).
+  - hand-root z/pitch sweep did not recover stable index+thumb contact.
+- Rate check:
+  - `dt=0.001/50` is the current standard.
+  - `dt=0.002/25` also runs and preserves positive hinge motion, but produced smaller 200-step axis progress (`~=0.2477`) in the checked run.
+
+### Remaining blocked/risky
+- The frozen policy is now verified to run normally in MuJoCo and drive a screw-like hinge; the remaining mismatch is contact/geometry parity.
+- Current faithful hinge validation is thumb-driven. It does not yet reproduce the IsaacGym CoDrive two-finger index+thumb contact objective.
+- Freejoint scene can produce index+thumb contact, but is less faithful to the 1-DOF screw/nut asset.
+- Next work should not retrain. It should inspect and tune MuJoCo hand/object geometry, mesh orientation, and root/initpose alignment until index contact is recovered in the hinge scene.
+
+### Single recommended next step
+- Visually inspect the policy/zero hinge videos and compare MuJoCo hand geometry against the IsaacGym training asset `assets/dexh13_hand/urdf/dexh13_hand_right_sim.urdf`; then tune hinge-scene object/hand mesh pose to recover index contact without changing the frozen policy.
+
+## 2026-07-08 -- Contact Pose Candidate Selected
+
+### Target milestone/subgoal
+- Continue MuJoCo sim2sim environment alignment by selecting a contact pose that reduces setup confounders before judging the frozen CoDrive PAdapt policy.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Added object pose/yaw/velocity and contact aggregate metrics to rollout summaries.
+  - Added per-finger contact fractions/counts/forces for index, middle, ring, and thumb.
+- Updated `sim2sim/mujoco/sweep_env_alignment.py`.
+  - Carries the new object/contact metrics into `alignment_summary.tsv`.
+  - Added `--object-x-values`, `--object-y-values`, and `--object-z-values` for reproducible pose grids.
+  - Prints contact-ranked policy candidates in addition to stability-ranked records.
+- Updated `sim2sim/mujoco/analyze_trace.py`.
+  - Reports four-finger contact fractions/counts/forces from existing trace CSVs.
+- Updated `docs/sim2sim_env_alignment.md` and `sim2sim/mujoco/README.md`.
+  - Current contact-behavior candidate is now documented as:
+    `--object-pos 0.02 -0.02 0.1`.
+
+### What was verified (commands + key outcomes)
+- Syntax:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/analyze_trace.py sim2sim/mujoco/sweep_env_alignment.py`
+- Short summary-field check:
+  - `outputs/sim2sim_mujoco_alignment/verify_summary_fields_5/`
+  - summary now includes object pose/yaw and contact aggregate fields.
+- Coarse contact pose sweep:
+  - `outputs/sim2sim_mujoco_contact_pose/coarse_xyz_20/alignment_summary.tsv`
+  - Found several index/thumb two-finger contact candidates.
+- Fine contact pose sweep:
+  - `outputs/sim2sim_mujoco_contact_pose/fine_xyz_around_002_m002_50/alignment_summary.tsv`
+  - `0.02,-0.02,0.1` remained the best long-run candidate after checking alternatives.
+- 200-step policy/zero comparison at `0.02,-0.02,0.1`:
+  - policy output: `outputs/sim2sim_mujoco_contact_pose/candidate_002_m002_010_policy_200/`
+  - zero output: `outputs/sim2sim_mujoco_contact_pose/candidate_002_m002_010_zero_200/`
+  - policy: index/thumb contact fraction `1.0/1.0`, middle/ring `0.0/0.0`
+  - policy: object yaw delta `-0.584 rad`, final z `0.091`, final drift `0.0176`
+  - zero: object yaw delta `-0.188 rad`, final z `0.101`, final drift `0.0100`
+  - policy-minus-zero yaw contribution: about `-0.396 rad`
+  - policy max action saturation fraction on active fingers: `0.1769`
+- Rate sweep at the contact candidate:
+  - `outputs/sim2sim_mujoco_contact_pose/candidate_002_m002_010_rate_sweep_50/alignment_summary.tsv`
+  - `dt=0.001, decimation=50` and `dt=0.002, decimation=25` are consistent at 20 Hz.
+  - `dt=0.005, decimation=10` is invalid in the current contact scene (`max_contract_violation ~= 4.21`, drift `~= 4.32`).
+- Joint-limit diagnosis:
+  - Main 200-step policy candidate has `max_contract_violation ~= 0.0109`.
+  - Largest contributors: `right_middle_joint_0 ~= 0.01093`, `right_middle_joint_1 ~= 0.00738`, `right_thumb_joint_1 ~= 0.00537`.
+  - Middle/ring have zero object-contact fraction, so this is a MuJoCo soft-limit/model-coupling diagnostic rather than unintended middle/ring manipulation.
+- Hard-clamp diagnostic:
+  - Policy hard-clamp yaw `-0.726 rad`, but clamp events are very high (`41610`).
+  - Zero hard-clamp changes passive dynamics substantially, so hard clamp is not part of the main verdict.
+
+### Remaining blocked/risky
+- The candidate pose is an MVP MuJoCo pose, not proof that the lightbulb asset/contact geometry exactly matches IsaacGym.
+- World yaw is currently a convenient object-motion metric; the final task verdict should also check the intended screw/lightbulb axis and visual behavior.
+- The policy shows nontrivial action saturation; this may be a real sim2sim mismatch signal or a consequence of the current object pose/contact geometry.
+- Claude-review subagent call failed with a local transport error this session, so independent code-review results were not available.
+
+### Single recommended next step
+- Add or run visual/video inspection for `--object-pos 0.02 -0.02 0.1` and compare policy vs zero over the intended object rotation axis before changing policy code or retraining anything.
+
+## 2026-07-08 -- Environment Pose/Rate/Joint-Limit Alignment
+
+### Target milestone/subgoal
+- Align MuJoCo environment pose, policy inference rate, and joint-angle limits before using policy behavior as a sim2sim verdict.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Added `--policy-hz`; when `--control-decimation` is omitted, decimation is derived from `dt` and target policy rate.
+  - Added hand/object pose overrides:
+    `--object-pos`, `--hand-root-pos`, `--hand-root-rpy`.
+  - Added `--joint-limit-mode task|model`.
+    `task` overwrites MuJoCo joint ranges from the frozen task YAML; `model` keeps raw MJCF ranges and clips targets to them.
+  - Added default init-q clipping to selected limits and logs `init_q_clipped_count`.
+  - Added diagnostic `--hard-clamp-joints`.
+  - JSON/CSV outputs now record rate, pose, limit mode, hard-clamp events, and per-joint traces.
+- Added `sim2sim/mujoco/sweep_env_alignment.py`.
+  - Sweeps object pose, dt/decimation rate settings, joint-limit modes, and optional hard clamp.
+  - Writes `alignment_summary.tsv` plus per-run JSON/CSV traces.
+- Added `docs/sim2sim_env_alignment.md`.
+  - Records the current aligned baseline, sweep commands, results, and next checks.
+- Updated `sim2sim/mujoco/README.md`.
+  - Points to the alignment sweep and recommended baseline command.
+
+### What was verified (commands + key outcomes)
+- Syntax and formatting:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/sweep_env_alignment.py`
+  - `git diff --check`
+- Rate derivation / audit:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --mode audit --dt 0.001 --policy-hz 20 --joint-limit-mode task`
+  - derived `control_decimation=50`
+  - `policy_rate_hz=20.0`
+  - `policy_rate_error_hz=0.0`
+  - `init_q_clipped_count=1`
+- Zero-action pose/rate sweep:
+  - summary: `outputs/sim2sim_mujoco_alignment/zero_pose_rate_task/alignment_summary.tsv`
+  - `dt=0.001/50` and `dt=0.002/25` are stable at object poses near `(0.012,-0.018,0.05)`.
+  - `dt=0.005/10` remains unstable for the current MJCF even though it preserves 20 Hz.
+- Short policy pose/rate sweep:
+  - summary: `outputs/sim2sim_mujoco_alignment/policy_pose_rate_task/alignment_summary.tsv`
+  - `dt=0.001/50`, object `(0.012,-0.018,0.05)`:
+    `max_contract_violation ~= 4.9e-4`, `max_abs_tau ~= 0.425`
+  - `dt=0.002/25`, object `(0.012,-0.018,0.05)`:
+    similar violation and torque.
+- Joint-limit comparison:
+  - summary: `outputs/sim2sim_mujoco_alignment/zero_limit_modes/alignment_summary.tsv`
+  - `task` limit mode is the aligned default; `model` mode is useful only for comparison because it keeps wider unlocked MJCF ranges.
+- 20-step aligned baseline:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --mode policy --dt 0.001 --policy-hz 20 --object-pos 0.012 -0.018 0.05 --joint-limit-mode task --policy-steps 20 --output-dir outputs/sim2sim_mujoco_alignment/policy_aligned_baseline_20`
+  - no NaN
+  - `physics_steps=1000`
+  - `policy_rate_hz=20.0`
+  - `max_abs_action=1.0`
+  - `max_abs_tau ~= 0.889`
+  - `max_contract_violation ~= 5.0e-4`
+
+### Remaining blocked/risky
+- `dt=0.001/50` preserves 20 Hz policy timing but is not identical to IsaacGym `dt=0.005/10`; treat it as the current MuJoCo numerical-stability baseline.
+- The current lightbulb object is still an MVP MuJoCo body. Contact geometry/friction and object angle/axis need behavior-level validation.
+- MuJoCo limits are soft. `--hard-clamp-joints` is available for diagnostics but should not be enabled for the main verdict unless explicitly reported.
+- Current alignment is short-horizon. Longer closed-loop runs still need visual/log review.
+
+### Single recommended next step
+- Run a longer aligned closed-loop rollout from `docs/sim2sim_env_alignment.md`, inspect object/contact/action/target traces and video or viewer output, then decide whether failures are contact/pose dominated or policy dominated.
+
+## 2026-07-08 -- MuJoCo MVP Scaffold From Dex-Bulb Deploy
+
+### Target milestone/subgoal
+- Advance M2/M3 by creating a local MuJoCo scaffold that can load the Pasini/DexH13 hand, a lightbulb object, and the frozen CoDrive PAdapt policy without IsaacGym.
+- Reuse the prior local DexH13 deploy logic from `/data/Codefield/py/dex-bulb`.
+
+### What changed (files + behavior impact)
+- Added `sim2sim/mujoco/scene_dexh13_lightbulb.xml`.
+  - Includes the existing `assets/dexh13_right_description2/urdf/dexh13_right_fixed.xml`.
+  - Adds a minimal CoDrive lightbulb body using repository STL contact meshes.
+- Added `sim2sim/mujoco/run_codrive_sim2sim.py`.
+  - Supports `--mode audit`, `zero`, `poke`, and `policy`.
+  - Loads `sim2real/codrive/model_best_codrive.ckpt` directly through a lightweight PAdapt wrapper (`actor_mlp + mu + adapt_tconv`).
+  - Maintains 30-frame proprio history, raw obs clipping, RMS normalization, action clamp, action mask, target integration, task joint limits, and PD torque.
+  - Bypasses the default 13 MuJoCo actuators by writing 16 joint torques through `qfrc_applied`, preserving the IsaacGym-style direct PD torque contract for the first MVP.
+  - Writes JSON model summaries and detailed CSV traces with action, target, qpos, qvel, torque, contact count, and object position.
+- Added `sim2sim/mujoco/README.md`.
+  - Records audit/zero/poke/policy commands and current limitations.
+- Updated `docs/sim2sim_policy_io_audit.md`.
+  - Added the `/data/Codefield/py/dex-bulb` local deploy references.
+  - Added the MuJoCo timestep/substep stability note.
+
+### What was verified (commands + key outcomes)
+- Confirmed MuJoCo Python is installed:
+  - `mujoco 3.10.0`
+- Verified scene load and mapping:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --mode audit`
+  - scene loads with `nq=23`, `nv=22`, `nu=13`
+  - all 16 policy joints map by name to MuJoCo qpos/dof addresses
+  - runner overwrites MuJoCo joint ranges with frozen task `dofLowerLimits` / `dofUpperLimits`
+- Verified syntax:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py`
+  - `git diff --check`
+- Stable diagnostic zero-action smoke:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --mode zero --dt 0.001 --control-decimation 50 --object-pos 0 0 1.0 --policy-steps 20 --output-dir outputs/sim2sim_mujoco_mvp/zero_dt001_limits`
+  - no NaN
+  - `physics_steps=1000`
+  - `max_abs_tau=0.5608`
+  - `max_contract_violation=0.0510`
+- Stable diagnostic policy smoke:
+  - `python sim2sim/mujoco/run_codrive_sim2sim.py --mode policy --dt 0.001 --control-decimation 50 --object-pos 0 0 1.0 --policy-steps 5 --output-dir outputs/sim2sim_mujoco_mvp/policy_dt001_limits`
+  - frozen `.ckpt` PAdapt policy loads and runs closed-loop
+  - no NaN
+  - `max_abs_action=1.0`
+  - `max_abs_tau=0.3413`
+  - `max_contract_violation=0.00049`
+
+### Remaining blocked/risky
+- The current lightbulb pose is only an MVP smoke setup. `--object-pos 0 0 1.0` intentionally moves the object away to isolate mechanics/policy I/O from contact.
+- The IsaacGym-timestep setting `dt=0.005`, decimation `10` can destabilize the current MuJoCo MJCF; stable diagnostic smoke uses `dt=0.001`, decimation `50` while preserving 20 Hz policy timing.
+- MuJoCo joint limits are soft constraints. Locked middle/ring joints still need monitoring; the runner logs `max_contract_violation`.
+- Real contact behavior with the bulb in-grasp is not validated yet.
+
+### Single recommended next step
+- Tune the MuJoCo reset/contact start pose: run zero/policy sweeps over object position near the CoDrive init pose with `dt=0.001`, decimation `50`, inspect `ncon`, locked-joint violation, and q/target traces, then choose the first contact-stable pose for real closed-loop behavior evaluation.
+
+## 2026-07-08 -- Sim2Sim Policy I/O Audit
+
+### Target milestone/subgoal
+- Complete M1 policy-interface audit for the frozen `sim2real/codrive/` PPO + PAdapt student before implementing the MuJoCo runner.
+- Use web-checked MuJoCo/Isaac sim2sim deployment patterns to reduce environment/config confounders.
+
+### What changed (files + behavior impact)
+- Added `docs/sim2sim_policy_io_audit.md`.
+  - Records checkpoint input/output shapes, normalization buffers, observation/history construction, action mask, target integration, PD torque contract, joint order, reset/object values, and false-failure checklist.
+  - Notes that `xhand-deploy/xhand_deploy.py` is a runtime pattern reference but is 12-DOF xHand-specific; do not reuse its joint mapping or `ACTION_SCALE` unchanged for the 16-DOF CoDrive policy.
+  - Flags `assets/dexh13_right_description2/urdf/dexh13_right_fixed.xml` as a potential confounder: it has 16 joints but only 12 motors with tendon coupling for distal index/middle/ring joints, which differs from the 16-action IsaacGym policy.
+- Updated `PLANS_sim2sim.md`.
+  - Points future runner work to `docs/sim2sim_policy_io_audit.md`.
+
+### What was verified (commands + key outcomes)
+- Inspected frozen CoDrive configs and checkpoint:
+  - `sim2real/codrive/model_best_codrive.ckpt`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+- Checkpoint audit:
+  - action dim: `16`
+  - `obs`: `(1, 96)`
+  - `proprio_hist`: `(1, 30, 32)`
+  - `point_cloud_info`: `(1, 100, 3)`
+  - `running_mean_std`: `(96,)`
+  - `sa_mean_std`: `(30, 32)`
+  - `priv_mean_std`: `(71,)`
+  - actor first layer input: `136`
+- Cross-check found one loader-specific hazard:
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+    still declares `algo: PPO` and `proprio_adapt: False`.
+  - Student runtime must follow the training-script override semantics:
+    `train.algo=ProprioAdapt` and `train.ppo.proprio_adapt=True`.
+- Inspected deployment/control sources:
+  - `xhand-deploy/xhand_deploy.py`
+  - `dexscrew/algo/ppo/padapt.py`
+  - `dexscrew/algo/models/models.py`
+  - `dexscrew/algo/models/running_mean_std.py`
+  - `dexscrew/tasks/xhand_pasini.py`
+- Confirmed control contract for MuJoCo MVP:
+  - clamp policy output to `[-1, 1]`
+  - mask actions `4:12`
+  - target update `target = prev_target + 0.05 * action`
+  - PD torque `tau = 3.0 * (target - qpos) - 0.01 * qvel`
+  - clip torque to `[-300, 300]`
+  - run 200 Hz physics and 20 Hz policy updates.
+- Web-checked current sim2sim/MuJoCo references:
+  - Isaac Lab sim-to-sim guidance highlights joint/link order remapping as a core transfer issue.
+  - Unitree RL Gym MuJoCo deploy uses explicit timestep, decimation, action scale, default pose, and PD torque.
+  - MuJoCo docs confirm actuator control semantics, solver contact parameters, and friction parameter differences.
+
+### Remaining blocked/risky
+- Need an actual MuJoCo runner and scene.
+- Need to choose whether the first MVP uses direct joint torque through a 16-DOF-compatible model/API path or a modified MJCF with 16 explicit actuators.
+- Need the policy loader to construct the PAdapt stage-2 model explicitly, not a PPO/teacher model from the frozen train YAML alone.
+- Need to verify object/lightbulb screw joint axis/sign and contact geometry in MuJoCo before interpreting closed-loop behavior.
+
+### Single recommended next step
+- Implement `sim2sim/mujoco/` MVP scaffold from `docs/sim2sim_policy_io_audit.md`: load scene, log name-based joint/actuator mapping, run zero-action and one-joint-poke stability checks, then attach the direct `.ckpt` PAdapt policy loop.
+
+## 2026-07-08 -- Switch Agent Workflow To MuJoCo Sim2Sim
+
+### Target milestone/subgoal
+- Rework agent/workflow guidance so the current branch task is MuJoCo sim2sim validation of the frozen CoDrive PPO + PAdapt policy, not additional IsaacGym training.
+
+### What changed (files + behavior impact)
+- Rewrote `AGENTS.md`.
+  - Current canonical path is now:
+    `sim2real/codrive PPO teacher + PAdapt student -> Pasini/Paxini hand MuJoCo runner -> sim2sim validation`.
+  - Removed current-workflow emphasis on cloud training, diffusion gates, and old IsaacGym training expansion.
+  - Preserved general session bootstrap/handoff rules.
+- Added `PLANS_sim2sim.md`.
+  - Defines frozen artifacts, MuJoCo deployment contract, milestones, acceptance rules, and non-goals.
+- Rewrote `.github/instructions/dexscrew.instructions.md`.
+  - Future quick context now points to sim2sim, frozen CoDrive artifacts, and `xhand-deploy/xhand_deploy.py` as deployment reference.
+- Updated `docs/cloud_session_handoff.md`.
+  - Marked old cloud execution notes as archived for the current sim2sim branch unless the user explicitly reopens cloud execution.
+
+### What was verified (commands + key outcomes)
+- Inspected current workflow docs and artifact package:
+  - `AGENTS.md`
+  - `.github/instructions/dexscrew.instructions.md`
+  - `docs/session_handoff_v2.md`
+  - `docs/cloud_session_handoff.md`
+  - `sim2real/codrive/`
+- Confirmed frozen CoDrive package files are present:
+  - `sim2real/codrive/best_reward_4159.37.pth`
+  - `sim2real/codrive/model_best_codrive.ckpt`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`
+  - `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.train.yaml`
+- Confirmed `sim2real/codrive/dotpg_bc5/` exists as a deploy-eval reference, not the default PPO + PAdapt target.
+
+### Remaining blocked/risky
+- The exact repository asset/class intended by user wording `paxinihand` still needs confirmation against repo naming (`Pasini`/`XHandPasini` appears in code).
+- The PAdapt student runtime path for MuJoCo still needs a concrete loader decision: direct `.ckpt` loader or generated TorchScript.
+- No MuJoCo runner has been implemented yet.
+
+### Single recommended next step
+- Start M0/M1 from `PLANS_sim2sim.md`: audit `sim2real/codrive/model_best_codrive.ckpt` input/output contract and confirm the selected Pasini/Paxini MuJoCo hand joint order before writing the runner.
+
+## v2-2026-07-08 -- MuJoCo Sim2Sim Feasibility Exploration
+
+### Target milestone/subgoal
+- Explore the current IsaacGym dexterous screw/lightbulb pipeline and assess feasibility/difficulty for a MuJoCo sim2sim deployment path.
+
+### What changed (files + behavior impact)
+- Documentation-only update to this handoff.
+- No code, config, checkpoint, or experiment artifact was modified.
+
+### What was verified (commands + key outcomes)
+- Read the required bootstrap docs:
+  - `docs/session_handoff_v2.md`
+  - `docs/stage_acceptance_summary.md`
+  - `PLANS_v2.md`
+  - `AGENTS.md`
+- Used three read-only subagents to inspect:
+  - policy/train/export/deploy interfaces
+  - IsaacGym task/environment/assets/physics contracts
+  - existing sim2real/deploy/MuJoCo-related assets
+- Key findings:
+  - No complete MuJoCo runner or `sim2sim/` package exists in the current checkout.
+  - ProprioAdapt/TorchScript is the most feasible first policy target.
+  - Existing `xhand-deploy/xhand_deploy.py` contains reusable runtime logic for normalization, history, action masking, target integration, and joint-order mapping.
+  - `sim2real/thesis_twofinger_padapt_s42_30m/student_policy.pt` is the most self-contained DexH13 two-finger MVP artifact currently visible.
+  - MuJoCo work is feasible but dominated by environment/physics/contact/control parity, not neural-network loading.
+
+### Remaining blocked/risky
+- Local checkout does not contain the `sim2real/deploy/` directory referenced by older handoff entries; deploy artifacts must be inventoried before implementation.
+- The largest sim2sim risks are PhysX-vs-MuJoCo contact/friction behavior, hand/object fixed-base pose parity, screw/nut joint modeling, and exact reproduction of the IsaacGym action-to-target-to-PD torque contract.
+- Non-ProprioAdapt students such as DOTPG/consistency/flow may require additional external runtime/export work.
+
+### Single recommended next step
+- Build a minimal MuJoCo MVP around `sim2real/thesis_twofinger_padapt_s42_30m/student_policy.pt`: load DexH13 + contactviz lightbulb, run zero-action viewer, then add ProprioAdapt TorchScript inference with IsaacGym-compatible obs/history/action/control semantics.
 
 ## v2-2026-05-18 -- Build Middle/Small PAdapt-DOTPG Deploy Packs
 
@@ -16488,3 +18001,163 @@ Start date: 2026-03-24.
 
 ### Single recommended next step
 - Inspect the running headed viewer; if the contact geometry is good, decide whether to train a fresh CoDriveExper PPO or keep the pose only for deployment/init-pose probing.
+
+---
+
+## v2-2026-07-08 -- CoDrive Original YAML IsaacGym Viewer Check
+
+### Target milestone/subgoal
+- Verify whether the frozen CoDrive original task pose/initpose and frozen PAdapt student still produce normal screw/lightbulb behavior in IsaacGym before attributing MuJoCo mismatch to policy or YAML corruption.
+
+### What changed (files + behavior impact)
+- No code or task config changed.
+- Recorded that `configs/task/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.yaml` currently differs from the frozen `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml` in hand root pose and index/thumb init joints, so IsaacGym original-YAML checks should override those fields or use the frozen package semantics explicitly.
+
+### What was verified (commands + key outcomes)
+- Found the usable local IsaacGym install at:
+  - `ISAACGYM_DIR=/data/Codefield/third_party/isaacgym_preview4`
+- Ran an 8-step headless smoke using frozen original hand root pose/initpose overrides and the frozen PAdapt checkpoint:
+  - `ISAACGYM_DIR=/data/Codefield/third_party/isaacgym_preview4 ./docker-run-isaacgym.sh timeout 120 python train.py task=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive train=Dexh13HoraLightbulbSim2RealTwoFingerCoDrive headless=True test=True seed=42 sim_device=cuda:0 rl_device=cuda:0 graphics_device_id=0 task.env.numEnvs=1 train.algo=ProprioAdapt train.ppo.proprio_adapt=True train.ppo.minibatch_size=12 checkpoint=sim2real/codrive/model_best_codrive.ckpt ... +test_num_steps=8`
+  - Loaded `model_best_codrive.ckpt` through `ProprioAdapt`.
+  - Printed the frozen original values: `handRootPos=[0.11,0.02,0.217]`, `handRootRPY=[3.1415,0.3,3.1415]`, and the original 16-joint `handInitPose`.
+  - Completed `EvalSummary steps=8 avg_reward=2.492211 avg_done_rate=0.000000`.
+- Launched a headed IsaacGym viewer with the same frozen-original overrides:
+  - Log: `outputs/isaacgym_view_codrive_original_yaml/viewer.log`
+  - Reached `Step 1065` without load/runtime failure.
+  - User visually inspected the viewer and reported that the original IsaacGym behavior looked normal.
+
+### Remaining blocked/risky
+- This confirms the frozen policy/original YAML are not the primary issue.
+- The MuJoCo behavior gap is now more likely due to MuJoCo-side environment parity: hand/object relative pose, contact geometry, fingertip/contact definitions, actuator/PD semantics, hinge/object dynamics, or IsaacGym-vs-MuJoCo asset conversion differences.
+
+### Single recommended next step
+- Use the IsaacGym original-YAML viewer as the visual reference and continue MuJoCo alignment against it, prioritizing contact/asset and hand-object relative-pose parity before considering retraining.
+
+---
+
+## v2-2026-07-08 -- MuJoCo Frozen YAML Environment Parity Fix
+
+### Target milestone/subgoal
+- Switch MuJoCo sim2sim validation back to the frozen original CoDrive YAML and isolate environment mismatches after the original IsaacGym viewer looked normal.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/validate_codrive_sim2sim.py`:
+  - default task config is now `sim2real/codrive/Dexh13HoraLightbulbSim2RealTwoFingerCoDrive.task.yaml`, not `CoDriveExper`;
+  - `--object-pos` is optional, so validation can use the task YAML object pose unless an explicit MuJoCo alignment offset is being tested;
+  - default `dt` is `0.005` for exact original timing, while documented stable validation uses `--dt 0.001 --policy-hz 20`.
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`:
+  - reads `env.baseObjScale` and `env.asset.handRootPosZScaleComp`;
+  - applies IsaacGym-style scale compensation to hand root z, so frozen CoDrive maps `[0.11,0.02,0.217]` to effective z `~=0.229` for the 1.2x bulb.
+- Updated MuJoCo DexH13 hand assets:
+  - `assets/dexh13_right_description2/urdf/dexh13_right_fixed.xml`
+  - `assets/dexh13_right_description2/urdf/dexh13_right_fixed_fingertips.xml`
+  - palm mesh is now visual-only for contact (`contype=0`, `conaffinity=0`), matching the IsaacGym training URDF where palm collision is intentionally omitted.
+- Updated docs:
+  - `sim2sim/mujoco/README.md`
+  - `docs/sim2sim_validation_status.md`
+  - `docs/sim2sim_env_alignment.md`
+  - Main workflow now treats `Exper` as historical/diagnostic only.
+
+### What was verified (commands + key outcomes)
+- Confirmed pre-fix frozen-YAML MuJoCo failure mode:
+  - `validate_codrive_sim2sim.py --dt 0.001` with frozen YAML had zero-action index/palm preload and no policy-vs-zero separation.
+  - Pre-fix zero-action at original pose produced about `-0.41 rad` hinge motion and `index_contact_fraction=1.0`.
+- Verified fixes changed the failure mode:
+  - Audit now reports effective `hand_root_pos=[0.11,0.02,0.229]`, `base_obj_scale=1.2`, `hand_root_pos_z_scale_comp=0.06`.
+  - After palm collision removal and z compensation, zero-action at the aligned candidate has `active_contact_fraction=0.0`.
+- Passing frozen-YAML MuJoCo validation:
+  - `python sim2sim/mujoco/validate_codrive_sim2sim.py --dt 0.001 --policy-hz 20 --object-pos 0.020 -0.020 0.045 --policy-steps 200 --output-dir outputs/sim2sim_mujoco_validation/codrive_frozen_yaml_aligned_thumb_dt001`
+  - Verdict: `policy_runs_and_drives_hinge`.
+  - Policy/zero `object_axis_delta`: `0.562009 / 0.000000`.
+  - Policy/zero active contact fraction: `0.990 / 0.000`.
+  - Policy contact is thumb-dominant: index/thumb `0.000 / 0.990`.
+  - `max_contract_violation ~= 0.000502` for both policy and zero.
+- Sweep:
+  - `outputs/sim2sim_mujoco_alignment/frozen_yaml_after_envfix_pose_grid_dt001/alignment_summary.tsv`
+  - Stable positive-gain candidates cluster around x `0.016-0.020`, y `-0.024..-0.016`, z `0.035..0.055`, but remain thumb-dominant.
+- Static checks:
+  - `git diff --check -- ...` passed for touched files.
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/validate_codrive_sim2sim.py sim2sim/mujoco/sweep_env_alignment.py` passed.
+
+### Remaining blocked/risky
+- The current frozen-YAML MuJoCo pass is not a final two-finger contact parity pass; stable index+thumb overlap is still missing.
+- Exact original `dt=0.005, decimation=10` can drive the hinge after the environment fixes, but MuJoCo soft joint limits can produce large violations; keep `dt=0.001, decimation=50` as the stable diagnostic setting until actuator/joint-limit semantics are improved.
+- The object root z still uses the runner's hand-written MuJoCo hinge convention (`z=0.05` for YAML z=0 unless explicitly overridden). This is part of the remaining IsaacGym-URDF-to-MuJoCo scene alignment problem.
+
+### Single recommended next step
+- Use the frozen-YAML viewer command with `--object-pos 0.020 -0.020 0.045` to visually inspect the corrected MuJoCo behavior, then continue object/hand pose and contact-geometry tuning specifically to recover stable index+thumb contact without returning to `Exper` as the main config.
+
+---
+
+## v2-2026-07-09 -- Anti-Shortcut Contact Audit And Reset Sweep
+
+### Target milestone/subgoal
+- Resolve the MuJoCo viewer failure where the frozen CoDrive policy appears to
+  twitch or rotate the bulb through single-finger rubbing rather than the
+  IsaacGym-like two-finger behavior.
+
+### What changed (files + behavior impact)
+- Updated `sim2sim/mujoco/run_codrive_sim2sim.py`:
+  - added `active_pad_proxy` and stricter `tip_proxy` contact profiles;
+  - fixed `tip_proxy` to disable all active index/thumb non-tip meshes, not
+    only distal link 2/3 meshes;
+  - added `--object-contact-mode` diagnostics for low-friction/high-hinge tests;
+  - records reset contact summaries and active fingertip geometry distances in
+    rollout summaries and CSV traces;
+  - adds a `contact_geoms` table to model/audit summaries.
+- Updated `sim2sim/mujoco/validate_codrive_sim2sim.py` and
+  `sim2sim/mujoco/sweep_env_alignment.py` to pass through the new contact modes.
+- Added `sim2sim/mujoco/sweep_reset_contact.py`, a fast in-process reset pose
+  sweep for immediate object/finger contacts.
+- Updated:
+  - `PLANS_sim2sim.md`
+  - `docs/sim2sim_asset_parity.md`
+  - `sim2sim/mujoco/README.md`
+
+### What was verified (commands + key outcomes)
+- Static checks:
+  - `python -m py_compile sim2sim/mujoco/run_codrive_sim2sim.py sim2sim/mujoco/validate_codrive_sim2sim.py sim2sim/mujoco/sweep_env_alignment.py sim2sim/mujoco/sweep_reset_contact.py`
+- Audit:
+  - `tip_proxy` now disables 13 active index/thumb non-tip geoms and leaves only
+    `right_index_tip` / `right_thumb_tip` object-contact proxies.
+- Known-bad validation:
+  - corrected/old poses still fail `--anti-shortcut-gate`;
+  - old full/active-pad pose is dominated by
+    `right_index_tactile_link_2<->codrive_lightbulb_contact0`.
+- Reset-contact sweeps:
+  - local corrected `tip_proxy` sweep near the previous viewer pose produced
+    2500/2500 index-only reset precontacts;
+  - broad corrected `tip_proxy` sweep produced 10477 no-active-contact, 1477
+    thumb-only, 2446 index-only, and 0 true tip-only index+thumb reset states.
+- No-reset-contact policy candidate:
+  - command used `object=(0.020,-0.030,0.040)`,
+    `hand=(0.100,0.020,0.229)`, `pitch=0.330`;
+  - zero rollout is clean;
+  - policy becomes thumb-only, with thumb contact fraction about `0.59`,
+    index contact fraction `0.0`, and dominant pair
+    `right_thumb_link_3/right_thumb_tip<->codrive_lightbulb_nut/codrive_lightbulb_contact1`.
+- `active_pad_proxy` tests:
+  - no-reset candidate becomes thumb tactile-pad-only with high force and near
+    zero useful rotation;
+  - old known-bad pose remains index tactile-pad-dominant and already has reset
+    precontact.
+- Asset provenance:
+  - frozen IsaacGym YAML uses
+    `assets/dexh13_hand/urdf/dexh13_hand_right_sim.urdf`;
+  - current MuJoCo scene includes
+    `assets/dexh13_right_description2/urdf/dexh13_right_fixed_fingertips.xml`.
+
+### Remaining blocked/risky
+- The frozen policy/YAML are still considered valid because the IsaacGym viewer
+  behavior looked normal.
+- Current MuJoCo hand/contact asset can flip between index-only and thumb-only
+  behavior with pose changes, but does not yet reproduce faithful two-finger
+  contact under corrected `tip_proxy` or `active_pad_proxy`.
+- The current substitute MJCF is useful diagnostically but should not be the
+  final parity asset.
+
+### Single recommended next step
+- Build a new IsaacGym-parity MuJoCo hand include derived from
+  `assets/dexh13_hand/urdf/dexh13_hand_right_sim.urdf`, preserving the frozen
+  joint order/limits and explicitly reconstructing active tactile/tip contact
+  semantics, then rerun reset-contact sweep and `--anti-shortcut-gate`.

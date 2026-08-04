@@ -1,0 +1,60 @@
+<mujoco model="dexh13_codrive_sim2sim_hinge">
+  <include file="../../assets/dexh13_right_description2/urdf/dexh13_right_fixed_fingertips.xml"/>
+
+  <visual>
+    <global offwidth="1280" offheight="960"/>
+  </visual>
+
+  <asset>
+    <mesh name="codrive_lightbulb_contact0"
+          file="../../assets/lightbulb/contact0.stl"
+          scale="1.2 1.2 1.2"/>
+    <mesh name="codrive_lightbulb_contact1"
+          file="../../assets/lightbulb/contact1.stl"
+          scale="1.2 1.2 1.2"/>
+  </asset>
+
+  <worldbody>
+    <body name="codrive_lightbulb" pos="0.012 -0.018 0.04">
+      <geom name="codrive_lightbulb_base"
+            type="cylinder"
+            size="0.036 0.006"
+            mass="0.05"
+            rgba="0.40 0.40 0.40 1"
+            contype="0"
+            conaffinity="0"/>
+      <body name="codrive_lightbulb_bolt" pos="0 0 0.006">
+        <body name="codrive_lightbulb_nut" pos="0 0 0">
+          <joint name="codrive_lightbulb_hinge"
+                 type="hinge"
+                 axis="0 0 -1"
+                 limited="true"
+                 range="0 628.3185"
+                 damping="0.0"
+                 frictionloss="0.2"
+                 armature="0.00001"/>
+          <geom name="codrive_lightbulb_contact0"
+                type="mesh"
+                mesh="codrive_lightbulb_contact0"
+                pos="0 0 0.072"
+                quat="0.7071068 0 -0.7071068 0"
+                mass="0.025"
+                condim="4"
+                friction="3.0 0.005 0.0001"
+                solimp="0.5 0.99 0.0001"
+                solref="0.005 1"/>
+          <geom name="codrive_lightbulb_contact1"
+                type="mesh"
+                mesh="codrive_lightbulb_contact1"
+                pos="0 0 0.072"
+                quat="0.7071068 0 -0.7071068 0"
+                mass="0.025"
+                condim="4"
+                friction="3.0 0.005 0.0001"
+                solimp="0.5 0.99 0.0001"
+                solref="0.005 1"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
