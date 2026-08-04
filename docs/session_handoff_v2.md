@@ -3,6 +3,60 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-08-04 -- M24 Index Pose Relaxed And New PPO Started
+
+### Target milestone/subgoal
+- Relax the index-finger initial pose so the index retains usable closing
+  travel and can participate in M24 nut rotation, then start a fresh PPO run.
+
+### What changed (files + behavior impact)
+- Updated `configs/task/XHandPasiniM24NutBolt.yaml`:
+  - `right_index_joint_1` changed from `1.2452791929` to `1.05` rad;
+  - all other hand-root and joint-pose values remain unchanged;
+  - upper-limit closing margin increased from approximately `0.325` to
+    `0.52` rad.
+- Synchronized the ignored keyboard pose file
+  `outputs/initpose_tuning/XHandPasiniM24NutBolt_current.yaml` to the same value.
+- Preserved the original-pose result at
+  `best_reward_4647.59.pth`; its process was already absent when this session
+  started, although its runtime status file remained stale at `running`.
+- Started the new persistent formal run:
+  - run ID: `m24_indexrelaxed_j1_105_s42_20260804_212706_ppo8192`;
+  - source commit: `aaa9520b2ce69e7946cd3fd29d98de1c9e96788a`;
+  - launcher PID/session: `43774`;
+  - container: `dexscrew_m24_indexrelaxed_ppo_8192`;
+  - capacity: 8192 envs/actors, minibatch 16384, 16 CPU threads;
+  - PPO output: `outputs/XHandPasiniM24NutBolt_teacher/m24_indexrelaxed_j1_105_s42_20260804_212706_ppo8192/`;
+  - metadata/log: `outputs/local_pipeline_m24_ppo/m24_indexrelaxed_j1_105_s42_20260804_212706_ppo8192/`.
+- Pointed `scripts/vis_pasini_m24_latest_ppo.sh` at the new formal run by
+  default; `RUN_ID` can still select the preserved old run explicitly.
+
+### What was verified (commands + key outcomes)
+- YAML parsing and an explicit 16-joint limit audit passed; the modified value
+  is within the `[0, 1.57]` rad limit.
+- One-environment GPU PPO smoke loaded the exact M24 task and resolved
+  `right_index_joint_1: 1.05`; it completed 24 agent steps with finite reward
+  and no scene/state failure.
+- The formal run created all 8192 environments and reached PPO iterations:
+  - initial aggregate FPS approximately `43063`;
+  - recent iteration FPS approximately `26300` to `26800`;
+  - GPU memory approximately `10121 MiB / 16376 MiB`;
+  - early best reward reached `11.16` and produced a non-empty checkpoint;
+  - no OOM, NaN, traceback, or PhysX error appeared.
+- `git diff --check` and launcher shell syntax checks passed.
+
+### Remaining blocked/risky
+- Early reward growth does not yet prove that the index finger contributes to
+  rotation; a mature checkpoint requires headed inspection.
+- The relaxed pose may trade initial contact tightness for motion range, so its
+  final reward and reset stability must be compared with the preserved
+  original-pose teacher.
+
+### Single recommended next step
+- Keep the index-relaxed PPO running, monitor its reward/checkpoint trend, then
+  headed-visualize a mature checkpoint and compare index participation against
+  the original-pose `best_reward_4647.59.pth` policy.
+
 ## v2-2026-08-04 -- M24 Latest-PPO Headed Viewer Launcher Added
 
 ### Target milestone/subgoal

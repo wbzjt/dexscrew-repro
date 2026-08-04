@@ -107,8 +107,8 @@ Completion conditions:
 
 ## 6. Current next step
 
-Monitor the active 8192-environment PPO run at
-`outputs/XHandPasiniM24NutBolt_teacher/m24_latestpose_s42_20260804_141618_ppo8192`.
-Track reward, reset stability, GPU utilization, and best checkpoints; after a
-meaningful checkpoint is available, run headed evaluation before starting any
-student or diffusion follow-up.
+Monitor the active index-relaxed 8192-environment PPO run at
+`outputs/XHandPasiniM24NutBolt_teacher/m24_indexrelaxed_j1_105_s42_20260804_212706_ppo8192`.
+Compare its reward and headed behavior against the preserved original-pose
+teacher `best_reward_4647.59.pth`; specifically verify that the index finger
+now participates in nut rotation without degrading grasp stability.

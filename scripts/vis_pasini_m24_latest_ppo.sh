@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-RUN_ID="${RUN_ID:-m24_latestpose_s42_20260804_141618_ppo8192}"
+RUN_ID="${RUN_ID:-m24_indexrelaxed_j1_105_s42_20260804_212706_ppo8192}"
 STAGE_DIR="${PROJECT_DIR}/outputs/XHandPasiniM24NutBolt_teacher/${RUN_ID}/stage1_nn"
 ISAACGYM_DIR="${ISAACGYM_DIR:-/data/Codefield/third_party/isaacgym_preview4_py38_clean}"
 CONTAINER_NAME="${DEXSCREW_CONTAINER_NAME:-dexscrew_m24_ppo_viewer}"
