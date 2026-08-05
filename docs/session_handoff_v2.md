@@ -3,6 +3,68 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-08-05 -- User-Saved Contact Pose PPO30m Completed
+
+### Target milestone/subgoal
+- Synchronize the user's latest keyboard-tuned M24 init pose and run a strictly
+  time-limited 30-minute PPO teacher experiment.
+
+### What changed (files + behavior impact)
+- Synchronized `outputs/initpose_tuning/XHandPasiniM24NutBolt_current.yaml`
+  into `configs/task/XHandPasiniM24NutBolt.yaml`:
+  - hand root position: `[0.096, 0.096, 0.273]`;
+  - hand root RPY: `[3.08914, 0.526893, 3.1415]`;
+  - index joints: `[0.13, 0.97, 0.26, 0.3693]`;
+  - thumb joints: `[-0.19, 1.41, 0.64, 0.4920]`;
+  - middle and ring joints remain zero.
+- Kept `reset_dist_threshold=0.05` unchanged so this run isolates the saved
+  init-pose change.
+- Extended `scripts/run_pasini_m24_ppo_local.sh` with
+  `TRAIN_TIMEOUT_SECONDS`. The timeout runs inside the container, records `124`
+  as `completed:expected_timeout`, and preserves the normal unlimited behavior
+  when the value is zero.
+- Updated `scripts/vis_pasini_m24_latest_ppo.sh` to select this completed run by
+  default.
+
+### What was verified (commands + key outcomes)
+- Saved pose and task YAML matched exactly; all 16 joint values were within
+  configured limits.
+- One-environment scene/PPO smoke loaded the exact saved pose. Its 24-step
+  episode summary was empty (`mean_rewards: nan`) because no episode completed,
+  not because simulation state failed.
+- A 64-environment probe crossed the 70-step termination window and produced
+  finite rewards plus `best_reward_4.23.pth`, confirming healthy episodic
+  statistics.
+- A 10-second launcher self-test returned exit status `124`, wrote
+  `completed:expected_timeout`, and left no container behind.
+- Formal run:
+  - run ID: `m24_usersaved_contactpose_s42_20260805_153516_ppo30m`;
+  - source commit: `4f64cb951fc895aefb65ca24f375dfa34e73492c`;
+  - start: `2026-08-05T15:35:27+08:00`;
+  - finish: `2026-08-05T16:05:28+08:00`;
+  - exact wall-clock limit: 1800 seconds;
+  - capacity: 8192 envs/actors, minibatch 16384, 16 CPU threads;
+  - final agent steps: approximately 45 million;
+  - aggregate FPS: approximately `25225`;
+  - best checkpoint: `stage1_nn/best_reward_3656.81.pth`;
+  - status: `completed:expected_timeout`, exit status `124`.
+- No CUDA OOM, runtime traceback, PhysX error, illegal memory access, or
+  training-state NaN appeared in the formal log.
+- The Docker container and training process exited, and GPU memory returned to
+  approximately 681 MiB used.
+
+### Remaining blocked/risky
+- Reward `3656.81` is substantially above the stopped index-relaxed baseline
+  `1939.68`, but remains below the longer-trained original-pose checkpoint
+  `4647.59`; wall-clock duration differs, so reward alone is not a fair final
+  behavior comparison.
+- Headed inspection is still required to confirm that the new reward reflects
+  increased index participation rather than a different thumb-dominant motion.
+
+### Single recommended next step
+- Run the latest PPO headed viewer and compare index contact and rotation
+  amplitude with the two preserved baselines before extending training.
+
 ## v2-2026-08-05 -- M24 Index Participation Diagnosed
 
 ### Target milestone/subgoal

@@ -107,10 +107,9 @@ Completion conditions:
 
 ## 6. Current next step
 
-Use the stopped index-relaxed teacher `best_reward_1939.68.pth` as a diagnostic
-baseline. Its rollout shows insufficient index contact plus asymmetric
-pose-difference regularization. The next bounded experiment should bring the
-index fingertip closer using distal-index init-pose adjustment while preserving
-the `joint_1=1.05` motion margin; if index motion remains suppressed, add a
-configurable index exemption from the pose-difference penalty and compare it
-against the geometry-only change.
+Headed-visualize the completed 30-minute user-saved contact-pose teacher
+`best_reward_3656.81.pth`. Compare index participation, contact continuity,
+rotation amplitude, and reset behavior against the preserved original-pose
+`best_reward_4647.59.pth` and index-relaxed `best_reward_1939.68.pth`
+checkpoints before deciding whether to extend PPO training or modify the
+pose-difference penalty.
