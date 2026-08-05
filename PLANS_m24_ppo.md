@@ -107,8 +107,10 @@ Completion conditions:
 
 ## 6. Current next step
 
-Monitor the active index-relaxed 8192-environment PPO run at
-`outputs/XHandPasiniM24NutBolt_teacher/m24_indexrelaxed_j1_105_s42_20260804_212706_ppo8192`.
-Compare its reward and headed behavior against the preserved original-pose
-teacher `best_reward_4647.59.pth`; specifically verify that the index finger
-now participates in nut rotation without degrading grasp stability.
+Use the stopped index-relaxed teacher `best_reward_1939.68.pth` as a diagnostic
+baseline. Its rollout shows insufficient index contact plus asymmetric
+pose-difference regularization. The next bounded experiment should bring the
+index fingertip closer using distal-index init-pose adjustment while preserving
+the `joint_1=1.05` motion margin; if index motion remains suppressed, add a
+configurable index exemption from the pose-difference penalty and compare it
+against the geometry-only change.

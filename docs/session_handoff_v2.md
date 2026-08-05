@@ -3,6 +3,56 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-08-05 -- M24 Index Participation Diagnosed
+
+### Target milestone/subgoal
+- Determine whether the limited index-finger participation seen in headed
+  evaluation is caused by excessive initial fingertip distance or by policy
+  and reward constraints.
+
+### What changed (files + behavior impact)
+- No task, model, asset, or runtime code was changed.
+- Updated the active plan with a diagnostic-driven next experiment:
+  first improve index contact using distal-joint init pose while retaining
+  `right_index_joint_1=1.05`; only then test an index pose-penalty exemption if
+  motion remains suppressed.
+- The temporary rollout diagnostic script was removed after use.
+
+### What was verified (commands + key outcomes)
+- Confirmed the user-stopped index-relaxed run ended at
+  `2026-08-05T00:01:04+08:00` with exit status `125` and no remaining process
+  or container.
+- Preserved checkpoint:
+  `m24_indexrelaxed_j1_105_s42_20260804_212706_ppo8192/stage1_nn/best_reward_1939.68.pth`.
+- A 400-step, one-environment checkpoint rollout completed with zero resets:
+  - index fingertip distance: mean `43.4 mm`, p95 `47.6 mm`;
+  - thumb fingertip distance: mean `35.8 mm`, p95 `44.0 mm`;
+  - index fingertip contact force: median `0 N`, mean `2.22 N`;
+  - thumb fingertip contact force: median `2.79 N`, mean `4.70 N`;
+  - index action norm: mean `1.466`;
+  - thumb action norm: mean `1.712`;
+  - index joint displacement from init: mean `0.462 rad`;
+  - thumb joint displacement from init: mean `0.761 rad`.
+- Code audit confirmed:
+  - the `50 mm` reset/proximity threshold leaves the index close to the
+    allowed distance boundary;
+  - proximity reward uses only the mean of thumb and index distances and does
+    not require persistent index contact;
+  - thumb DOFs are excluded from pose-difference penalty by default, whereas
+    index DOFs remain penalized at scale `-0.5`;
+  - the index is not action-masked; only the ring finger is masked.
+
+### Remaining blocked/risky
+- Distance is clearly part of the issue, but moving the whole hand may disturb
+  the already-effective thumb contact.
+- Masking index pose penalty without first restoring contact could produce
+  larger free-space index motion rather than useful nut-driving contact.
+
+### Single recommended next step
+- Keep `right_index_joint_1=1.05`, increase the two distal index flexion values
+  modestly to bring the fingertip onto the nut, and run a short headed/rollout
+  probe before committing to another long PPO run.
+
 ## v2-2026-08-04 -- M24 Index Pose Relaxed And New PPO Started
 
 ### Target milestone/subgoal
