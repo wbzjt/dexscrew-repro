@@ -5,17 +5,15 @@ defaults:
 name: XHandPasiniM24NutBolt
 
 env:
-  # M24 pose derived from the user-confirmed keyboard pose.  The index
-  # proximal flexion is relaxed from 1.2452791929 to 1.05 rad so the index
-  # finger keeps useful closing travel during nut rotation.
+  # User-saved M24 pose from the keyboard tuner on 2026-08-05.
   asset:
-    handRootPos: [0.096000, 0.096000, 0.261000]
-    handRootRPY: [3.089140, 0.352360, 3.141500]
+    handRootPos: [0.096000, 0.096000, 0.273000]
+    handRootRPY: [3.089140, 0.526893, 3.141500]
     handInitPose:
       right_index_joint_0: 0.1299999803
-      right_index_joint_1: 1.0500000000
+      right_index_joint_1: 0.9700000286
       right_index_joint_2: 0.2599999607
-      right_index_joint_3: 0.3892995715
+      right_index_joint_3: 0.3692995608
       right_middle_joint_0: 0.0000000000
       right_middle_joint_1: 0.0000000000
       right_middle_joint_2: 0.0000000000
@@ -24,10 +22,10 @@ env:
       right_ring_joint_1: 0.0000000000
       right_ring_joint_2: 0.0000000000
       right_ring_joint_3: 0.0000000000
-      right_thumb_joint_0: -0.1699999720
+      right_thumb_joint_0: -0.1899999678
       right_thumb_joint_1: 1.4100002050
-      right_thumb_joint_2: 0.2199999690
-      right_thumb_joint_3: 0.9919658899
+      right_thumb_joint_2: 0.6399999261
+      right_thumb_joint_3: 0.4919663370
 
   object:
     type: 'screw_m24hex'
