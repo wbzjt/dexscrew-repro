@@ -3,6 +3,39 @@
 Scope: Plan v2 execution log (`PLANS_v2.md`) only.  
 Start date: 2026-03-24.
 
+## v2-2026-08-05 -- Existing M24 PPO Two-Finger Masked Viewer Enabled
+
+### Target milestone/subgoal
+- Evaluate the existing `best_reward_3656.81.pth` policy with only index and
+  thumb actions active, without retraining or modifying the checkpoint.
+
+### What changed (files + behavior impact)
+- Updated `scripts/vis_pasini_m24_latest_ppo.sh` to forward optional command-line
+  arguments to Hydra.
+- This allows inference-only masking of middle DOFs `4:8` and ring DOFs
+  `8:12`, while index `0:4` and thumb `12:16` remain active.
+- The checkpoint and formal task YAML were not changed.
+
+### What was verified (commands + key outcomes)
+- Shell syntax and `git diff --check` passed.
+- Hydra resolved
+  `+task.env.action_mask_indices=[4,5,6,7,8,9,10,11]` as the intended eight
+  integer indices for `XHandPasiniM24NutBolt`.
+- The viewer still selects the completed 30-minute checkpoint
+  `best_reward_3656.81.pth`.
+
+### Remaining blocked/risky
+- This checkpoint was trained while the middle finger was active. Masking it
+  only at inference is an out-of-distribution intervention and may reduce
+  performance or alter grasp stability.
+- A good masked visualization result is evidence for retraining with the mask,
+  not proof that the old checkpoint is deployable under that mask.
+
+### Single recommended next step
+- Compare masked and unmasked headed playback of the same checkpoint; if the
+  masked behavior remains acceptable, make `action_mask_indices=[4..11]`
+  explicit in the task YAML and train a true two-finger PPO.
+
 ## v2-2026-08-05 -- User-Saved Contact Pose PPO30m Completed
 
 ### Target milestone/subgoal

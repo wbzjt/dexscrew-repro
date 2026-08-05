@@ -108,8 +108,7 @@ Completion conditions:
 ## 6. Current next step
 
 Headed-visualize the completed 30-minute user-saved contact-pose teacher
-`best_reward_3656.81.pth`. Compare index participation, contact continuity,
-rotation amplitude, and reset behavior against the preserved original-pose
-`best_reward_4647.59.pth` and index-relaxed `best_reward_1939.68.pth`
-checkpoints before deciding whether to extend PPO training or modify the
-pose-difference penalty.
+`best_reward_3656.81.pth` with inference-only middle/ring action masking
+(`actions[4:12] = 0`). Compare it with the unmasked playback before deciding
+whether the next PPO run should make the two-finger mask part of the training
+distribution.

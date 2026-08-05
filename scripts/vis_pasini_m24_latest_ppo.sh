@@ -7,6 +7,7 @@ RUN_ID="${RUN_ID:-m24_usersaved_contactpose_s42_20260805_153516_ppo30m}"
 STAGE_DIR="${PROJECT_DIR}/outputs/XHandPasiniM24NutBolt_teacher/${RUN_ID}/stage1_nn"
 ISAACGYM_DIR="${ISAACGYM_DIR:-/data/Codefield/third_party/isaacgym_preview4_py38_clean}"
 CONTAINER_NAME="${DEXSCREW_CONTAINER_NAME:-dexscrew_m24_ppo_viewer}"
+EXTRA_ARGS=("$@")
 
 if [[ -z "${DISPLAY:-}" ]]; then
   echo "DISPLAY is empty. Run this command from the Ubuntu desktop terminal." >&2
@@ -47,4 +48,5 @@ DEXSCREW_CONTAINER_NAME="${CONTAINER_NAME}" \
     rl_device=cuda:0 \
     graphics_device_id=0 \
     wandb_activate=False \
-    "checkpoint=${CHECKPOINT}"
+    "checkpoint=${CHECKPOINT}" \
+    "${EXTRA_ARGS[@]}"
